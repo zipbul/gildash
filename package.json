@@ -1,0 +1,14 @@
+{
+  "name": "@bunner/treemonkey",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@commitlint/cli": "^20.4.1",
+    "@commitlint/config-conventional": "^20.4.1",
+    "@types/bun": "latest",
+    "husky": "^9.1.7"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
