@@ -1,6 +1,6 @@
 # PLAN — @zipbul/code-ledger
 
-> **Status**: Draft v3.2 — 2026-02-17  
+> **Status**: Draft v5.0 — 2026-02-18  
 > **One-line definition**: Watch, parse, index, and search a codebase — shared infrastructure for static analysis tools.
 
 ---
@@ -104,6 +104,8 @@ Algorithm:
 
 #### `resolveFileProject(filePath: string, boundaries: ProjectBoundary[]): string`
 
+`filePath` is **relative to projectRoot** (same coordinate system as `ProjectBoundary.dir`).
+
 ```
 1. Iterate boundaries (deepest first):
    if filePath.startsWith(boundary.dir + '/') → return boundary.project
@@ -144,7 +146,8 @@ Every `throw` wraps the original error via `{ cause: originalError }` so stack t
 
 ```
 src/
-├── index.ts                          # Public API barrel re-export.
+├── index.ts                          # Public API barrel re-export (CodeLedger, types).
+├── code-ledger.ts                    # CodeLedger facade class.
 ├── errors.ts                         # CodeLedgerError + all subclass definitions.
 │
 ├── watcher/
@@ -157,6 +160,7 @@ src/
 │   ├── parse-source.ts
 │   ├── parse-cache.ts
 │   ├── ast-utils.ts
+│   ├── jsdoc-parser.ts
 │   ├── source-position.ts
 │   └── types.ts
 │
@@ -200,6 +204,7 @@ src/
     ├── hasher.ts
     ├── path-utils.ts
     ├── project-discovery.ts          # discoverProjects, resolveFileProject.
+    ├── tsconfig-resolver.ts          # loadTsconfigPaths, TsconfigPaths.
     ├── lru-cache.ts
     └── types.ts
 ```
@@ -218,9 +223,10 @@ extractor ← parser, common, errors
 search ← store, common, errors
 watcher ← common, errors
 indexer ← watcher, parser, extractor, store, common, errors
+code-ledger (facade) ← indexer, search, watcher, store, parser, extractor, common, errors
 ```
 
-No circular dependencies. `common` and `errors` are leaves. `indexer` is the top-level orchestration module that depends on most others.
+No circular dependencies. `common` and `errors` are leaves. `code-ledger` (facade) is the root that composes all modules. `indexer` is the internal orchestration module.
 
 ---
 
@@ -231,20 +237,26 @@ No circular dependencies. `common` and `errors` are leaves. `indexer` is the top
 | Symbol | Kind | Rationale |
 |---|---|---|
 | `parseSource()` | function | Stateless. `(filePath, sourceText) → ParsedFile`. |
+| `parseJsDoc()` | function | Stateless. `(commentText) → JsDocBlock`. Wraps comment-parser. |
 | `extractSymbols()` | function | Stateless. `(parsedFile) → ExtractedSymbol[]`. |
-| `extractRelations()` | function | Stateless. `(ast, filePath) → CodeRelation[]`. |
+| `extractRelations()` | function | Stateless. `(ast, filePath, tsconfigPaths?) → CodeRelation[]`. |
+| `resolveImport()` | function | Stateless. `(currentFilePath, importPath, tsconfigPaths?) → string \| null`. Pure string resolution. |
+| `loadTsconfigPaths()` | function | Stateless I/O. `(projectRoot) → TsconfigPaths \| null`. Reads file, returns data. Caching is caller's responsibility. |
+| `buildImportMap()` | function | Stateless. `(ast, currentFilePath, tsconfigPaths?) → Map`. |
 | `symbolSearch()` | function | Receives repository as argument. No owned state. |
 | `relationSearch()` | function | Same. |
 | AST utils (`visit`, `collectNodes`, etc.) | function | Utility. No state. |
 | `hashString()` | function | Stateless transform. |
 | `getLineColumn()` | function | Stateless transform. |
+| `buildLineOffsets()` | function | Stateless. `(sourceText) → number[]`. |
 | `discoverProjects()` | function | Stateless scan. `(projectRoot) → ProjectBoundary[]`. |
-| `resolveFileProject()` | function | Stateless lookup. `(filePath, boundaries) → string`. |
-| `acquireWatcherRole()` | function | DB transaction. `(db) → WatcherRole`. |
+| `resolveFileProject()` | function | Stateless lookup. `(relativePath, boundaries) → string`. |
+| `acquireWatcherRole()` | function | DB transaction. `(db, pid) → WatcherRole`. |
 | `releaseWatcherRole()` | function | DB delete. `(db, pid) → void`. |
-| `ParseCache` | class | Owns mutable LRU map. Exposes `get` / `set` / `invalidate` / `clear`. |
+| `CodeLedger` | class | Top-level facade. Owns all sub-components. `open()` / `close()` lifecycle. |
+| `ParseCache` | class | Wraps `LruCache<string, ParsedFile>`. Adds `invalidate` semantics. |
 | `ProjectWatcher` | class | Owns OS file watcher subscription. `start()` / `close()` lifecycle. |
-| `IndexCoordinator` | class | Orchestrates watcher→indexer pipeline. Owns event subscriptions. |
+| `IndexCoordinator` | class | Orchestrates watcher→indexer pipeline. Owns event subscriptions, debounce, indexing lock. |
 | `DependencyGraph` | class | Mutable graph data structure. Incremental node/edge add/remove. |
 | `DbConnection` | class | Owns SQLite handle. `open()` / `close()` / `transaction()`. |
 | `FileRepository` | class | Injected `DbConnection`. Caches prepared statements. |
@@ -258,8 +270,9 @@ No circular dependencies. `common` and `errors` are leaves. `indexer` is the top
 | Package | Version | Purpose | Justification |
 |---|---|---|---|
 | `oxc-parser` | `^0.112.0` | Native TypeScript/JavaScript AST parser. <1ms per file. | No alternative matches speed. |
-| `@parcel/watcher` | `^2.5.6` | Native OS-level file system watcher. | Cross-platform, proven, low overhead. |
+| `@parcel/watcher` | `^2.5.6` | Native OS-level file system watcher. | Cross-platform, proven, low overhead. Events are throttled and coalesced in C++ natively. |
 | `drizzle-orm` | `^0.45.1` | Type-safe SQL query builder for SQLite. | Lightweight ORM, Bun-native driver support. |
+| `comment-parser` | `^1.4.5` | JSDoc comment block parser. | 0 dependencies, 6M+ weekly downloads, TypeScript built-in types. oxc-parser and Bun do not provide JSDoc semantic parsing. |
 
 Dev dependencies: `@types/bun`, `drizzle-kit`, `typescript`.
 
@@ -321,16 +334,25 @@ The final ignore list = `WATCHER_IGNORE_GLOBS` merged with `options.ignorePatter
 
 1. Call `@parcel/watcher.subscribe(rootPath, callback, { ignore: ignoreGlobs })`.
 2. Store returned `AsyncSubscription` in `this.subscription`.
-3. In the callback, for each raw event:
+3. In the callback:
+   ```
+   try {
+     for each raw event: [Guard 1~3 + mapping + onChange(...)]
+   } catch (err) {
+     // Log and swallow — do not crash the watcher subscription.
+     console.error(new WatcherError('Callback error', { cause: err }));
+   }
+   ```
+   For each raw event:
    - a. Compute `relativePath = path.relative(rootPath, evt.path)`, replace all `\\` with `/`.
    - b. **Guard 1**: If `relativePath.startsWith('..')` → skip. The event is outside the project root.
-   - c. **Guard 2**: If `path.extname(relativePath)` is not in `this.extensions` AND the file is not `package.json` → skip.
+   - c. **Guard 2**: If `path.extname(relativePath)` is not in `this.extensions` AND the file is not `package.json` AND the file is not `tsconfig.json` AND the file is not `jsconfig.json` → skip.
    - d. **Guard 3**: If path ends with `.d.ts` → skip.
    - e. Map event type: `@parcel/watcher` `'create'` → `'create'`, `'update'` → `'change'`, `'delete'` → `'delete'`.
    - f. Call `onChange({ eventType, filePath: relativePath })`.
 4. If `@parcel/watcher.subscribe` throws → wrap in `WatcherError` and re-throw.
 
-**Note**: `package.json` events bypass the extension filter. These events trigger project boundary re-discovery (see §3.1).
+**Note**: `package.json`, `tsconfig.json`, and `jsconfig.json` events bypass the extension filter. `package.json` triggers project boundary re-discovery (see §3.1). `tsconfig.json`/`jsconfig.json` triggers path alias cache refresh (see §13.4).
 
 #### `close(): Promise<void>`
 
@@ -490,6 +512,8 @@ interface ParsedFile {
 
 `parseSource(filePath: string, sourceText: string): ParsedFile`
 
+`filePath` must be an **absolute path**. This is required because `extractRelations` → `resolveImport` uses `path.dirname(filePath)` to resolve relative imports. Consumers must pass absolute paths consistently.
+
 Pure function. No side effects. No caching.
 
 Algorithm:
@@ -542,41 +566,35 @@ Binary search on the pre-built offsets array.
 
 ### 10.4 ParseCache
 
-In-process LRU cache for parsed ASTs. Watcher integration invalidates entries on file change.
+In-process LRU cache for parsed ASTs. Delegates to `LruCache<string, ParsedFile>` (§15.4) internally. Watcher integration invalidates entries on file change.
 
 **Constructor**: `new ParseCache(capacity: number = 500)`
 
 **Fields**:
 
-- `private readonly capacity: number`
-- `private readonly cache: Map<string, ParsedFile>` — insertion-order Map used as LRU.
+- `private readonly lru: LruCache<string, ParsedFile>` — generic LRU from common module.
 
 **Methods**:
 
 #### `get(filePath: string): ParsedFile | undefined`
 
-1. If `cache.has(filePath)`:
-   - a. Delete and re-insert the entry (move to end = most recent).
-   - b. Return the entry.
-2. Return `undefined`.
+1. Return `this.lru.get(filePath)`.
 
 #### `set(filePath: string, parsed: ParsedFile): void`
 
-1. If `cache.has(filePath)`: delete existing entry.
-2. If `cache.size >= capacity`: delete the **first** key (least recently used).
-3. `cache.set(filePath, parsed)`.
+1. `this.lru.set(filePath, parsed)`.
 
 #### `invalidate(filePath: string): void`
 
-1. `cache.delete(filePath)`.
+1. `this.lru.delete(filePath)`.
 
 #### `invalidateAll(): void`
 
-1. `cache.clear()`.
+1. `this.lru.clear()`.
 
 #### `size(): number`
 
-1. Return `cache.size`.
+1. Return `this.lru.size`.
 
 ---
 
@@ -690,7 +708,7 @@ interface ExtractedSymbol {
   heritage?: Heritage[];
   decorators?: Decorator[];
   members?: ExtractedSymbol[];     // Recursive: class/interface/enum members.
-  seeLinks?: string[];             // Values from @see JSDoc tags on this symbol.
+  jsDoc?: JsDocBlock;              // Parsed JSDoc comment associated with this symbol.
 }
 
 interface Parameter {
@@ -715,6 +733,20 @@ interface Decorator {
   name: string;
   arguments?: string[];
 }
+
+interface JsDocBlock {
+  description: string;          // Full description text before any tags.
+  tags: JsDocTag[];             // Parsed @tag entries.
+}
+
+interface JsDocTag {
+  tag: string;                  // Tag name without '@'. e.g., 'param', 'see', 'deprecated'.
+  name: string;                 // First word after tag. e.g., parameter name for @param.
+  type: string;                 // Type in curly braces. e.g., '{string}' → 'string'.
+  description: string;          // Remaining text after name.
+  optional: boolean;            // True if name is wrapped in [brackets].
+  default?: string;             // Default value if [name=default] syntax.
+}
 ```
 
 #### AST Traversal Algorithm
@@ -728,18 +760,18 @@ ExportNamedDeclaration or ExportDefaultDeclaration.
 
 **Node type → extraction rules**:
 
-| AST node type | kind | name source | isExported | members | seeLinks | methodKind |
+| AST node type | kind | name source | isExported | members | jsDoc | methodKind |
 |---|---|---|---|---|---|---|
-| `FunctionDeclaration` | `'function'` | `node.id.name` | `exported` | — | Leading comment `@see` | — |
-| `VariableDeclarator` where `init` is function node | `'function'` | `node.id.name` | `exported` | — | Leading comment `@see` | — |
-| `VariableDeclarator` where `init` is NOT function node | `'variable'` | `node.id.name` | `exported` | — | Leading comment `@see` | — |
-| `VariableDeclarator` where `id` is `ObjectPattern` | `'variable'` | each property identifier | `exported` | — | Leading comment `@see` | — |
-| `ClassDeclaration` / `ClassExpression` | `'class'` | `node.id.name` | `exported` | yes | Leading comment `@see` | — |
-| `MethodDefinition` | `'method'` | `node.key.name` | always `false` | — | Leading comment `@see` | `node.kind` → `'method'` \| `'getter'` \| `'setter'` \| `'constructor'` |
-| `PropertyDefinition` | `'property'` | `node.key.name` | always `false` | — | Leading comment `@see` | — |
-| `TSTypeAliasDeclaration` | `'type'` | `node.id.name` | `exported` | — | Leading comment `@see` | — |
-| `TSInterfaceDeclaration` | `'interface'` | `node.id.name` | `exported` | yes | Leading comment `@see` | — |
-| `TSEnumDeclaration` | `'enum'` | `node.id.name` | `exported` | yes | Leading comment `@see` | — |
+| `FunctionDeclaration` | `'function'` | `node.id.name` | `exported` | — | Leading `/** */` | — |
+| `VariableDeclarator` where `init` is function node | `'function'` | `node.id.name` | `exported` | — | Leading `/** */` | — |
+| `VariableDeclarator` where `init` is NOT function node | `'variable'` | `node.id.name` | `exported` | — | Leading `/** */` | — |
+| `VariableDeclarator` where `id` is `ObjectPattern` | `'variable'` | each property identifier | `exported` | — | Leading `/** */` | — |
+| `ClassDeclaration` / `ClassExpression` | `'class'` | `node.id.name` | `exported` | yes | Leading `/** */` | — |
+| `MethodDefinition` | `'method'` | `node.key.name` | always `false` | — | Leading `/** */` | `node.kind` → `'method'` \| `'getter'` \| `'setter'` \| `'constructor'` |
+| `PropertyDefinition` | `'property'` | `node.key.name` | always `false` | — | Leading `/** */` | — |
+| `TSTypeAliasDeclaration` | `'type'` | `node.id.name` | `exported` | — | Leading `/** */` | — |
+| `TSInterfaceDeclaration` | `'interface'` | `node.id.name` | `exported` | yes | Leading `/** */` | — |
+| `TSEnumDeclaration` | `'enum'` | `node.id.name` | `exported` | yes | Leading `/** */` | — |
 
 **Skip rules**:
 
@@ -784,32 +816,59 @@ ExportNamedDeclaration or ExportDefaultDeclaration.
 
 - `members`: Each `TSEnumMember` → `{ kind: 'property', name: member.id.name, ... }`.
 
-#### seeLinks Extraction
+#### JSDoc Association
 
-Each symbol looks for a **leading JSDoc comment** using positional association:
+Each symbol looks for a **leading JSDoc comment** using positional association and parses it via `comment-parser`:
 
 ```
 1. Find the comment from parsed.comments whose end offset is closest to
    (but strictly before) the symbol's start offset, with no other AST
    statement node between the comment end and the symbol start.
 2. If that comment's text starts with '/**' (JSDoc block):
-   a. Apply regex /@see\s+([^\s*]+)/g to the comment text.
-   b. Collect all matches into seeLinks array.
-   c. Deduplicate.
-3. If no JSDoc block found or no @see tags → seeLinks is undefined.
+   a. Parse via comment-parser → JsDocBlock { description, tags[] }.
+   b. Attach to ExtractedSymbol.jsDoc.
+3. If no JSDoc block found → jsDoc is undefined.
 ```
 
-This replaces the zipbul approach of scanning the entire file text with regex. code-ledger associates `@see` tags to their **specific symbol**, not to the file.
+Consumers extract what they need from the parsed JSDoc structure. For example, `@see` tags: `symbol.jsDoc?.tags.filter(t => t.tag === 'see')`. This replaces hard-coded seeLinks extraction with a general-purpose JSDoc parser.
 
 **Span calculation**: `getLineColumn(lineOffsets, node.start)` / `getLineColumn(lineOffsets, node.end)` where `lineOffsets = buildLineOffsets(sourceText)`.
 
 ---
 
+### 10.6 JSDoc Parser (parser/jsdoc-parser.ts)
+
+#### `parseJsDoc(commentText: string): JsDocBlock`
+
+Pure function. Wraps `comment-parser` to produce a normalized `JsDocBlock`.
+
+```
+1. Strip leading '/**' and trailing '*/' from commentText.
+2. Call comment-parser's parse(`/** ${stripped} */`)[0].
+   (comment-parser expects full block comment syntax.)
+3. Map result to JsDocBlock:
+   - description = result.description (trimmed).
+   - tags = result.tags.map(t => ({
+       tag: t.tag,
+       name: t.name,
+       type: t.type,
+       description: t.description,
+       optional: t.optional,
+       default: t.default ?? undefined,
+     })).
+4. Return { description, tags }.
+5. If comment-parser throws → wrap in ParseError and re-throw.
+```
+
+This function is called by `extractSymbols()` during JSDoc Association (§11.1). It is NOT called independently by consumers — consumers receive the parsed `JsDocBlock` via `ExtractedSymbol.jsDoc`.
+
+---
+
 ### 11.2 Relation Extractor
 
-#### `extractRelations(ast: Program, filePath: string): CodeRelation[]`
+#### `extractRelations(ast: Program, filePath: string, tsconfigPaths?: TsconfigPaths): CodeRelation[]`
 
-Pure function. Orchestrates all 4 sub-extractors and merges their results.
+Pure function. Orchestrates all 4 sub-extractors and merges their results. Passes `tsconfigPaths` through to `buildImportMap` for alias resolution.
 
 ```typescript
 interface CodeRelation {
@@ -825,20 +884,23 @@ interface CodeRelation {
 Implementation:
 
 ```
-1. const relations: CodeRelation[] = [];
-2. relations.push(...importsExtractor.extract(ast, filePath));
-3. relations.push(...callsExtractor.extract(ast, filePath));
-4. relations.push(...extendsExtractor.extract(ast, filePath));
-5. relations.push(...implementsExtractor.extract(ast, filePath));
-6. return relations;
+1. const importMap = buildImportMap(ast, filePath, tsconfigPaths);
+2. const relations: CodeRelation[] = [];
+3. relations.push(...importsExtractor.extract(ast, filePath, tsconfigPaths));
+4. relations.push(...callsExtractor.extract(ast, filePath, importMap));
+5. relations.push(...extendsExtractor.extract(ast, filePath, importMap));
+6. relations.push(...implementsExtractor.extract(ast, filePath, importMap));
+7. return relations;
 ```
+
+`importMap` is built once and shared by calls/heritage extractors. Imports extractor builds its own relations from raw `ImportDeclaration` nodes but uses the same `resolveImport` + `tsconfigPaths`.
 
 Each sub-extractor conforms to:
 
 ```typescript
 interface RelationExtractor {
   readonly name: string;
-  extract(ast: Program, filePath: string): CodeRelation[];
+  extract(ast: Program, filePath: string, context: TsconfigPaths | ImportMap): CodeRelation[];
 }
 ```
 
@@ -846,7 +908,7 @@ interface RelationExtractor {
 
 ### 11.3 Sub-Extractor Utilities (extractor-utils.ts)
 
-#### `buildImportMap(ast: Program, currentFilePath: string): Map<string, ImportReference>`
+#### `buildImportMap(ast: Program, currentFilePath: string, tsconfigPaths?: TsconfigPaths): Map<string, ImportReference>`
 
 ```typescript
 interface ImportReference {
@@ -859,21 +921,64 @@ Algorithm:
 
 1. Walk top-level `ast.body` only (no deep traversal).
 2. For each `ImportDeclaration`:
-   - a. `resolveRelativeImport(currentFilePath, source.value)`.
+   - a. `resolveImport(currentFilePath, source.value, tsconfigPaths)`.
    - b. If `null` → skip (external module).
    - c. For each specifier:
      - `ImportSpecifier` → `localName → { path, importedName: imported.name }`.
      - `ImportDefaultSpecifier` → `localName → { path, importedName: 'default' }`.
      - `ImportNamespaceSpecifier` → `localName → { path, importedName: '*' }`.
 
-#### `resolveRelativeImport(currentFilePath: string, importPath: string): string | null`
+#### `resolveImport(currentFilePath: string, importPath: string, tsconfigPaths?: TsconfigPaths): string | null`
 
-1. If `importPath` does not start with `.` → return `null`.
-2. `resolved = path.resolve(dirname(currentFilePath), importPath)`.
-3. If `path.extname(resolved) === ''` → append `.ts`.
-4. Return `resolved`.
+Resolves both relative imports and tsconfig path aliases. Replaces `resolveRelativeImport`.
+
+```
+1. If importPath starts with '.':
+   a. resolved = path.resolve(dirname(currentFilePath), importPath).
+   b. If path.extname(resolved) === '' → append '.ts'.
+   c. Return resolved.
+2. If tsconfigPaths is provided:
+   a. For each pattern in tsconfigPaths.paths (ordered by specificity, longest prefix first):
+      - Split pattern at '*': prefix = part before '*', suffix = part after '*' (if any).
+      - If importPath starts with prefix AND ends with suffix:
+        - captured = importPath.slice(prefix.length, importPath.length - suffix.length || undefined).
+        - For the **first** target path in the array:
+          - Replace '*' in target with captured.
+          - Resolve as absolute: path.resolve(tsconfigPaths.baseUrl, replacedTarget).
+          - If extname === '' → append '.ts'.
+          - Return resolved.
+      - If pattern has no '*' (exact match):
+        - If importPath === pattern → resolve first target directly.
+3. Return null (external package).
+```
 
 **No file system access.** Pure string resolution. `.ts` extension is assumed for extensionless imports.
+
+**Multi-target policy**: Only the **first** target path is used. tsconfig's fallback semantics (try paths in order until a file is found) require file system access, which violates code-ledger's pure resolution principle. Consumers requiring multi-target fallback should configure their tsconfig to use a single canonical path per alias.
+
+#### tsconfig paths loading (common/tsconfig-resolver.ts)
+
+```typescript
+interface TsconfigPaths {
+  baseUrl: string;              // Absolute path. Defaults to projectRoot.
+  paths: Map<string, string[]>; // Pattern → replacement paths.
+}
+```
+
+#### `loadTsconfigPaths(projectRoot: string): TsconfigPaths | null`
+
+```
+1. Read tsconfig.json (or jsconfig.json) from projectRoot.
+2. If file not found → return null.
+3. Parse JSON. Extract compilerOptions.baseUrl and compilerOptions.paths.
+4. If neither baseUrl nor paths defined → return null.
+5. Resolve baseUrl to absolute path (relative to tsconfig.json location).
+6. Convert paths object to Map<string, string[]>.
+7. Return { baseUrl, paths }.
+8. Cache result per projectRoot. Invalidate when watcher detects tsconfig.json change.
+```
+
+Note: `tsconfig.json` change events are handled by ProjectWatcher alongside `package.json` events — the extension filter bypass applies to both.
 
 #### Entity key conventions
 
@@ -892,7 +997,7 @@ In code-ledger relations, keys use **file paths** (relative to project root) and
 
 | Node type | Condition | Relation | metaJson |
 |---|---|---|---|
-| `ImportDeclaration` | source resolves to relative import | `type: 'imports'` | `importKind === 'type'` → `{"isType":true}` else `undefined` |
+| `ImportDeclaration` | `resolveImport(source)` returns non-null | `type: 'imports'` | `importKind === 'type'` → `{"isType":true}` else `undefined` |
 | `ExportAllDeclaration` | source resolves | `type: 'imports'` | `{"isReExport":true}` (+ `"isType":true` if type export) |
 | `ExportNamedDeclaration` with `source` | source resolves | `type: 'imports'` | `{"isReExport":true}` |
 
@@ -991,14 +1096,17 @@ For each element in `implements`:
    - `PRAGMA journal_mode = WAL`
    - `PRAGMA busy_timeout = 5000`
 4. Wrap with `drizzle(client, { schema, casing: 'snake_case' })`.
-5. Run drizzle migrations from `./migrations/` folder.
-6. If migrations fail → delete DB files (`dbPath`, `dbPath-wal`, `dbPath-shm`), retry once. If retry fails → throw `StoreError`.
+5. Resolve migrations folder: `path.join(import.meta.dirname, 'migrations')`. This resolves to the code-ledger package's own migrations directory, even when installed as a dependency in `node_modules/@zipbul/code-ledger/`. When consumers install or update code-ledger, the next `open()` call automatically applies new migrations.
+6. Run drizzle migrations from the resolved folder.
+7. If migrations fail → delete DB files (`dbPath`, `dbPath-wal`, `dbPath-shm`), retry once. If retry fails → throw `StoreError`.
 
 #### `close(): void`
 
 1. Call `this.client.close()`.
 
-#### `transaction<T>(fn: (tx: Transaction) => T): T`
+#### `transaction<T>(fn: (tx: DrizzleSQLiteTransaction) => T): T`
+
+Uses drizzle-orm's `db.transaction()` internally. `DrizzleSQLiteTransaction` = drizzle's `SQLiteTransaction` type re-exported from store module.
 
 1. Begin transaction (or savepoint for nested).
 2. Execute `fn(tx)`.
@@ -1059,7 +1167,13 @@ Indexes: `(project, file_path)`, `(project, kind)`, `(project, name)`.
   "heritage": [{ "kind": "extends", "name": "Base" }],
   "decorators": [{ "name": "Injectable", "arguments": [] }],
   "members": [],
-  "seeLinks": ["auth/login", "auth/session"]
+  "jsDoc": {
+    "description": "Handles user authentication.",
+    "tags": [
+      { "tag": "see", "name": "auth/login", "description": "" },
+      { "tag": "deprecated", "description": "Use AuthServiceV2 instead." }
+    ]
+  }
 }
 ```
 
@@ -1164,7 +1278,9 @@ Each repository takes `DbConnection` via constructor injection.
 
 Compares current file system state against stored `files` table to determine which files need reindexing.
 
-#### `detectChanges(options: { projectRoot, project, extensions, ignorePatterns, fileRepo }): Promise<FileChangeset>`
+#### `detectChanges(options: { projectRoot, extensions, ignorePatterns, fileRepo, project?: string }): Promise<FileChangeset>`
+
+`project` is optional. If provided, compares only against DB records for that project. If omitted, compares against **all** DB records (used by `fullIndex` for workspace-wide rebuild).
 
 ```typescript
 interface FileChangeset {
@@ -1207,27 +1323,34 @@ Algorithm:
 
 #### `indexFileSymbols(options: { parsed: ParsedFile; project; filePath; contentHash; symbolRepo }): void`
 
+**Members flattening policy**: Class/interface/enum members are stored as **separate symbol rows** in addition to being present in the parent's `detail_json.members`. This enables FTS5 name search to find individual methods/properties. Each member row has the same `file_path` and `project` as its parent. The member's `name` is stored as `ClassName.memberName` (dot-separated) to distinguish from top-level symbols.
+
 ```
 1. extractSymbols(parsed) → symbols[].
-2. For each symbol, compute:
+2. Flatten: for each symbol with members[], add each member as a separate entry
+   with name = `${parentName}.${memberName}`.
+3. For each symbol (including flattened members), compute:
    - signature: for function/method → `params:${paramCount}|async:${isAsync ? 1 : 0}`. Else null.
    - fingerprint: hashString(`${name}|${kind}|${signature ?? ''}`).
    - detail_json: JSON.stringify of rich metadata fields
      (parameters, returnType, typeParameters, modifiers, heritage,
-      decorators, members, seeLinks). Omit undefined fields.
-3. symbolRepo.replaceFileSymbols(project, filePath, contentHash, symbolRecords).
+      decorators, members, jsDoc). Omit undefined fields.
+4. symbolRepo.replaceFileSymbols(project, filePath, contentHash, symbolRecords).
 ```
 
 ### 13.3 RelationIndexer
 
-#### `indexFileRelations(options: { ast: Program; project; filePath; relationRepo; projectRoot }): void`
+#### `indexFileRelations(options: { ast: Program; project; filePath; relationRepo; projectRoot; tsconfigPaths?: TsconfigPaths }): void`
+
+`filePath` is **relative** to `projectRoot`.
 
 ```
-1. extractRelations(ast, absoluteFilePath) → relations[].
-2. Normalize all file paths to relative (from projectRoot).
-3. Filter: discard relations where src or dst filePath starts with '..'
+1. absoluteFilePath = path.resolve(projectRoot, filePath).
+2. extractRelations(ast, absoluteFilePath, tsconfigPaths) → relations[].
+3. Normalize all file paths in relations to relative (from projectRoot).
+4. Filter: discard relations where src or dst filePath starts with '..'
    (points outside project).
-4. relationRepo.replaceFileRelations(project, filePath, normalizedRelations).
+5. relationRepo.replaceFileRelations(project, filePath, normalizedRelations).
 ```
 
 ### 13.4 IndexCoordinator
@@ -1239,13 +1362,33 @@ Orchestrates the full indexing pipeline. Connects watcher events to incremental 
 ```typescript
 new IndexCoordinator(options: {
   projectRoot: string;
-  project: string;
+  boundaries: ProjectBoundary[];
   extensions: string[];
   ignorePatterns: string[];
   dbConnection: DbConnection;
   parseCache: ParseCache;
 })
 ```
+
+**Fields**:
+
+- `private boundaries: ProjectBoundary[]` — project boundary cache. Refreshed on `package.json` change.
+- `private tsconfigPaths: TsconfigPaths | null` — loaded on startup via `loadTsconfigPaths(projectRoot)`. Refreshed when watcher detects `tsconfig.json` change.
+- `private indexingLock: boolean = false` — prevents re-entrant indexing (see §13.4 concurrency).
+- `private pendingQueue: FileChangeEvent[] = []` — debounce buffer.
+- `private onIndexedCallbacks: Set<(result: IndexedResult) => void>` — registered listeners.
+
+**Startup sequence** (called by CodeLedger facade):
+
+```
+1. this.tsconfigPaths = loadTsconfigPaths(projectRoot).
+2. Register watcher callback: watcher events that match 'tsconfig.json' or 'jsconfig.json'
+   → this.tsconfigPaths = loadTsconfigPaths(projectRoot).
+   → Re-index all files via fullIndex()
+     (tsconfig path changes may affect all relation extractions).
+```
+
+`tsconfigPaths` is owned solely by `IndexCoordinator`. The CodeLedger facade reads `this.coordinator.tsconfigPaths` (see §16.6), so updates are automatically visible without a sync callback.
 
 **Methods**:
 
@@ -1266,16 +1409,19 @@ interface IndexResult {
 Algorithm:
 
 ```
-1. fileIndexer.detectChanges() → { changed: ALL files, deleted: [] }.
+1. fileIndexer.detectChanges({ projectRoot, extensions, ignorePatterns, fileRepo })
+   → { changed: ALL files, deleted: [] }.
    (In full mode, treat every scanned file as changed.)
 2. Begin transaction.
-3. Clear all symbols and relations for this project.
+3. Clear all files in the workspace: `DELETE FROM files`.
+   (symbols and relations cascade via FK ON DELETE CASCADE.
+    Full index rebuilds ALL projects, so all rows are cleared.)
 4. For each changed file:
    a. Read source: await Bun.file(absPath).text().
    b. parseSource(filePath, sourceText) → parsed.
    c. parseCache.set(filePath, parsed).
    d. symbolIndexer.indexFileSymbols(parsed, ...).
-   e. relationIndexer.indexFileRelations(parsed.program, ...).
+   e. relationIndexer.indexFileRelations(parsed.program, ..., this.tsconfigPaths).
    f. fileRepo.upsertFile(fileEntry).
 5. Commit transaction.
 6. Return stats.
@@ -1298,7 +1444,7 @@ Reindex only changed files. If `changedFiles` is not provided, uses `fileIndexer
       i.   Read source, parseSource → parsed.
       ii.  parseCache.set(filePath, parsed).
       iii. symbolIndexer.indexFileSymbols(parsed, ...).
-      iv.  relationIndexer.indexFileRelations(parsed.program, ...).
+      iv.  relationIndexer.indexFileRelations(parsed.program, ..., this.tsconfigPaths).
       v.   fileRepo.upsertFile(fileEntry).
 5. Move tracking (fingerprint-based):
    a. Match deleted symbols ↔ new symbols by fingerprint.
@@ -1319,9 +1465,9 @@ Reindex only changed files. If `changedFiles` is not provided, uses `fileIndexer
    b. Else: skip (ambiguous).
 ```
 
-#### `handleWatcherEvent(event: FileChangeEvent): Promise<void>`
+#### `handleWatcherEvent(event: FileChangeEvent): void`
 
-Called by the watcher integration. Debounces and batches events, then calls `incrementalIndex()`.
+Called by the watcher integration. **Synchronous** — only pushes to the pending queue and manages the debounce timer. The actual async `incrementalIndex()` is triggered by the timer callback, not by this method. This ensures the watcher's try-catch (§9.2) catches any synchronous errors.
 
 ```
 1. Add event to internal pending queue.
@@ -1332,6 +1478,57 @@ Called by the watcher integration. Debounces and batches events, then calls `inc
 
 **Debounce constant**: `WATCHER_DEBOUNCE_MS = 100`.
 
+**Note on event coalescing**: `@parcel/watcher` throttles and coalesces events in C++ natively. During large changes like `git checkout` or `npm install`, a single callback is emitted with all events. The 100ms debounce is a secondary defense for rapid sequential changes not caught by the native layer.
+
+#### `onIndexed(callback: (result: IndexedResult) => void): () => void`
+
+Registers a callback that fires immediately after each `incrementalIndex()` completes. Returns an unsubscribe function.
+
+```typescript
+interface IndexedResult {
+  changedFiles: string[];     // Files that were reindexed.
+  deletedFiles: string[];     // Files that were removed from index.
+  totalSymbols: number;       // Total symbols across changed files.
+  totalRelations: number;     // Total relations across changed files.
+  durationMs: number;
+}
+```
+
+The callback is invoked once per debounced batch. Since `@parcel/watcher` already coalesces events at the C++ level and code-ledger applies 100ms debounce, consumers receive infrequent, batched notifications without needing their own debounce.
+
+Multiple callbacks can be registered. They are called in registration order. If a callback throws, the error is logged via `console.error` but other callbacks still execute.
+
+#### Concurrency: Indexing Lock
+
+`IndexCoordinator` maintains an `indexingLock: boolean` flag to prevent re-entrant indexing:
+
+```
+handleWatcherEvent / incrementalIndex / fullIndex:
+  1. If this.indexingLock === true:
+     → Queue events for next cycle. Do NOT start a new indexing run.
+  2. this.indexingLock = true.
+  3. try { ... perform indexing ... } finally { this.indexingLock = false; }
+  4. If pending queue is non-empty after unlock → schedule next debounce cycle.
+```
+
+This prevents conflicts between `fullIndex` (startup/tsconfig change) and `incrementalIndex` (watcher events) running simultaneously.
+
+#### Shutdown Protocol
+
+`shutdown(): Promise<void>`:
+
+```
+1. Cancel debounce timer (clearTimeout).
+2. If this.indexingLock === true:
+   → Wait for current indexing to complete (await internal promise).
+3. watcher.close().
+4. clearInterval(heartbeat/healthCheck timer).
+5. releaseWatcherRole(db, process.pid).
+6. db.close().
+```
+
+Shutdown waits for in-flight indexing to finish before closing resources. This prevents DB corruption from mid-transaction termination.
+
 ---
 
 ## 14. Search Module
@@ -1341,7 +1538,7 @@ Called by the watcher integration. Debounces and batches events, then calls `inc
 ```typescript
 function symbolSearch(options: {
   symbolRepo: SymbolRepository;
-  project: string;
+  project?: string;
   query: SymbolSearchQuery;
 }): SymbolSearchResult[]
 
@@ -1350,6 +1547,7 @@ interface SymbolSearchQuery {
   kind?: SymbolKind;         // Filter by symbol kind.
   filePath?: string;         // Filter by exact file path.
   isExported?: boolean;      // Filter by export status.
+  project?: string;          // Filter by project name. If omitted, searches all projects.
   limit?: number;            // Max results. Default: 100.
 }
 
@@ -1363,6 +1561,20 @@ interface SymbolSearchResult {
   signature: string | null;
   fingerprint: string | null;
   detail: ExtractedSymbolDetail;   // Parsed from detail_json.
+}
+
+// Subset of ExtractedSymbol stored in detail_json.
+// Only fields with values are included; undefined fields are omitted.
+interface ExtractedSymbolDetail {
+  parameters?: Parameter[];
+  returnType?: string;
+  typeParameters?: string[];
+  modifiers?: Modifier[];
+  heritage?: Heritage[];
+  decorators?: Decorator[];
+  members?: ExtractedSymbolDetail[];   // Recursive for class/interface/enum members.
+  jsDoc?: JsDocBlock;
+  methodKind?: 'method' | 'getter' | 'setter' | 'constructor';
 }
 ```
 
@@ -1379,7 +1591,7 @@ Query building:
 ```typescript
 function relationSearch(options: {
   relationRepo: RelationRepository;
-  project: string;
+  project?: string;
   query: RelationSearchQuery;
 }): CodeRelation[]
 
@@ -1389,6 +1601,7 @@ interface RelationSearchQuery {
   dstFilePath?: string;
   dstSymbolName?: string;
   type?: CodeRelation['type'];
+  project?: string;          // Filter by project name. If omitted, searches all projects.
   limit?: number;            // Default: 500.
 }
 ```
@@ -1440,7 +1653,7 @@ DFS-based cycle detection on the entire graph.
 
 #### `getAffectedByChange(changedFiles: string[]): string[]`
 
-Union of `getTransitiveDependents` for all `changedFiles`. Deduplicated. Used by zipbul's incremental build.
+Union of `getTransitiveDependents` for all `changedFiles`. Deduplicated.
 
 ---
 
@@ -1494,24 +1707,148 @@ Generic LRU cache using `Map` insertion-order semantics.
 
 ---
 
-## 16. Implementation Phases
+## 16. Public API — CodeLedger Facade
 
-| Phase | Scope | Deliverables | Depends on |
-|---|---|---|---|
-| **1** | common + errors + watcher | `CodeLedgerError` hierarchy, `hashString`, `LruCache`, path-utils, `ProjectWatcher`, `acquireWatcherRole`, `releaseWatcherRole`, `discoverProjects`, `resolveFileProject` | — |
-| **2** | parser + extractor | `parseSource`, `ParseCache`, all AST utils, `buildLineOffsets`, `getLineColumn`, `extractSymbols` (8 kinds + rich metadata + seeLinks), `extractRelations` (4 sub-extractors), `buildImportMap`, `resolveRelativeImport` | Phase 1 (errors, common) |
-| **3** | store + indexer | Drizzle schema + migrations + FTS triggers, `watcher_owner` table, `DbConnection`, 3 repositories, `FileIndexer`, `SymbolIndexer`, `RelationIndexer`, `IndexCoordinator` (full + incremental + move tracking) | Phase 1, Phase 2 |
-| **4** | search | `symbolSearch`, `relationSearch`, `DependencyGraph` | Phase 3 |
+### 16.1 Overview
+
+`CodeLedger` is the **single entry point** for consumers. It owns all internal components, manages their lifecycle, and provides a clean API surface. Consumers never instantiate `DbConnection`, `IndexCoordinator`, or `ProjectWatcher` directly.
+
+**Location**: `src/index.ts` (re-exports `CodeLedger` class + all public types).
+
+### 16.2 CodeLedger Class
+
+```typescript
+class CodeLedger {
+  // --- Static factory ---
+  static async open(options: CodeLedgerOptions): Promise<CodeLedger>;
+
+  // --- Properties (readonly, exposed to consumers) ---
+  readonly projectRoot: string;
+  readonly search: SearchAPI;
+
+  // --- Lifecycle ---
+  async close(): Promise<void>;
+
+  // --- Direct parse/extract (stateless, no DB required) ---
+  parseSource(filePath: string, sourceText: string): ParsedFile;
+  extractSymbols(parsed: ParsedFile): ExtractedSymbol[];
+  extractRelations(parsed: ParsedFile): CodeRelation[];
+
+  // --- Event subscription ---
+  onIndexed(callback: (result: IndexedResult) => void): () => void;
+}
+
+interface SearchAPI {
+  symbols(query: SymbolSearchQuery): SymbolSearchResult[];
+  relations(query: RelationSearchQuery): CodeRelation[];
+  dependencyGraph(project?: string): DependencyGraph;
+}
+```
+
+**Project resolution in SearchAPI**: The facade internally resolves `project` for each search method:
+- If `query.project` (or the `project` argument for `dependencyGraph`) is provided → use it.
+- If omitted AND workspace is a single project → use the root project.
+- If omitted AND workspace is a monorepo → search across **all** projects (union results).
+
+This allows consumers to query a specific project or the entire workspace transparently.
+
+### 16.3 `CodeLedger.open()` — Startup Sequence
+
+```
+1. Validate options (projectRoot must be absolute, must exist).
+2. dbConnection = new DbConnection({ projectRoot }).
+3. dbConnection.open() → WAL, migrations.
+4. boundaries = discoverProjects(projectRoot).
+5. parseCache = new ParseCache(options.parseCacheCapacity ?? 500).
+6. Create repositories: fileRepo, symbolRepo, relationRepo.
+7. role = acquireWatcherRole(dbConnection, process.pid).
+8. If role === 'owner':
+   a. watcher = new ProjectWatcher({ projectRoot, ignorePatterns, extensions }).
+   b. coordinator = new IndexCoordinator({
+        projectRoot, boundaries,
+        extensions, ignorePatterns, dbConnection, parseCache
+      }).
+   c. watcher.start(coordinator.handleWatcherEvent).
+   d. Start heartbeat timer (30s interval).
+   e. coordinator.fullIndex() → initial indexing.
+9. If role === 'reader':
+    a. Start health check timer (60s interval → check owner liveness).
+    b. On owner death → re-acquire as owner → start watcher + coordinator.
+10. Register process signal handlers (SIGTERM, SIGINT, beforeExit → close()).
+11. Return new CodeLedger instance.
+```
+
+### 16.4 Monorepo / Multi-Project Handling
+
+**Architecture**: One `ProjectWatcher` per workspace. One `IndexCoordinator` per workspace. Multiple `project` values within the same DB.
+
+The watcher watches the entire `projectRoot`. When a file change event arrives, `IndexCoordinator.handleWatcherEvent(event)` is called. The coordinator resolves the project internally:
+
+```
+1. relativePath from event.filePath.
+2. project = resolveFileProject(relativePath, this.boundaries).
+3. Use project when writing DB records (files, symbols, relations).
+```
+
+The `project` field in all schema tables enables per-project queries.
+
+**Boundary refresh**: When `package.json` changes are detected, `discoverProjects()` re-runs and `boundaries` cache is replaced. If a new project appears (new package.json), files under that path are re-assigned on next incremental index.
+
+**Single coordinator, multi-project**: `IndexCoordinator` is NOT project-scoped. It processes all files in the workspace and delegates `project` resolution to `resolveFileProject()`. The constructor's `project` parameter (§13.4) is removed — coordinator resolves project per-file.
+
+### 16.5 `CodeLedger.close()` — Shutdown Sequence
+
+```
+1. coordinator.shutdown() → waits for in-flight indexing.
+2. watcher.close() → unsubscribes OS watcher.
+3. clearInterval(heartbeat/healthCheck timer).
+4. releaseWatcherRole(dbConnection, process.pid).
+5. dbConnection.close().
+```
+
+### 16.6 Stateless API Methods
+
+`parseSource`, `extractSymbols`, `extractRelations` are thin wrappers over the module functions. They pass through the instance's `parseCache` automatically. `tsconfigPaths` is owned solely by `IndexCoordinator` — the facade accesses it via the coordinator:
+
+```typescript
+// Inside CodeLedger class:
+parseSource(filePath: string, sourceText: string): ParsedFile {
+  const parsed = parseSourceFn(filePath, sourceText);
+  this.parseCache.set(filePath, parsed);
+  return parsed;
+}
+
+extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
+  return extractSymbolsFn(parsed);
+}
+
+extractRelations(parsed: ParsedFile): CodeRelation[] {
+  return extractRelationsFn(parsed.program, parsed.filePath, this.coordinator.tsconfigPaths);
+}
+```
+
+Consumers can use these without triggering DB writes. DB persistence happens only through the watcher→coordinator pipeline or explicit `fullIndex()`.
 
 ---
 
-## 17. Consumer Usage Patterns
+## 17. Implementation Phases
+
+| Phase | Scope | Deliverables | Depends on |
+|---|---|---|---|
+| **1** | common + errors + watcher | `CodeLedgerError` hierarchy, `hashString`, `LruCache`, path-utils, `tsconfig-resolver`, `ProjectWatcher`, `acquireWatcherRole`, `releaseWatcherRole`, `discoverProjects`, `resolveFileProject` | — |
+| **2** | parser + extractor | `parseSource`, `ParseCache`, all AST utils, `buildLineOffsets`, `getLineColumn`, `parseJsDoc`, `extractSymbols` (8 kinds + rich metadata + jsDoc), `extractRelations` (4 sub-extractors), `buildImportMap`, `resolveImport`, `loadTsconfigPaths` | Phase 1 (errors, common) |
+| **3** | store + indexer | Drizzle schema + migrations + FTS triggers, `watcher_owner` table, `DbConnection`, 3 repositories, `FileIndexer`, `SymbolIndexer`, `RelationIndexer`, `IndexCoordinator` (full + incremental + move tracking + indexing lock + shutdown) | Phase 1, Phase 2 |
+| **4** | search + facade | `symbolSearch`, `relationSearch`, `DependencyGraph`, `CodeLedger` facade class, `SearchAPI` | Phase 3 |
+
+---
+
+## 18. Consumer Usage Patterns
 
 ### zipbul CLI
 
 ```
 codeLedger.parseSource(file, code)
-codeLedger.extractSymbols(parsed)       // seeLinks → card-code link
+codeLedger.extractSymbols(parsed)       // jsDoc.tags → filter @see → card-code link
 codeLedger.extractRelations(parsed)     // imports/calls/extends/implements
 zipbul.AstParser(parsed)               // DI-specific extraction (on top of codeLedger)
 ```
@@ -1527,79 +1864,92 @@ firebat.engine(parsed)                  // fingerprint, CFG, duplicates
 ### agent-kit
 
 ```
-codeLedger.symbolSearch(repo, query)    // symbol search
-codeLedger.relationSearch(repo, query)  // relation traversal
-agentKit.linkCard(cardKey, symbolId)    // card-symbol link (extends codeLedger DB)
+const symbols = ledger.search.symbols({ text: 'handleRequest', project: '@ws/web' })
+const relations = ledger.search.relations({ srcFilePath: 'src/handler.ts' })
+agentKit.linkCard(cardKey, {            // card-symbol link (agent-kit's own DB)
+  project, filePath, symbolName, symbolKind  // natural key (see §20)
+})
+```
+
+### Event-driven integration
+
+Consumers register an `onIndexed` callback to react to indexing events:
+
+```
+const unsub = ledger.onIndexed((result) => {
+  // result.changedFiles, result.deletedFiles, result.durationMs
+  zipbul.refreshCardCodeLinks(result.changedFiles)
+})
 ```
 
 ---
 
-## 18. Success Criteria
+## 19. Success Criteria
 
 1. firebat, agent-kit, and zipbul CLI share a single code infrastructure package with zero code duplication for AST parsing, symbol extraction, and code indexing.
 2. Multiple processes on the same project run only 1 OS-level file watcher via DB-based watcher coordination (`watcher_owner` table with PID liveness check + heartbeat).
 3. One code index DB per project (`.zipbul/code-ledger.db`), shared by all consumers via SQLite WAL mode.
 4. No framework dependency. Configuration via `CodeLedgerOptions` only.
 5. No MCP server. No MCP tool definitions. No MCP transport. Pure infrastructure.
-6. AST parser provides rich enough data (8 symbol kinds, parameters, heritage, decorators, members, seeLinks) that consumers never need to re-parse.
+6. AST parser provides rich enough data (8 symbol kinds, parameters, heritage, decorators, members, jsDoc) that consumers never need to re-parse.
 7. Every error is thrown with a module-specific error class and chained `cause`.
 8. Incremental indexing re-processes only changed files. Move tracking preserves relations when files are renamed.
+9. `onIndexed` callback enables consumers to react to indexing events without polling.
+10. tsconfig `paths` aliases are resolved correctly in relation extraction.
 
 ---
 
-## 19. Source Provenance
+## 20. DB Ownership & Consumer Separation Policy
 
-Classification of every code-ledger module by origin. Guides implementation priority and expected effort.
+### 원칙
 
-| Strategy | Description | Effort |
-|---|---|---|
-| **A — firebat copy** | Lift from firebat with minimal change | Low |
-| **B — zipbul copy+modify** | Lift from zipbul, adapt to code-ledger API | Low–Medium |
-| **C — synthesis** | Combine pieces from both codebases | Medium |
-| **D — extract+rewrite** | Extract concept, rewrite to code-ledger design | Medium–High |
-| **E — fresh** | No prior source. Written from scratch | High |
+code-ledger는 `.zipbul/code-ledger.db`의 **유일한 소유자**이다. 모든 소비자(firebat, bunner, agent-kit 등)는 code-ledger의 공개 API(Search 모듈, Repository)만을 통해 코드 인덱스 데이터에 접근한다.
 
-### Module Provenance Table
+### 금지 사항
 
-| Module / File | Strategy | Source | Notes |
-|---|---|---|---|
-| `common/hasher.ts` | A | firebat `hashString` | Direct copy |
-| `common/lru-cache.ts` | A | firebat `LruCache` | Direct copy |
-| `common/path-utils.ts` | A | firebat path utils | Direct copy |
-| `parser/parse-source.ts` | B | zipbul `AstParser.parse` | Extract parseSync call, remove DI class wrapper |
-| `parser/parse-cache.ts` | B | zipbul `AstParser` LRU | Extract cache logic |
-| `parser/ast-utils.ts` | B | zipbul `ast-utils.ts` | Copy, add `buildLineOffsets` |
-| `extractor/symbol-extractor.ts` | B | zipbul `extractDefinitions` | Rename + add rich metadata (seeLinks extraction inline) |
-| `extractor/imports.extractor.ts` | B | zipbul `extractImports` | Copy + normalize |
-| `extractor/calls.extractor.ts` | B | zipbul `extractCalls` | Copy + normalize |
-| `extractor/heritage.extractor.ts` | B | zipbul `extends`+`implements` | Merge two extractors |
-| `extractor/extractor-utils.ts` | B | zipbul `resolveRelativeImport` | Copy |
-| `store/schema.ts` | C | zipbul schema + firebat FTS | Combine both |
-| `store/connection.ts` | C | zipbul + firebat DB init | Merge WAL+busy_timeout patterns |
-| `store/file.repository.ts` | D | zipbul file operations | Rewrite to drizzle-orm |
-| `store/symbol.repository.ts` | D | zipbul symbol operations | Rewrite to drizzle-orm + FTS |
-| `store/relation.repository.ts` | D | zipbul relation operations | Rewrite to drizzle-orm |
-| `indexer/file-indexer.ts` | D | zipbul `detectChanges` | Extract from IndexCoordinator |
-| `indexer/symbol-indexer.ts` | D | zipbul index logic | Extract + fingerprint |
-| `indexer/relation-indexer.ts` | D | zipbul index logic | Extract + normalize |
-| `watcher/project-watcher.ts` | E | — | New: DB-based coordination |
-| `common/project-discovery.ts` | E | — | New: package.json scanning |
-| `indexer/index-coordinator.ts` | E | — | New: orchestration + move tracking |
-| `search/symbol-search.ts` | E | — | New: FTS5 query builder |
-| `search/relation-search.ts` | E | — | New: relation query builder |
-| `search/dependency-graph.ts` | E | — | New: in-memory graph |
-| `errors/*.ts` | E | — | New: 6 error classes |
-| `index.ts` | E | — | New: public API barrel |
+- 소비자가 `code-ledger.db`를 직접 열어서(open) 쿼리하는 것
+- 소비자가 code-ledger 스키마에 테이블을 추가하는 것
+- 소비자가 code-ledger의 내부 스키마 구조에 의존하는 것
 
-### Summary
+### 소비자 데이터 분리
 
-| Strategy | Count | % |
-|---|---|---|
-| A — firebat copy | 3 | 12% |
-| B — zipbul copy+modify | 8 | 31% |
-| C — synthesis | 2 | 8% |
-| D — extract+rewrite | 6 | 23% |
-| E — fresh | 7 | 27% |
-| **Total** | **26** | **100%** |
+소비자 고유 데이터(카드, 태그, 아티팩트 등)는 별도의 DB 파일에 저장한다:
 
-Reuse rate (A+B+C): **~50%**. Extract+rewrite (D): **~23%**. Fresh code (E): **~27%**.
+```
+.zipbul/
+  code-ledger.db      ← code-ledger 소유 (코드 인덱스)
+  bunner.db            ← bunner 소유 (route 카드, 컴포넌트 메타 등)
+  firebat.db           ← firebat 소유 (품질 시그널, 스코어 등)
+```
+
+### 심볼 참조 규약
+
+소비자 DB에서 code-ledger의 심볼을 참조할 때는 **자연키(natural key)** 를 사용한다:
+
+```typescript
+// 소비자 DB 테이블 예시
+interface ConsumerSymbolRef {
+  project: string     // package.json name. e.g., '@ws/web'
+  filePath: string    // 프로젝트 상대 경로
+  symbolName: string  // 심볼 이름
+  symbolKind: string  // 'function' | 'class' | ... (8 kinds)
+}
+```
+
+code-ledger의 내부 rowid나 auto-increment ID를 외래키로 사용하지 않는다. 자연키를 사용하면 code-ledger DB가 재생성되어도 소비자 데이터가 깨지지 않는다.
+
+### API 접근 패턴
+
+```typescript
+import { CodeLedger } from '@zipbul/code-ledger'
+
+// ✅ 올바른 접근: API를 통한 조회
+const ledger = await CodeLedger.open({ projectRoot })
+const symbols = ledger.search.symbols({ text: 'handleRequest' })
+const graph = ledger.search.dependencyGraph()
+const deps = graph.getDependents('src/handler.ts')
+
+// ❌ 금지: 직접 DB 접근
+// import Database from 'bun:sqlite'
+// const db = new Database('.zipbul/code-ledger.db')  // NEVER
+```
