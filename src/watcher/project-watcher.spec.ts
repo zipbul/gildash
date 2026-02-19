@@ -319,40 +319,6 @@ describe("ProjectWatcher", () => {
     expect(capturedOptions?.ignore).toContain("**/coverage/**");
   });
 
-  it("should pass tsx file when default extensions are used", async () => {
-    const events: Array<{ eventType: string; filePath: string }> = [];
-
-    let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
-      callback = cb;
-      return createFakeSubscription();
-    };
-
-    const watcher = new ProjectWatcher({ projectRoot: "/repo" }, subscribe);
-    await watcher.start((event) => events.push(event));
-
-    callback?.(undefined, [{ type: "create", path: "/repo/src/App.tsx" }]);
-
-    expect(events).toEqual([{ eventType: "create", filePath: "src/App.tsx" }]);
-  });
-
-  it("should pass js file when default extensions are used", async () => {
-    const events: Array<{ eventType: string; filePath: string }> = [];
-
-    let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
-      callback = cb;
-      return createFakeSubscription();
-    };
-
-    const watcher = new ProjectWatcher({ projectRoot: "/repo" }, subscribe);
-    await watcher.start((event) => events.push(event));
-
-    callback?.(undefined, [{ type: "create", path: "/repo/src/utils.js" }]);
-
-    expect(events).toEqual([{ eventType: "create", filePath: "src/utils.js" }]);
-  });
-
   it("should pass mts file when default extensions are used", async () => {
     const events: Array<{ eventType: string; filePath: string }> = [];
 

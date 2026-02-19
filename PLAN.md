@@ -41,7 +41,7 @@ interface CodeLedgerOptions {
   /** Glob patterns to ignore during file watching. Default: see WATCHER_IGNORE_GLOBS. */
   ignorePatterns?: string[];
 
-  /** File extensions to watch and index. Default: ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts']. */
+  /** File extensions to watch and index. Default: ['.ts', '.mts', '.cts']. */
   extensions?: string[];
 
   /** Maximum entries in the in-process AST LRU cache. Default: 500. */
@@ -62,7 +62,7 @@ code-ledger automatically discovers project boundaries from `package.json` files
 ├── apps/
 │   ├── web/
 │   │   ├── package.json     ← name: "@ws/web"     → project = '@ws/web'
-│   │   └── src/App.tsx      → this file's project = '@ws/web'
+│   │   └── src/App.ts       → this file's project = '@ws/web'
 │   └── mobile/
 │       ├── package.json     ← name: "@ws/mobile"  → project = '@ws/mobile'
 │       └── src/index.ts
@@ -168,9 +168,9 @@ src/
 │   ├── index.ts                      # Re-export: extractSymbols, extractRelations, all sub-extractors.
 │   ├── symbol-extractor.ts
 │   ├── relation-extractor.ts
-│   ├── imports.extractor.ts
-│   ├── calls.extractor.ts
-│   ├── heritage.extractor.ts         # Merged extends + implements.
+│   ├── imports-extractor.ts
+│   ├── calls-extractor.ts
+│   ├── heritage-extractor.ts         # Merged extends + implements.
 │   ├── extractor-utils.ts
 │   └── types.ts
 │

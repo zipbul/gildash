@@ -1,0 +1,30 @@
+import type { Program } from 'oxc-parser';
+import type { TsconfigPaths } from '../common/tsconfig-resolver';
+import type { CodeRelation } from './types';
+import { buildImportMap } from './extractor-utils';
+import { extractImports } from './imports-extractor';
+import { extractCalls } from './calls-extractor';
+import { extractHeritage } from './heritage-extractor';
+
+/**
+ * Orchestrates all sub-extractors and merges their CodeRelation results.
+ * Pure function.
+ *
+ * @param ast           - The parsed Program AST.
+ * @param filePath      - Absolute path of the source file.
+ * @param tsconfigPaths - Optional tsconfig paths for alias resolution.
+ * @returns Merged array of all code relations from all sub-extractors.
+ */
+export function extractRelations(
+  ast: Program,
+  filePath: string,
+  tsconfigPaths?: TsconfigPaths,
+): CodeRelation[] {
+  const importMap = buildImportMap(ast, filePath, tsconfigPaths);
+
+  const imports = extractImports(ast, filePath, tsconfigPaths);
+  const calls = extractCalls(ast, filePath, importMap);
+  const heritage = extractHeritage(ast, filePath, importMap);
+
+  return [...imports, ...calls, ...heritage];
+}

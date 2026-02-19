@@ -51,7 +51,7 @@ export class ProjectWatcher {
     this.#rootPath = options.projectRoot;
     this.#ignoreGlobs = [...WATCHER_IGNORE_GLOBS, ...(options.ignorePatterns ?? [])];
     this.#extensions = new Set(
-      (options.extensions ?? [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts"]).map((ext) =>
+      (options.extensions ?? [".ts", ".mts", ".cts"]).map((ext) =>
         ext.toLowerCase(),
       ),
     );
