@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
 // ── Mock ../extractor/relation-extractor ──────────────────────────────────
-const mockExtractRelations = mock((_ast: any, _filePath: string, _tsconfig?: any) => [] as any[]);
+const mockExtractRelations = mock((ast: any, filePath: string, tsconfig?: any) => [] as any[]);
 
 // ── Mock ../common/path-utils ──────────────────────────────────────────────
-const mockToRelativePath = mock((_root: string, _abs: string) => '');
-const mockToAbsolutePath = mock((_root: string, _rel: string) => '');
+const mockToRelativePath = mock((root: string, abs: string) => '');
+const mockToAbsolutePath = mock((root: string, rel: string) => '');
 mock.module('../extractor/relation-extractor', () => ({ extractRelations: mockExtractRelations }));
 mock.module('../common/path-utils', () => ({
   toRelativePath: mockToRelativePath,
@@ -34,26 +34,25 @@ function makeRelation(overrides: Partial<{
 }
 
 function makeRelationRepo() {
-  return { replaceFileRelations: mock((_p: any, _f: any, _rels: any) => {}) };
+  return { replaceFileRelations: mock((p: any, f: any, rels: any) => {}) };
 }
 
-beforeEach(() => {
-  mock.module('../extractor/relation-extractor', () => ({ extractRelations: mockExtractRelations }));
-  mock.module('../common/path-utils', () => ({
-    toRelativePath: mockToRelativePath,
-    toAbsolutePath: mockToAbsolutePath,
-  }));
-  mockExtractRelations.mockReset();
-  mockExtractRelations.mockReturnValue([]);
-  mockToRelativePath.mockReset();
-  mockToAbsolutePath.mockReset();
-  mockToAbsolutePath.mockImplementation((_root: string, rel: string) => `/project/${rel}`);
-  mockToRelativePath.mockImplementation((_root: string, abs: string) =>
-    abs.replace('/project/', ''),
-  );
-});
-
 describe('indexFileRelations', () => {
+  beforeEach(() => {
+    mock.module('../extractor/relation-extractor', () => ({ extractRelations: mockExtractRelations }));
+    mock.module('../common/path-utils', () => ({
+      toRelativePath: mockToRelativePath,
+      toAbsolutePath: mockToAbsolutePath,
+    }));
+    mockExtractRelations.mockReset();
+    mockExtractRelations.mockReturnValue([]);
+    mockToRelativePath.mockReset();
+    mockToAbsolutePath.mockReset();
+    mockToAbsolutePath.mockImplementation((root: string, rel: string) => `/project/${rel}`);
+    mockToRelativePath.mockImplementation((root: string, abs: string) =>
+      abs.replace('/project/', ''),
+    );
+  });
   // [HP] in-project dst → relation included in output
   it('should include relation when dst is within project root', () => {
     mockExtractRelations.mockReturnValue([makeRelation()]);
@@ -69,7 +68,7 @@ describe('indexFileRelations', () => {
   // [NE] out-of-project dst ('../other/file.ts') → filtered out
   it('should filter out relation when dst normalizes to path starting with ..', () => {
     mockExtractRelations.mockReturnValue([makeRelation({ dstFilePath: '/other/project/file.ts' })]);
-    mockToRelativePath.mockImplementation((_root: string, abs: string) =>
+    mockToRelativePath.mockImplementation((root: string, abs: string) =>
       abs.startsWith('/project') ? abs.replace('/project/', '') : `../other/project/${abs.split('/').pop()}`,
     );
     const relationRepo = makeRelationRepo();
@@ -81,7 +80,7 @@ describe('indexFileRelations', () => {
   });
 
   // [HP] extractRelations called with absolute filePath
-  it('should call extractRelations with the absolute filePath', () => {
+  it('should call extractRelations when absolute filePath is provided', () => {
     mockToAbsolutePath.mockReturnValue(ABS_FILE);
     const relationRepo = makeRelationRepo();
 
@@ -91,7 +90,7 @@ describe('indexFileRelations', () => {
   });
 
   // [HP] replaceFileRelations called with relative filePath
-  it('should call replaceFileRelations with the relative (not absolute) filePath', () => {
+  it('should call replaceFileRelations when relative filePath is computed', () => {
     const relationRepo = makeRelationRepo();
 
     indexFileRelations({ ast: {} as any, project: PROJECT, filePath: REL_FILE, relationRepo: relationRepo as any, projectRoot: PROJECT_ROOT });
@@ -101,7 +100,7 @@ describe('indexFileRelations', () => {
   });
 
   // [HP] dst absolute path normalized to relative
-  it('should normalize absolute dst paths to relative in output relations', () => {
+  it('should normalize absolute dst paths when writing output relations', () => {
     mockExtractRelations.mockReturnValue([makeRelation({ dstFilePath: '/project/src/utils.ts' })]);
     mockToRelativePath.mockReturnValue('src/utils.ts');
     const relationRepo = makeRelationRepo();
@@ -129,7 +128,7 @@ describe('indexFileRelations', () => {
       makeRelation({ dstFilePath: '/project/src/utils.ts' }),
       makeRelation({ dstFilePath: '/external/lib.ts' }),
     ]);
-    mockToRelativePath.mockImplementation((_root: string, abs: string) =>
+    mockToRelativePath.mockImplementation((root: string, abs: string) =>
       abs.startsWith('/project') ? 'src/utils.ts' : '../external/lib.ts',
     );
     const relationRepo = makeRelationRepo();
@@ -167,7 +166,7 @@ describe('indexFileRelations', () => {
   });
 
   // [ID] same input twice → same result
-  it('should produce identical calls on second invocation with same input', () => {
+  it('should produce identical calls when invoked twice with same input', () => {
     mockExtractRelations.mockReturnValue([makeRelation()]);
     mockToRelativePath.mockReturnValue('src/utils.ts');
     const relationRepo = makeRelationRepo();
@@ -181,9 +180,9 @@ describe('indexFileRelations', () => {
   });
 
   // [HP] src filePath relative (not absolute) in output
-  it('should set srcFilePath to relative path in relation output', () => {
+  it('should set srcFilePath to relative path when relation output is created', () => {
     mockExtractRelations.mockReturnValue([makeRelation({ srcFilePath: ABS_FILE })]);
-    mockToRelativePath.mockImplementation((_root: string, abs: string) => {
+    mockToRelativePath.mockImplementation((root: string, abs: string) => {
       if (abs === ABS_FILE) return REL_FILE;
       return 'src/utils.ts';
     });

@@ -24,14 +24,15 @@ export function extractImports(
   ) => string[] = resolveImport,
 ): CodeRelation[] {
   const relations: CodeRelation[] = [];
+  const body = (ast as unknown as { body?: Array<Record<string, unknown>> }).body ?? [];
 
   // Pass 1 — top-level statements
-  for (const node of (ast as any).body ?? []) {
+  for (const node of body) {
     if (node.type === 'ImportDeclaration') {
-      const sourcePath: string = node.source?.value ?? '';
+      const sourcePath: string = ((node.source as { value?: string } | undefined)?.value) ?? '';
       const candidates = resolveImportFn(filePath, sourcePath, tsconfigPaths);
       if (candidates.length === 0) continue;
-      const resolved = candidates[0];
+      const resolved = candidates[0]!;
 
       const isType = node.importKind === 'type';
       relations.push({
@@ -46,10 +47,10 @@ export function extractImports(
     }
 
     if (node.type === 'ExportAllDeclaration' && node.source) {
-      const sourcePath: string = node.source?.value ?? '';
+      const sourcePath: string = ((node.source as { value?: string } | undefined)?.value) ?? '';
       const candidates = resolveImportFn(filePath, sourcePath, tsconfigPaths);
       if (candidates.length === 0) continue;
-      const resolved = candidates[0];
+      const resolved = candidates[0]!;
 
       const isType = node.exportKind === 'type';
       const meta: Record<string, unknown> = { isReExport: true };
@@ -66,10 +67,10 @@ export function extractImports(
     }
 
     if (node.type === 'ExportNamedDeclaration' && node.source) {
-      const sourcePath: string = node.source?.value ?? '';
+      const sourcePath: string = ((node.source as { value?: string } | undefined)?.value) ?? '';
       const candidates = resolveImportFn(filePath, sourcePath, tsconfigPaths);
       if (candidates.length === 0) continue;
-      const resolved = candidates[0];
+      const resolved = candidates[0]!;
 
       relations.push({
         type: 'imports',
@@ -83,13 +84,13 @@ export function extractImports(
   }
 
   // Pass 2 — deep traversal for dynamic import()
-  visit(ast as any, (node) => {
+  visit(ast, (node) => {
     if (node.type !== 'ImportExpression') return;
     const sourceValue = getStringLiteralValue(node.source);
     if (!sourceValue) return;
     const candidates = resolveImportFn(filePath, sourceValue, tsconfigPaths);
     if (candidates.length === 0) return;
-    const resolved = candidates[0];
+    const resolved = candidates[0]!;
 
     relations.push({
       type: 'imports',

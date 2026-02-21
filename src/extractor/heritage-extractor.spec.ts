@@ -2,7 +2,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import type { ImportReference } from './types';
 
 // ── Mock ../parser/ast-utils ──
-const mockVisit = mock((_node: any, _cb: any) => {});
+const mockVisit = mock((node: any, cb: any) => {});
 const mockGetQualifiedName = mock(() => null as any);
 
 import { extractHeritage } from './heritage-extractor';
@@ -42,7 +42,7 @@ describe('extractHeritage', () => {
   // HP — extends (local)
   it('should produce an extends relation when class extends a locally defined class', () => {
     const superClassNode = { type: 'Identifier', name: 'Animal' };
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
+    mockVisit.mockImplementation((ast: any, cb: any) => {
       cb(fakeClassNode('Dog', { superClass: superClassNode }));
     });
     mockGetQualifiedName.mockReturnValue({ root: 'Animal', parts: [], full: 'Animal' });
@@ -58,7 +58,7 @@ describe('extractHeritage', () => {
   // HP — implements (local)
   it('should produce an implements relation when class implements a locally defined interface', () => {
     const exprNode = { type: 'Identifier', name: 'Service' };
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
+    mockVisit.mockImplementation((ast: any, cb: any) => {
       cb(fakeClassNode('ServiceImpl', { implements: [{ expression: exprNode }] }));
     });
     mockGetQualifiedName.mockReturnValue({ root: 'Service', parts: [], full: 'Service' });
@@ -73,7 +73,7 @@ describe('extractHeritage', () => {
   // HP — extends (imported)
   it('should set dstFilePath to imported module path when base class is an imported symbol', () => {
     const superClassNode = { type: 'Identifier', name: 'Base' };
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
+    mockVisit.mockImplementation((ast: any, cb: any) => {
       cb(fakeClassNode('Child', { superClass: superClassNode }));
     });
     mockGetQualifiedName.mockReturnValue({ root: 'Base', parts: [], full: 'Base' });
@@ -90,7 +90,7 @@ describe('extractHeritage', () => {
   // HP — implements (imported)
   it('should set dstFilePath to imported module path when implemented interface is an imported symbol', () => {
     const exprNode = { type: 'Identifier', name: 'IFoo' };
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
+    mockVisit.mockImplementation((ast: any, cb: any) => {
       cb(fakeClassNode('FooImpl', { implements: [{ expression: exprNode }] }));
     });
     mockGetQualifiedName.mockReturnValue({ root: 'IFoo', parts: [], full: 'IFoo' });
@@ -106,7 +106,7 @@ describe('extractHeritage', () => {
 
   // NE — no heritage
   it('should return empty array when class has no extends or implements clause', () => {
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
+    mockVisit.mockImplementation((ast: any, cb: any) => {
       cb(fakeClassNode('Plain'));
     });
 
@@ -128,7 +128,7 @@ describe('extractHeritage', () => {
     const exprA = { type: 'Identifier', name: 'A' };
     const exprB = { type: 'Identifier', name: 'B' };
     const exprC = { type: 'Identifier', name: 'C' };
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
+    mockVisit.mockImplementation((ast: any, cb: any) => {
       cb(fakeClassNode('Multi', {
         implements: [{ expression: exprA }, { expression: exprB }, { expression: exprC }],
       }));
@@ -147,7 +147,7 @@ describe('extractHeritage', () => {
   // namespace import
   it('should include {"isNamespaceImport":true} in metaJson when base class is accessed via namespace import', () => {
     const superClassNode = { type: 'MemberExpression', object: { type: 'Identifier', name: 'ns' }, property: { name: 'Base' } };
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
+    mockVisit.mockImplementation((ast: any, cb: any) => {
       cb(fakeClassNode('Child', { superClass: superClassNode }));
     });
     mockGetQualifiedName.mockReturnValue({ root: 'ns', parts: ['Base'], full: 'ns.Base' });
@@ -164,7 +164,7 @@ describe('extractHeritage', () => {
   // ID
   it('should return identical relations when called repeatedly with the same AST', () => {
     const superClassNode = { type: 'Identifier', name: 'A' };
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
+    mockVisit.mockImplementation((ast: any, cb: any) => {
       cb(fakeClassNode('B', { superClass: superClassNode }));
     });
     mockGetQualifiedName.mockReturnValue({ root: 'A', parts: [], full: 'A' });
@@ -173,5 +173,22 @@ describe('extractHeritage', () => {
     const r2 = extractHeritage({} as any, FILE, makeImportMap());
 
     expect(r1).toEqual(r2);
+  });
+
+  it('should produce extends relations when interface extends other interfaces', () => {
+    mockVisit.mockImplementation((ast: any, cb: any) => {
+      cb({
+        type: 'TSInterfaceDeclaration',
+        id: { name: 'Child' },
+        extends: [{ expression: { type: 'Identifier', name: 'Base' } }],
+      });
+    });
+    mockGetQualifiedName.mockReturnValue({ root: 'Base', parts: [], full: 'Base' });
+
+    const relations = extractHeritage({} as any, FILE, makeImportMap());
+    const rel = relations.find((r) => r.type === 'extends' && r.srcSymbolName === 'Child');
+
+    expect(rel).toBeDefined();
+    expect(rel?.dstSymbolName).toBe('Base');
   });
 });

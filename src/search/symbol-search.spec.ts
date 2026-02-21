@@ -32,7 +32,7 @@ let mockSearchByQuery: ReturnType<typeof mock>;
 let mockRepo: ISymbolRepo;
 
 beforeEach(() => {
-  mockSearchByQuery = mock((_opts: unknown) => [] as (SymbolRecord & { id: number })[]);
+  mockSearchByQuery = mock((opts: unknown) => [] as (SymbolRecord & { id: number })[]);
   mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
 });
 
@@ -41,7 +41,7 @@ beforeEach(() => {
 describe('symbolSearch', () => {
   // ── HP: text / FTS path ─────────────────────────────────────────────────
 
-  it('should pass ftsQuery "User*" to searchByQuery when text is "User"', () => {
+  it('should pass quoted FTS prefix query to searchByQuery when text is "User"', () => {
     // Arrange
     const query: SymbolSearchQuery = { text: 'User' };
     // Act
@@ -49,17 +49,27 @@ describe('symbolSearch', () => {
     // Assert
     expect(mockSearchByQuery).toHaveBeenCalledTimes(1);
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
-    expect(opts.ftsQuery).toBe('User*');
+    expect(opts.ftsQuery).toBe('"User"*');
   });
 
-  it('should pass ftsQuery "User* Service*" to searchByQuery when text is "User Service"', () => {
+  it('should pass quoted FTS prefix query for each token when text has multiple words', () => {
     // Arrange
     const query: SymbolSearchQuery = { text: 'User Service' };
     // Act
     symbolSearch({ symbolRepo: mockRepo, query });
     // Assert
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
-    expect(opts.ftsQuery).toBe('User* Service*');
+    expect(opts.ftsQuery).toBe('"User"* "Service"*');
+  });
+
+  it('should escape double quotes inside tokens when building ftsQuery', () => {
+    // Arrange
+    const query: SymbolSearchQuery = { text: 'A"B' };
+    // Act
+    symbolSearch({ symbolRepo: mockRepo, query });
+    // Assert
+    const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
+    expect(opts.ftsQuery).toBe('"A""B"*');
   });
 
   it('should call searchByQuery without ftsQuery when kind-only filter is given', () => {
@@ -213,7 +223,7 @@ describe('symbolSearch', () => {
 
   // ── HP: span mapping ─────────────────────────────────────────────────────
 
-  it('should map startLine/startColumn/endLine/endColumn to result.span correctly', () => {
+  it('should map startLine/startColumn/endLine/endColumn correctly when building result.span', () => {
     // Arrange
     mockSearchByQuery = mock(() => [
       makeSymbolRecord({ startLine: 10, startColumn: 2, endLine: 20, endColumn: 5 }),
@@ -244,7 +254,7 @@ describe('symbolSearch', () => {
     symbolSearch({ symbolRepo: mockRepo, query });
     // Assert
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
-    expect(opts.ftsQuery).toBe('fn*');
+    expect(opts.ftsQuery).toBe('"fn"*');
     expect(opts.kind).toBe('function');
     expect(opts.filePath).toBe('src/a.ts');
     expect(opts.isExported).toBe(true);
@@ -281,12 +291,14 @@ describe('symbolSearch', () => {
     expect(() => symbolSearch({ symbolRepo: mockRepo, query: {} })).toThrow('db error');
   });
 
-  it('should propagate error when detailJson is invalid JSON', () => {
+  it('should return detail:{} when detailJson is invalid JSON (safe parse)', () => {
     // Arrange
     mockSearchByQuery = mock(() => [makeSymbolRecord({ detailJson: '{invalid' })]);
     mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    // Act + Assert
-    expect(() => symbolSearch({ symbolRepo: mockRepo, query: {} })).toThrow();
+    // Act + Assert — SRC-3: JSON.parse is wrapped in try-catch; no throw, detail falls back to {}
+    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    expect(results).toHaveLength(1);
+    expect(results[0]!.detail).toEqual({});
   });
 
   it('should call searchByQuery without ftsQuery when text is empty string', () => {
@@ -311,27 +323,25 @@ describe('symbolSearch', () => {
 
   // ── ED: edge cases ────────────────────────────────────────────────────────
 
-  it('should produce ftsQuery "a*" when text is a single character "a"', () => {
+  it('should produce quoted ftsQuery when text is a single character "a"', () => {
     // Arrange
     const query: SymbolSearchQuery = { text: 'a' };
     // Act
     symbolSearch({ symbolRepo: mockRepo, query });
     // Assert
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
-    expect(opts.ftsQuery).toBe('a*');
+    expect(opts.ftsQuery).toBe('"a"*');
   });
 
-  it('should escape special FTS5 characters in text before appending *', () => {
-    // Arrange — text contains chars that must be escaped: "-*()"
+  it('should quote special FTS5 characters safely when escaping query terms', () => {
+    // Arrange
     const query: SymbolSearchQuery = { text: 'fn-auth' };
     // Act
     symbolSearch({ symbolRepo: mockRepo, query });
     // Assert
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     const ftsQuery = opts.ftsQuery as string;
-    // "-" should be escaped, and "*" appended at end
-    expect(ftsQuery).toContain('\\-');
-    expect(ftsQuery).toMatch(/\*$/);
+    expect(ftsQuery).toBe('"fn-auth"*');
   });
 
   // ── CO: corner cases ──────────────────────────────────────────────────────

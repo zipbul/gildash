@@ -12,7 +12,7 @@ const mockParseSync = mock(() => ({
 
 describe('parseSource', () => {
   // HP
-  it('should return a ParsedFile with the given filePath and sourceText', () => {
+  it('should return a ParsedFile when filePath and sourceText are provided', () => {
     // Arrange
     const filePath = '/project/src/index.ts';
     const sourceText = 'const x = 1;';
@@ -23,7 +23,7 @@ describe('parseSource', () => {
     expect(result.sourceText).toBe(sourceText);
   });
 
-  it('should return program from oxc-parser parseSync result', () => {
+  it('should return program when oxc-parser parseSync returns program', () => {
     const filePath = '/project/src/foo.ts';
     const sourceText = 'export const y = 2;';
     const result = parseSource(filePath, sourceText, mockParseSync);
@@ -31,17 +31,17 @@ describe('parseSource', () => {
     expect(result.program.type).toBe('Program');
   });
 
-  it('should return errors array from parseSync result', () => {
+  it('should return errors array when parseSync provides errors', () => {
     const result = parseSource('/project/a.ts', '', mockParseSync);
     expect(Array.isArray(result.errors)).toBe(true);
   });
 
-  it('should return comments array from parseSync result', () => {
+  it('should return comments array when parseSync provides comments', () => {
     const result = parseSource('/project/a.ts', '', mockParseSync);
     expect(Array.isArray(result.comments)).toBe(true);
   });
 
-  it('should pass filePath and sourceText to oxc-parser parseSync', () => {
+  it('should pass filePath and sourceText when delegating to oxc-parser parseSync', () => {
     // Arrange
     mockParseSync.mockClear();
     const filePath = '/project/src/bar.ts';
@@ -62,7 +62,7 @@ describe('parseSource', () => {
     expect(() => parseSource('/project/crash.ts', 'bad source', mockParseSync)).toThrow(ParseError);
   });
 
-  it('should preserve original error as cause inside thrown ParseError', () => {
+  it('should preserve original error as cause when ParseError is thrown', () => {
     const cause = new Error('crash');
     mockParseSync.mockImplementationOnce(() => { throw cause; });
     let thrown: unknown;
@@ -75,7 +75,7 @@ describe('parseSource', () => {
   });
 
   // ED — empty string
-  it('should handle empty sourceText without throwing', () => {
+  it('should handle empty sourceText when parseSource is called', () => {
     expect(() => parseSource('/project/empty.ts', '', mockParseSync)).not.toThrow();
   });
 

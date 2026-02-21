@@ -18,7 +18,7 @@ export interface DetectChangesResult {
 }
 
 interface FileRepoPart {
-  getFilesMap(...args: any[]): Map<string, { filePath: string; mtimeMs: number; size: number; contentHash: string }>;
+  getFilesMap(): Map<string, { filePath: string; mtimeMs: number; size: number; contentHash: string }>;
 }
 
 export interface DetectChangesOptions {

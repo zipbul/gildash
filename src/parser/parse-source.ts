@@ -19,7 +19,7 @@ export function parseSource(
 ): ParsedFile {
   try {
     const { program, errors, comments } = parseSyncFn(filePath, sourceText);
-    return { filePath, program: program as any, errors, comments, sourceText };
+    return { filePath, program: program as ParsedFile['program'], errors, comments, sourceText };
   } catch (err) {
     throw new ParseError(`Failed to parse file: ${filePath}`, { cause: err });
   }

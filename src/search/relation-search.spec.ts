@@ -25,7 +25,7 @@ let mockSearchRelations: ReturnType<typeof mock>;
 let mockRepo: IRelationRepo;
 
 beforeEach(() => {
-  mockSearchRelations = mock((_opts: unknown) => [] as RelationRecord[]);
+  mockSearchRelations = mock((opts: unknown) => [] as RelationRecord[]);
   mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
 });
 
@@ -96,7 +96,7 @@ describe('relationSearch', () => {
     expect(opts.project).toBe('p1');
   });
 
-  it('should use query.project as effectiveProject and override options.project', () => {
+  it('should use query.project as effectiveProject when options.project is also provided', () => {
     // Arrange
     const query: RelationSearchQuery = { project: 'p2' };
     // Act
@@ -248,7 +248,7 @@ describe('relationSearch', () => {
 
   // ── ED: edge case ─────────────────────────────────────────────────────────
 
-  it('should map a single RelationRecord to a single CodeRelation correctly', () => {
+  it('should map a single RelationRecord correctly when building CodeRelation', () => {
     // Arrange
     mockSearchRelations = mock(() => [
       makeRelationRecord({

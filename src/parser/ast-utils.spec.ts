@@ -15,23 +15,23 @@ import {
 // isNode
 // ============================================================
 describe('isNode', () => {
-  it('should return true for a plain object', () => {
+  it('should return true when input is a plain object', () => {
     expect(isNode({ type: 'Identifier' })).toBe(true);
   });
 
-  it('should return false for null', () => {
+  it('should return false when input is null', () => {
     expect(isNode(null)).toBe(false);
   });
 
-  it('should return false for an array', () => {
+  it('should return false when input is an array', () => {
     expect(isNode([1, 2])).toBe(false);
   });
 
-  it('should return false for a primitive string', () => {
+  it('should return false when input is a primitive string', () => {
     expect(isNode('hello')).toBe(false);
   });
 
-  it('should return false for undefined', () => {
+  it('should return false when input is undefined', () => {
     expect(isNode(undefined)).toBe(false);
   });
 });
@@ -40,23 +40,23 @@ describe('isNode', () => {
 // isNodeArray
 // ============================================================
 describe('isNodeArray', () => {
-  it('should return true for an array', () => {
+  it('should return true when input is an array', () => {
     expect(isNodeArray([])).toBe(true);
   });
 
-  it('should return true for a non-empty array', () => {
+  it('should return true when input is a non-empty array', () => {
     expect(isNodeArray([{ type: 'Identifier' }])).toBe(true);
   });
 
-  it('should return false for a plain object', () => {
+  it('should return false when input is a plain object', () => {
     expect(isNodeArray({ length: 0 })).toBe(false);
   });
 
-  it('should return false for null', () => {
+  it('should return false when input is null', () => {
     expect(isNodeArray(null)).toBe(false);
   });
 
-  it('should return false for a string', () => {
+  it('should return false when input is a string', () => {
     expect(isNodeArray('hello')).toBe(false);
   });
 });
@@ -65,14 +65,14 @@ describe('isNodeArray', () => {
 // visit
 // ============================================================
 describe('visit', () => {
-  it('should call callback for a single root node', () => {
+  it('should call callback when visit is called with a single root node', () => {
     const visited: string[] = [];
     const node = { type: 'Identifier', name: 'x' };
     visit(node, (n) => visited.push(n.type as string));
     expect(visited).toContain('Identifier');
   });
 
-  it('should visit nested child nodes recursively', () => {
+  it('should visit nested child nodes recursively when child object nodes exist', () => {
     const visited: string[] = [];
     const node = {
       type: 'ExpressionStatement',
@@ -83,7 +83,7 @@ describe('visit', () => {
     expect(visited).toContain('Identifier');
   });
 
-  it('should visit nodes inside an array child', () => {
+  it('should visit nodes inside an array child when array node children exist', () => {
     const visited: string[] = [];
     const node = {
       type: 'Program',
@@ -96,12 +96,12 @@ describe('visit', () => {
     expect(visited).toContain('Identifier');
   });
 
-  it('should not crash on null or falsy node', () => {
+  it('should not crash when node is null or falsy', () => {
     expect(() => visit(null, () => {})).not.toThrow();
     expect(() => visit(undefined, () => {})).not.toThrow();
   });
 
-  it('should skip loc, start, end, scope keys', () => {
+  it('should skip loc, start, end, scope keys when cloning node', () => {
     const visited: Record<string, unknown>[] = [];
     const node = {
       type: 'Identifier',
@@ -117,7 +117,7 @@ describe('visit', () => {
     expect(types).not.toContain('ScopeNode');
   });
 
-  it('should call callback before recursing (pre-order)', () => {
+  it('should call callback before recursing when visit traverses parent-child nodes', () => {
     const order: string[] = [];
     const node = {
       type: 'Parent',
@@ -133,7 +133,7 @@ describe('visit', () => {
 // collectNodes
 // ============================================================
 describe('collectNodes', () => {
-  it('should collect nodes matching the predicate', () => {
+  it('should collect nodes when predicate matches node type', () => {
     const tree = {
       type: 'Program',
       body: [
@@ -143,7 +143,7 @@ describe('collectNodes', () => {
     };
     const result = collectNodes(tree, (n) => n.type === 'FunctionDeclaration');
     expect(result.length).toBe(1);
-    expect(result[0].type).toBe('FunctionDeclaration');
+    expect(result[0]!.type).toBe('FunctionDeclaration');
   });
 
   it('should return empty array when no nodes match', () => {
@@ -152,7 +152,7 @@ describe('collectNodes', () => {
     expect(result).toEqual([]);
   });
 
-  it('should collect deeply nested nodes', () => {
+  it('should collect deeply nested nodes when nested children match predicate', () => {
     const tree = {
       type: 'Program',
       body: [
@@ -174,12 +174,12 @@ describe('collectNodes', () => {
 // getNodeHeader
 // ============================================================
 describe('getNodeHeader', () => {
-  it('should return node.id.name for a FunctionDeclaration-like node', () => {
+  it('should return node.id.name when node is FunctionDeclaration-like', () => {
     const node = { type: 'FunctionDeclaration', id: { name: 'myFunc' } };
     expect(getNodeHeader(node)).toBe('myFunc');
   });
 
-  it('should return node.key.name for a MethodDefinition-like node', () => {
+  it('should return node.key.name when node is MethodDefinition-like', () => {
     const node = { type: 'MethodDefinition', key: { name: 'render' } };
     expect(getNodeHeader(node)).toBe('render');
   });
@@ -195,7 +195,7 @@ describe('getNodeHeader', () => {
     expect(getNodeHeader(node)).toBe('anonymous');
   });
 
-  it('should handle string literal key (computed property name)', () => {
+  it('should handle string literal key when method key is computed string literal', () => {
     const node = { type: 'MethodDefinition', key: { type: 'StringLiteral', value: 'myMethod' } };
     expect(getNodeHeader(node)).toBe('myMethod');
   });
@@ -218,23 +218,23 @@ describe('getNodeHeader', () => {
 // isFunctionNode
 // ============================================================
 describe('isFunctionNode', () => {
-  it('should return true for FunctionDeclaration', () => {
+  it('should return true when node type is FunctionDeclaration', () => {
     expect(isFunctionNode({ type: 'FunctionDeclaration' })).toBe(true);
   });
 
-  it('should return true for FunctionExpression', () => {
+  it('should return true when node type is FunctionExpression', () => {
     expect(isFunctionNode({ type: 'FunctionExpression' })).toBe(true);
   });
 
-  it('should return true for ArrowFunctionExpression', () => {
+  it('should return true when node type is ArrowFunctionExpression', () => {
     expect(isFunctionNode({ type: 'ArrowFunctionExpression' })).toBe(true);
   });
 
-  it('should return false for ClassDeclaration', () => {
+  it('should return false when node type is ClassDeclaration', () => {
     expect(isFunctionNode({ type: 'ClassDeclaration' })).toBe(false);
   });
 
-  it('should return false for Identifier', () => {
+  it('should return false when node type is Identifier', () => {
     expect(isFunctionNode({ type: 'Identifier' })).toBe(false);
   });
 });
@@ -243,20 +243,20 @@ describe('isFunctionNode', () => {
 // getNodeName
 // ============================================================
 describe('getNodeName', () => {
-  it('should return the name string if the node has a string name property', () => {
+  it('should return the name string when node has a string name property', () => {
     expect(getNodeName({ type: 'Identifier', name: 'foo' })).toBe('foo');
   });
 
-  it('should return null if the node has no name property', () => {
+  it('should return null when node has no name property', () => {
     expect(getNodeName({ type: 'Program' })).toBeNull();
   });
 
-  it('should return null for non-object input', () => {
+  it('should return null when input is non-object', () => {
     expect(getNodeName(42)).toBeNull();
     expect(getNodeName(null)).toBeNull();
   });
 
-  it('should return null if name property is not a string', () => {
+  it('should return null when name property is not a string', () => {
     expect(getNodeName({ name: 123 })).toBeNull();
   });
 });
@@ -265,23 +265,23 @@ describe('getNodeName', () => {
 // getStringLiteralValue
 // ============================================================
 describe('getStringLiteralValue', () => {
-  it('should return value for StringLiteral node', () => {
+  it('should return value when node is StringLiteral', () => {
     expect(getStringLiteralValue({ type: 'StringLiteral', value: 'hello' })).toBe('hello');
   });
 
-  it('should return value for Literal node with string value', () => {
+  it('should return value when node is Literal with string value', () => {
     expect(getStringLiteralValue({ type: 'Literal', value: 'world' })).toBe('world');
   });
 
-  it('should return null for Literal node with numeric value', () => {
+  it('should return null when node is Literal with numeric value', () => {
     expect(getStringLiteralValue({ type: 'Literal', value: 42 })).toBeNull();
   });
 
-  it('should return null for Identifier node', () => {
+  it('should return null when node is Identifier', () => {
     expect(getStringLiteralValue({ type: 'Identifier', name: 'x' })).toBeNull();
   });
 
-  it('should return null for non-object input', () => {
+  it('should return null when non-object input is provided', () => {
     expect(getStringLiteralValue(null)).toBeNull();
     expect(getStringLiteralValue('raw string')).toBeNull();
   });
@@ -291,25 +291,25 @@ describe('getStringLiteralValue', () => {
 // getQualifiedName
 // ============================================================
 describe('getQualifiedName', () => {
-  it('should return { root, parts: [], full } for an Identifier', () => {
+  it('should return { root, parts: [], full } when node is Identifier', () => {
     const node = { type: 'Identifier', name: 'foo' };
     const result = getQualifiedName(node);
     expect(result).toEqual({ root: 'foo', parts: [], full: 'foo' });
   });
 
-  it('should return root "this" for ThisExpression', () => {
+  it('should return root "this" when node is ThisExpression', () => {
     const node = { type: 'ThisExpression' };
     const result = getQualifiedName(node);
     expect(result).toEqual({ root: 'this', parts: [], full: 'this' });
   });
 
-  it('should return root "super" for Super', () => {
+  it('should return root "super" when node is Super', () => {
     const node = { type: 'Super' };
     const result = getQualifiedName(node);
     expect(result).toEqual({ root: 'super', parts: [], full: 'super' });
   });
 
-  it('should resolve a simple MemberExpression (a.b)', () => {
+  it('should resolve a simple MemberExpression when node is a.b', () => {
     const node = {
       type: 'MemberExpression',
       object: { type: 'Identifier', name: 'a' },
@@ -320,7 +320,7 @@ describe('getQualifiedName', () => {
     expect(result).toEqual({ root: 'a', parts: ['b'], full: 'a.b' });
   });
 
-  it('should resolve a nested MemberExpression (a.b.c)', () => {
+  it('should resolve a nested MemberExpression when node is a.b.c', () => {
     const node = {
       type: 'MemberExpression',
       object: {
@@ -336,16 +336,16 @@ describe('getQualifiedName', () => {
     expect(result).toEqual({ root: 'a', parts: ['b', 'c'], full: 'a.b.c' });
   });
 
-  it('should return null for a CallExpression', () => {
+  it('should return null when node is CallExpression', () => {
     const node = { type: 'CallExpression', callee: { type: 'Identifier', name: 'foo' } };
     expect(getQualifiedName(node)).toBeNull();
   });
 
-  it('should return null for null input', () => {
+  it('should return null when input is null', () => {
     expect(getQualifiedName(null)).toBeNull();
   });
 
-  it('should resolve this.method (ThisExpression + MemberExpression)', () => {
+  it('should resolve this.method when node combines ThisExpression and MemberExpression', () => {
     const node = {
       type: 'MemberExpression',
       object: { type: 'ThisExpression' },
@@ -357,7 +357,7 @@ describe('getQualifiedName', () => {
   });
 
   // super.method — G13
-  it('should resolve super.method (Super root + MemberExpression)', () => {
+  it('should resolve super.method when node combines Super and MemberExpression', () => {
     const node = {
       type: 'MemberExpression',
       object: { type: 'Super' },

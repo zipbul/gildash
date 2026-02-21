@@ -67,7 +67,7 @@ describe("foundation integration", () => {
     let capturedCallback: ((error: Error | null, events: Array<{ type: string; path: string }>) => void) | undefined;
 
     const fakeSubscribe = async (
-      _dir: string,
+      dir: string,
       cb: (error: Error | null, events: Array<{ type: string; path: string }>) => void,
     ) => {
       capturedCallback = cb;

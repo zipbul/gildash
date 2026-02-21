@@ -14,7 +14,7 @@ function makeParsedFile(filePath: string): ParsedFile {
 
 describe('ParseCache', () => {
   // HP
-  it('should store and retrieve a ParsedFile by filePath', () => {
+  it('should store and retrieve a ParsedFile when filePath is used as key', () => {
     // Arrange
     const cache = new ParseCache(10);
     const file = makeParsedFile('/project/a.ts');
@@ -25,7 +25,7 @@ describe('ParseCache', () => {
     expect(result).toBe(file);
   });
 
-  it('should return undefined for a filePath that was never set', () => {
+  it('should return undefined when filePath was never set', () => {
     const cache = new ParseCache(10);
     expect(cache.get('/project/nonexistent.ts')).toBeUndefined();
   });
@@ -35,13 +35,13 @@ describe('ParseCache', () => {
     expect(cache.size()).toBe(0);
   });
 
-  it('should increment size after set', () => {
+  it('should increment size when set is called', () => {
     const cache = new ParseCache(10);
     cache.set('/project/a.ts', makeParsedFile('/project/a.ts'));
     expect(cache.size()).toBe(1);
   });
 
-  it('should overwrite existing entry on duplicate set', () => {
+  it('should overwrite existing entry when set is called with duplicate key', () => {
     const cache = new ParseCache(10);
     const first = makeParsedFile('/project/a.ts');
     const second = makeParsedFile('/project/a.ts');
@@ -52,7 +52,7 @@ describe('ParseCache', () => {
   });
 
   // NE — invalidate
-  it('should return undefined after invalidate', () => {
+  it('should return undefined when entry is invalidated', () => {
     const cache = new ParseCache(10);
     cache.set('/project/a.ts', makeParsedFile('/project/a.ts'));
     cache.invalidate('/project/a.ts');
@@ -65,7 +65,7 @@ describe('ParseCache', () => {
   });
 
   // NE — invalidateAll
-  it('should clear all entries on invalidateAll', () => {
+  it('should clear all entries when invalidateAll is called', () => {
     const cache = new ParseCache(10);
     cache.set('/project/a.ts', makeParsedFile('/project/a.ts'));
     cache.set('/project/b.ts', makeParsedFile('/project/b.ts'));
@@ -92,7 +92,7 @@ describe('ParseCache', () => {
     expect(cache.get('/project/c.ts')).toBe(c);
   });
 
-  it('should handle capacity of 1 by only retaining the most recent entry', () => {
+  it('should retain only the most recent entry when capacity is 1', () => {
     const cache = new ParseCache(1);
     const a = makeParsedFile('/project/a.ts');
     const b = makeParsedFile('/project/b.ts');
@@ -103,7 +103,7 @@ describe('ParseCache', () => {
   });
 
   // ST
-  it('should allow re-insertion after invalidation', () => {
+  it('should allow re-insertion when entry is invalidated first', () => {
     const cache = new ParseCache(10);
     const original = makeParsedFile('/project/a.ts');
     cache.set('/project/a.ts', original);
@@ -113,7 +113,7 @@ describe('ParseCache', () => {
     expect(cache.get('/project/a.ts')).toBe(updated);
   });
 
-  it('should allow re-use after invalidateAll', () => {
+  it('should allow re-use when cache was reset with invalidateAll', () => {
     const cache = new ParseCache(10);
     cache.set('/project/a.ts', makeParsedFile('/project/a.ts'));
     cache.invalidateAll();
@@ -124,7 +124,7 @@ describe('ParseCache', () => {
   });
 
   // ID
-  it('should return the same value on repeated get calls', () => {
+  it('should return the same value when get is called repeatedly', () => {
     const cache = new ParseCache(10);
     const file = makeParsedFile('/project/a.ts');
     cache.set('/project/a.ts', file);

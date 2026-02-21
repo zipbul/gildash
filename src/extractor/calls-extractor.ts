@@ -20,7 +20,7 @@ export function extractCalls(
   const classStack: string[] = [];
 
   function currentCaller(): string | null {
-    if (functionStack.length > 0) return functionStack[functionStack.length - 1];
+    if (functionStack.length > 0) return functionStack[functionStack.length - 1] ?? null;
     return null;
   }
 
@@ -41,14 +41,14 @@ export function extractCalls(
       // Has parts
       if (ref && ref.importedName === '*') {
         // Namespace import: utils.format() → dstFile = utils module, dstSymbol = last part
-        const dstSymbolName = qn.parts[qn.parts.length - 1];
+        const dstSymbolName = qn.parts[qn.parts.length - 1]!;
         return { dstFilePath: ref.path, dstSymbolName, resolution: 'namespace' };
       }
       return { dstFilePath: filePath, dstSymbolName: qn.full, resolution: 'local-member' };
     }
   }
 
-  function walk(node: any): void {
+  function walk(node: unknown): void {
     if (!node || typeof node !== 'object') return;
 
     if (Array.isArray(node)) {
@@ -56,53 +56,62 @@ export function extractCalls(
       return;
     }
 
-    const type: string = node.type ?? '';
+    const record = node as Record<string, unknown>;
+    const type: string = typeof record.type === 'string' ? record.type : '';
 
     if (type === 'ClassDeclaration' || type === 'ClassExpression') {
-      const className: string = node.id?.name ?? 'AnonymousClass';
+      const classNode = record as { id?: { name?: string }; body?: unknown };
+      const className: string = classNode.id?.name ?? 'AnonymousClass';
       classStack.push(className);
-      walk(node.body);
+      walk(classNode.body);
       classStack.pop();
       return;
     }
 
     if (type === 'FunctionDeclaration') {
-      const name: string = node.id?.name ?? 'anonymous';
+      const functionNode = record as { id?: { name?: string }; body?: unknown };
+      const name: string = functionNode.id?.name ?? 'anonymous';
       functionStack.push(name);
-      walk(node.body);
+      walk(functionNode.body);
       functionStack.pop();
       return;
     }
 
-    if (type === 'VariableDeclarator' && node.init && (
-      node.init.type === 'FunctionExpression' ||
-      node.init.type === 'ArrowFunctionExpression'
+    if (type === 'VariableDeclarator' && (record as { init?: { type?: string } }).init && (
+      (record as { init?: { type?: string } }).init?.type === 'FunctionExpression' ||
+      (record as { init?: { type?: string } }).init?.type === 'ArrowFunctionExpression'
     )) {
-      const name: string = node.id?.name ?? 'anonymous';
+      const declarator = record as { id?: { name?: string }; init?: { body?: unknown } };
+      const name: string = declarator.id?.name ?? 'anonymous';
       functionStack.push(name);
-      walk(node.init.body ?? node.init);
+      walk(declarator.init?.body ?? declarator.init);
       functionStack.pop();
       return;
     }
 
-    if (type === 'MethodDefinition' && node.value) {
+    if (type === 'MethodDefinition' && (record as { value?: unknown }).value) {
+      const method = record as { key?: { name?: string }; value?: { body?: unknown } };
       const className = classStack[classStack.length - 1] ?? '';
-      const methodName: string = node.key?.name ?? 'anonymous';
+      const methodName: string = method.key?.name ?? 'anonymous';
       const fullName = className ? `${className}.${methodName}` : methodName;
       functionStack.push(fullName);
-      walk(node.value.body);
+      walk(method.value?.body);
       functionStack.pop();
       return;
     }
 
     if (type === 'FunctionExpression' || type === 'ArrowFunctionExpression') {
-      // Anonymous function — don't push new name, just walk body
-      walk(node.body);
+      const parentCaller = currentCaller();
+      const anonymousName = parentCaller ? `${parentCaller}.<anonymous>` : '<anonymous>';
+      functionStack.push(anonymousName);
+      walk((record as { body?: unknown }).body);
+      functionStack.pop();
       return;
     }
 
     if (type === 'CallExpression') {
-      const qn = getQualifiedName(node.callee);
+      const call = record as { callee?: unknown; arguments?: unknown[] };
+      const qn = getQualifiedName(call.callee);
       const dst = resolveCallee(qn);
       if (dst) {
         const srcSymbolName = currentCaller();
@@ -118,13 +127,15 @@ export function extractCalls(
           ...(Object.keys(meta).length > 0 ? { metaJson: JSON.stringify(meta) } : {}),
         });
       }
+      walk(call.callee);
       // Also walk arguments
-      for (const arg of node.arguments ?? []) walk(arg);
+      for (const arg of call.arguments ?? []) walk(arg);
       return;
     }
 
     if (type === 'NewExpression') {
-      const qn = getQualifiedName(node.callee);
+      const ctorCall = record as { callee?: unknown; arguments?: unknown[] };
+      const qn = getQualifiedName(ctorCall.callee);
       const dst = resolveCallee(qn);
       if (dst) {
         const srcSymbolName = currentCaller();
@@ -140,20 +151,20 @@ export function extractCalls(
           metaJson: JSON.stringify(meta),
         });
       }
-      for (const arg of node.arguments ?? []) walk(arg);
+      for (const arg of ctorCall.arguments ?? []) walk(arg);
       return;
     }
 
     // Generic: recurse into all object children (skip irrelevant keys)
-    for (const key of Object.keys(node)) {
+    for (const key of Object.keys(record)) {
       if (key === 'loc' || key === 'start' || key === 'end' || key === 'scope') continue;
-      const child = node[key];
+      const child = record[key];
       if (child && typeof child === 'object') {
         walk(child);
       }
     }
   }
 
-  walk(ast as any);
+  walk(ast);
   return relations;
 }

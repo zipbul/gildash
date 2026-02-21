@@ -1,7 +1,12 @@
-import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
-import type { AsyncSubscription, SubscribeCallback, SubscribeOptions } from "@parcel/watcher";
+import { afterEach, describe, expect, it, mock, spyOn, type Mock } from "bun:test";
+import type { AsyncSubscription, SubscribeCallback } from "@parcel/watcher";
+import { subscribe as parcelSubscribe } from "@parcel/watcher";
 import { ProjectWatcher } from "./project-watcher";
 import { WatcherError } from "../errors";
+
+// Derive SubscribeOptions from the subscribe function signature since
+// @parcel/watcher does not directly export this type.
+type SubscribeOptions = NonNullable<Parameters<typeof parcelSubscribe>[2]>;
 
 function createFakeSubscription(): AsyncSubscription {
   return {
@@ -9,15 +14,23 @@ function createFakeSubscription(): AsyncSubscription {
   };
 }
 
+
 describe("ProjectWatcher", () => {
+  let errorSpy: Mock<typeof console.error> | undefined;
+
+  afterEach(() => {
+    errorSpy?.mockRestore();
+    errorSpy = undefined;
+  });
+
   it("should map raw update event to change when subscribed event is valid source file", async () => {
     const events: Array<{ eventType: string; filePath: string }> = [];
 
     let callback: SubscribeCallback | undefined;
     const subscribe = async (
-      _path: string,
+      path: string,
       cb: SubscribeCallback,
-      _opts?: SubscribeOptions,
+      opts?: SubscribeOptions,
     ): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
@@ -35,7 +48,7 @@ describe("ProjectWatcher", () => {
       events.push(event);
     });
 
-    callback?.(undefined, [{ type: "update", path: "/repo/src/main.ts" }]);
+    callback?.(null, [{ type: "update", path: "/repo/src/main.ts" }]);
 
     expect(events).toEqual([{ eventType: "change", filePath: "src/main.ts" }]);
   });
@@ -44,7 +57,7 @@ describe("ProjectWatcher", () => {
     const events: Array<{ eventType: string; filePath: string }> = [];
 
     let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
+    const subscribe = async (path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
     };
@@ -61,7 +74,7 @@ describe("ProjectWatcher", () => {
       events.push(event);
     });
 
-    callback?.(undefined, [{ type: "create", path: "/other/outside.ts" }]);
+    callback?.(null, [{ type: "create", path: "/other/outside.ts" }]);
 
     expect(events).toEqual([]);
   });
@@ -89,7 +102,7 @@ describe("ProjectWatcher", () => {
     const events: Array<{ eventType: string; filePath: string }> = [];
 
     let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
+    const subscribe = async (path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
     };
@@ -97,7 +110,7 @@ describe("ProjectWatcher", () => {
     const watcher = new ProjectWatcher({ projectRoot: "/repo", extensions: [".ts"] }, subscribe);
     await watcher.start((event) => events.push(event));
 
-    callback?.(undefined, [
+    callback?.(null, [
       { type: "create", path: "/repo/src/new.ts" },
       { type: "delete", path: "/repo/src/old.ts" },
     ]);
@@ -112,7 +125,7 @@ describe("ProjectWatcher", () => {
     const events: Array<{ eventType: string; filePath: string }> = [];
 
     let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
+    const subscribe = async (path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
     };
@@ -120,7 +133,7 @@ describe("ProjectWatcher", () => {
     const watcher = new ProjectWatcher({ projectRoot: "/repo", extensions: [".ts"] }, subscribe);
     await watcher.start((event) => events.push(event));
 
-    callback?.(undefined, [{ type: "update", path: "/repo/src/types.d.ts" }]);
+    callback?.(null, [{ type: "update", path: "/repo/src/types.d.ts" }]);
 
     expect(events).toEqual([]);
   });
@@ -129,7 +142,7 @@ describe("ProjectWatcher", () => {
     const events: Array<{ eventType: string; filePath: string }> = [];
 
     let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
+    const subscribe = async (path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
     };
@@ -137,7 +150,7 @@ describe("ProjectWatcher", () => {
     const watcher = new ProjectWatcher({ projectRoot: "/repo", extensions: [".ts"] }, subscribe);
     await watcher.start((event) => events.push(event));
 
-    callback?.(undefined, [{ type: "update", path: "/repo/apps/web/package.json" }]);
+    callback?.(null, [{ type: "update", path: "/repo/apps/web/package.json" }]);
 
     expect(events).toEqual([{ eventType: "change", filePath: "apps/web/package.json" }]);
   });
@@ -146,7 +159,7 @@ describe("ProjectWatcher", () => {
     const events: Array<{ eventType: string; filePath: string }> = [];
 
     let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
+    const subscribe = async (path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
     };
@@ -154,12 +167,12 @@ describe("ProjectWatcher", () => {
     const watcher = new ProjectWatcher({ projectRoot: "/repo", extensions: [".ts"] }, subscribe);
     await watcher.start((event) => events.push(event));
 
-    callback?.(undefined, [{ type: "update", path: "/repo/assets/logo.svg" }]);
+    callback?.(null, [{ type: "update", path: "/repo/assets/logo.svg" }]);
 
     expect(events).toEqual([]);
   });
 
-  it("should wrap watcher subscribe error when start fails", async () => {
+  it("should wrap watcher subscribe error when subscribe throws during start", async () => {
     const subscribe = async (): Promise<AsyncSubscription> => {
       throw new Error("subscription failed");
     };
@@ -170,16 +183,10 @@ describe("ProjectWatcher", () => {
   });
 
   it("should log watcher callback error when callback receives error as first argument", async () => {
-    const errors: Error[] = [];
-    const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-      const first = args[0];
-      if (first instanceof Error) {
-        errors.push(first);
-      }
-    });
+    errorSpy = spyOn(console, "error").mockImplementation(() => {});
 
     let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
+    const subscribe = async (path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
     };
@@ -187,27 +194,18 @@ describe("ProjectWatcher", () => {
     const watcher = new ProjectWatcher({ projectRoot: "/repo", extensions: [".ts"] }, subscribe);
     await watcher.start(() => {});
 
-    try {
-      callback?.(new Error("watch callback failed"), []);
-    } finally {
-      errorSpy.mockRestore();
-    }
+    callback?.(new Error("watch callback failed"), []);
 
-    expect(errors.length).toBe(1);
-    expect(errors[0]).toBeInstanceOf(WatcherError);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const firstArg = errorSpy.mock.calls[0]?.[0];
+    expect(firstArg).toBeInstanceOf(WatcherError);
   });
 
   it("should log watcher callback error when onChange throws", async () => {
-    const errors: Error[] = [];
-    const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-      const first = args[0];
-      if (first instanceof Error) {
-        errors.push(first);
-      }
-    });
+    errorSpy = spyOn(console, "error").mockImplementation(() => {});
 
     let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
+    const subscribe = async (path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
     };
@@ -217,21 +215,18 @@ describe("ProjectWatcher", () => {
       throw new Error("consumer failed");
     });
 
-    try {
-      callback?.(undefined, [{ type: "update", path: "/repo/src/main.ts" }]);
-    } finally {
-      errorSpy.mockRestore();
-    }
+    callback?.(null, [{ type: "update", path: "/repo/src/main.ts" }]);
 
-    expect(errors.length).toBe(1);
-    expect(errors[0]).toBeInstanceOf(WatcherError);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const firstArg = errorSpy.mock.calls[0]?.[0];
+    expect(firstArg).toBeInstanceOf(WatcherError);
   });
 
   it("should treat extension match as case-insensitive when configured extension is lowercase", async () => {
     const events: Array<{ eventType: string; filePath: string }> = [];
 
     let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
+    const subscribe = async (path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
     };
@@ -239,7 +234,7 @@ describe("ProjectWatcher", () => {
     const watcher = new ProjectWatcher({ projectRoot: "/repo", extensions: [".ts"] }, subscribe);
     await watcher.start((event) => events.push(event));
 
-    callback?.(undefined, [{ type: "update", path: "/repo/src/MAIN.TS" }]);
+    callback?.(null, [{ type: "update", path: "/repo/src/MAIN.TS" }]);
 
     expect(events).toEqual([{ eventType: "change", filePath: "src/MAIN.TS" }]);
   });
@@ -252,7 +247,7 @@ describe("ProjectWatcher", () => {
     await expect(watcher.close()).resolves.toBeUndefined();
   });
 
-  it("should throw WatcherError when close fails to unsubscribe", async () => {
+  it("should throw WatcherError when unsubscribe throws during close", async () => {
     const subscribe = async (): Promise<AsyncSubscription> => ({
       unsubscribe: async () => {
         throw new Error("unsubscribe failed");
@@ -269,7 +264,7 @@ describe("ProjectWatcher", () => {
     const events: Array<{ eventType: string; filePath: string }> = [];
 
     let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
+    const subscribe = async (path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
     };
@@ -277,16 +272,16 @@ describe("ProjectWatcher", () => {
     const watcher = new ProjectWatcher({ projectRoot: "/repo", extensions: [".ts"] }, subscribe);
     await watcher.start((event) => events.push(event));
 
-    callback?.(undefined, [{ type: "update", path: "/repo/tsconfig.json" }]);
+    callback?.(null, [{ type: "update", path: "/repo/tsconfig.json" }]);
 
     expect(events).toEqual([{ eventType: "change", filePath: "tsconfig.json" }]);
   });
 
-  it("should ignore jsconfig json since JSX/JS config is not supported", async () => {
+  it("should ignore jsconfig json when callback receives jsconfig path", async () => {
     const events: Array<{ eventType: string; filePath: string }> = [];
 
     let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
+    const subscribe = async (path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
     };
@@ -294,16 +289,16 @@ describe("ProjectWatcher", () => {
     const watcher = new ProjectWatcher({ projectRoot: "/repo", extensions: [".ts"] }, subscribe);
     await watcher.start((event) => events.push(event));
 
-    callback?.(undefined, [{ type: "update", path: "/repo/jsconfig.json" }]);
+    callback?.(null, [{ type: "update", path: "/repo/jsconfig.json" }]);
 
     expect(events).toEqual([]);
   });
 
-  it("should include additional ignore patterns when ignorePatterns option is provided", async () => {
+  it("should include additional ignore patterns when ignorePatterns option is provided on construction", async () => {
     let capturedOptions: SubscribeOptions | undefined;
     const subscribe = async (
-      _path: string,
-      _cb: SubscribeCallback,
+      path: string,
+      cb: SubscribeCallback,
       opts?: SubscribeOptions,
     ): Promise<AsyncSubscription> => {
       capturedOptions = opts;
@@ -323,7 +318,7 @@ describe("ProjectWatcher", () => {
     const events: Array<{ eventType: string; filePath: string }> = [];
 
     let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
+    const subscribe = async (path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
     };
@@ -331,7 +326,7 @@ describe("ProjectWatcher", () => {
     const watcher = new ProjectWatcher({ projectRoot: "/repo" }, subscribe);
     await watcher.start((event) => events.push(event));
 
-    callback?.(undefined, [{ type: "create", path: "/repo/src/module.mts" }]);
+    callback?.(null, [{ type: "create", path: "/repo/src/module.mts" }]);
 
     expect(events).toEqual([{ eventType: "create", filePath: "src/module.mts" }]);
   });
@@ -340,7 +335,7 @@ describe("ProjectWatcher", () => {
     const events: Array<{ eventType: string; filePath: string }> = [];
 
     let callback: SubscribeCallback | undefined;
-    const subscribe = async (_path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
+    const subscribe = async (path: string, cb: SubscribeCallback): Promise<AsyncSubscription> => {
       callback = cb;
       return createFakeSubscription();
     };
@@ -348,7 +343,7 @@ describe("ProjectWatcher", () => {
     const watcher = new ProjectWatcher({ projectRoot: "/repo", extensions: [".ts"] }, subscribe);
     await watcher.start((event) => events.push(event));
 
-    callback?.(undefined, [
+    callback?.(null, [
       { type: "create", path: "/repo/src/a.ts" },
       { type: "update", path: "/repo/src/b.ts" },
       { type: "delete", path: "/repo/src/c.ts" },

@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { ParsedFile } from '../parser/types';
 
 // ── Mock ../extractor/symbol-extractor ──────────────────────────────────────
-const mockExtractSymbols = mock((_parsed: any) => [] as any[]);
+const mockExtractSymbols = mock((parsed: any) => [] as any[]);
 
 // ── Mock ../common/hasher ────────────────────────────────────────────────────
-const mockHashString = mock((_input: string) => 'fp-hash');
+const mockHashString = mock((input: string) => 'fp-hash');
 mock.module('../extractor/symbol-extractor', () => ({ extractSymbols: mockExtractSymbols }));
 mock.module('../common/hasher', () => ({ hashString: mockHashString }));
 import { indexFileSymbols } from './symbol-indexer';
@@ -35,19 +35,18 @@ function makeSymbol(overrides: Partial<{
 }
 
 function makeSymbolRepo() {
-  return { replaceFileSymbols: mock((_p: any, _f: any, _h: any, _syms: any) => {}) };
+  return { replaceFileSymbols: mock((p: any, f: any, h: any, syms: any) => {}) };
 }
 
-beforeEach(() => {
-  mock.module('../extractor/symbol-extractor', () => ({ extractSymbols: mockExtractSymbols }));
-  mock.module('../common/hasher', () => ({ hashString: mockHashString }));
-  mockExtractSymbols.mockReset();
-  mockExtractSymbols.mockReturnValue([]);
-  mockHashString.mockReset();
-  mockHashString.mockReturnValue('fp-hash');
-});
-
 describe('indexFileSymbols', () => {
+  beforeEach(() => {
+    mock.module('../extractor/symbol-extractor', () => ({ extractSymbols: mockExtractSymbols }));
+    mock.module('../common/hasher', () => ({ hashString: mockHashString }));
+    mockExtractSymbols.mockReset();
+    mockExtractSymbols.mockReturnValue([]);
+    mockHashString.mockReset();
+    mockHashString.mockReturnValue('fp-hash');
+  });
   // [HP] function 2 params → signature='params:2|async:0'
   it('should set signature to params:2|async:0 when function has 2 params and is not async', () => {
     const sym = makeSymbol({ kind: 'function', parameters: [{ name: 'a', isOptional: false }, { name: 'b', isOptional: false }], modifiers: [] });
@@ -132,7 +131,7 @@ describe('indexFileSymbols', () => {
   });
 
   // [HP] type alias → signature null
-  it('should set signature to null for type alias symbols', () => {
+  it('should set signature to null when symbol kind is type alias', () => {
     mockExtractSymbols.mockReturnValue([makeSymbol({ kind: 'type' })]);
     const symbolRepo = makeSymbolRepo();
 
@@ -143,7 +142,7 @@ describe('indexFileSymbols', () => {
   });
 
   // [HP] fingerprint = hash('name|kind|signature')
-  it('should compute fingerprint as hash of name|kind|signature string', () => {
+  it('should compute fingerprint when name kind and signature are available', () => {
     mockHashString.mockReturnValue('fingerprint-val');
     const sym = makeSymbol({ kind: 'function', name: 'fn', parameters: [], modifiers: [] });
     mockExtractSymbols.mockReturnValue([sym]);
@@ -157,7 +156,7 @@ describe('indexFileSymbols', () => {
   });
 
   // [HP] replaceFileSymbols called with correct contentHash
-  it('should call replaceFileSymbols with the provided contentHash', () => {
+  it('should call replaceFileSymbols when contentHash is provided', () => {
     mockExtractSymbols.mockReturnValue([makeSymbol()]);
     const symbolRepo = makeSymbolRepo();
 
@@ -192,7 +191,7 @@ describe('indexFileSymbols', () => {
   });
 
   // [HP] interface members → flattened as 'Iface.prop'
-  it('should flatten interface members as InterfaceName.memberName', () => {
+  it('should flatten interface members when interface symbols are indexed', () => {
     const iface = makeSymbol({
       kind: 'interface', name: 'IUser', members: [
         makeSymbol({ kind: 'property', name: 'id', modifiers: [] }),
@@ -226,7 +225,7 @@ describe('indexFileSymbols', () => {
   });
 
   // [HP] detail_json omits undefined optional fields
-  it('should omit undefined fields from detail_json', () => {
+  it('should omit undefined fields when building detail_json', () => {
     mockExtractSymbols.mockReturnValue([makeSymbol({ kind: 'variable' })]);
     const symbolRepo = makeSymbolRepo();
 
@@ -244,7 +243,7 @@ describe('indexFileSymbols', () => {
   });
 
   // [HP] detail_json includes parameters and returnType for functions
-  it('should include parameters and returnType in detail_json for function symbols', () => {
+  it('should include parameters and returnType when symbol kind is function', () => {
     const sym = makeSymbol({
       kind: 'function',
       parameters: [{ name: 'x', type: 'string', isOptional: false }],

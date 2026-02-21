@@ -30,11 +30,11 @@ export function getLineColumn(offsets: number[], offset: number): SourcePosition
   let hi = offsets.length - 1;
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1;
-    if (offsets[mid] <= offset) {
+    if (offsets[mid]! <= offset) {
       lo = mid;
     } else {
       hi = mid - 1;
     }
   }
-  return { line: lo + 1, column: offset - offsets[lo] };
+  return { line: lo + 1, column: offset - offsets[lo]! };
 }

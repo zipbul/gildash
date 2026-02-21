@@ -1,13 +1,14 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { parseSync } from 'oxc-parser';
+import { parseSource } from '../parser/parse-source';
 import type { ParsedFile } from '../parser/types';
+import type { JsDocTag } from '../extractor/types';
 
 // ── Mock ../parser/source-position ──
-const mockBuildLineOffsets = mock((_sourceText: string) => [0]);
-const mockGetLineColumn = mock((_offsets: number[], _offset: number) => ({ line: 1, column: 0 }));
+const mockBuildLineOffsets = mock((sourceText: string) => [0]);
+const mockGetLineColumn = mock((offsets: number[], offset: number) => ({ line: 1, column: 0 }));
 
 // ── Mock ../parser/jsdoc-parser ──
-const mockParseJsDoc = mock((_commentText: string) => ({ description: '', tags: [] }));
+const mockParseJsDoc = mock((commentText: string) => ({ description: '', tags: [] as JsDocTag[] }));
 
 mock.module('../parser/source-position', () => ({
   buildLineOffsets: mockBuildLineOffsets,
@@ -20,8 +21,7 @@ mock.module('../parser/jsdoc-parser', () => ({
 import { extractSymbols } from './symbol-extractor';
 
 function makeFixture(source: string, filePath = '/project/src/index.ts'): ParsedFile {
-  const { program, errors, comments } = parseSync(filePath, source);
-  return { filePath, program: program as any, errors, comments, sourceText: source };
+  return parseSource(filePath, source);
 }
 
 describe('extractSymbols', () => {
@@ -62,15 +62,15 @@ describe('extractSymbols', () => {
     const symbols = extractSymbols(parsed);
     const fn = symbols.find((s) => s.name === 'add');
     expect(fn?.parameters).toHaveLength(2);
-    expect(fn?.parameters![0].name).toBe('a');
-    expect(fn?.parameters![0].type).toContain('number');
+    expect(fn?.parameters![0]!.name).toBe('a');
+    expect(fn?.parameters![0]!.type).toContain('number');
   });
 
   it('should mark parameter isOptional true when parameter has ? optional marker', () => {
     const parsed = makeFixture(`function fn(x?: string) {}`);
     const symbols = extractSymbols(parsed);
     const fn = symbols.find((s) => s.name === 'fn');
-    expect(fn?.parameters![0].isOptional).toBe(true);
+    expect(fn?.parameters![0]!.isOptional).toBe(true);
   });
 
   it('should populate returnType when function declaration has an explicit return type annotation', () => {
@@ -407,15 +407,15 @@ describe('extractSymbols', () => {
     const parsed = makeFixture(`function fn(a: number, ...rest: string[]) {}`);
     const symbols = extractSymbols(parsed);
     const fn = symbols.find((s) => s.name === 'fn');
-    expect(fn?.parameters?.[0].name).toBe('a');
-    expect(fn?.parameters?.[1].name).toBe('...rest');
+    expect(fn?.parameters?.[0]!.name).toBe('a');
+    expect(fn?.parameters?.[1]!.name).toBe('...rest');
   });
 
   it('should extract rest parameter name with "..." prefix when parameter has no type annotation', () => {
     const parsed = makeFixture(`function fn(...a) {}`);
     const symbols = extractSymbols(parsed);
     const fn = symbols.find((s) => s.name === 'fn');
-    expect(fn?.parameters?.[0].name).toBe('...a');
+    expect(fn?.parameters?.[0]!.name).toBe('...a');
   });
 
   // I-5: AssignmentPattern parameter
@@ -502,7 +502,7 @@ describe('extractSymbols', () => {
     const parsed = makeFixture(`const [, b] = arr;`);
     const symbols = extractSymbols(parsed);
     expect(symbols).toHaveLength(1);
-    expect(symbols[0].name).toBe('b');
+    expect(symbols[0]!.name).toBe('b');
   });
 
   it('should extract no symbols when ArrayPattern contains only RestElement without Identifier elements', () => {
@@ -515,7 +515,7 @@ describe('extractSymbols', () => {
     const parsed = makeFixture(`const [a, ...rest] = arr;`);
     const symbols = extractSymbols(parsed);
     expect(symbols).toHaveLength(1);
-    expect(symbols[0].name).toBe('a');
+    expect(symbols[0]!.name).toBe('a');
   });
 
   // findJsDocComment intervening node

@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { parseSync } from 'oxc-parser';
+import { parseSource } from '../parser/parse-source';
 import type { ImportReference } from './types';
 
 // ── Mock ../parser/ast-utils ──
@@ -10,7 +10,7 @@ import { extractCalls } from './calls-extractor';
 const FILE = '/project/src/index.ts';
 
 function parse(source: string, filePath = FILE) {
-  const { program } = parseSync(filePath, source);
+  const { program } = parseSource(filePath, source);
   return program as any;
 }
 
@@ -143,6 +143,25 @@ describe('extractCalls', () => {
     const rel = relations.find((r) => r.dstSymbolName === 'transform');
 
     expect(rel).toBeDefined();
+    expect(rel?.srcSymbolName).toContain('<anonymous>');
+  });
+
+  it('should extract both outer and inner calls when callee contains a nested CallExpression', () => {
+    mockGetQualifiedName
+      .mockReturnValueOnce({ root: 'getFactory', parts: [], full: 'getFactory' })
+      .mockReturnValueOnce({ root: 'factoryResult', parts: ['run'], full: 'factoryResult.run' });
+
+    const ast = parse(`
+      function main() {
+        getFactory().run();
+      }
+    `);
+
+    const relations = extractCalls(ast, FILE, makeImportMap());
+    const calleeNames = relations.map((r) => r.dstSymbolName);
+
+    expect(calleeNames).toContain('factoryResult.run');
+    expect(calleeNames).toContain('getFactory');
   });
 
   // VariableDeclarator + FunctionExpression (G1)

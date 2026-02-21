@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:te
 const mockGlob = mock(async function* (): AsyncGenerator<string> {});
 
 // ── Mock hashString ────────────────────────────────────────────────────────
-const mockHashString = mock((_input: string) => 'mocked-hash');
+const mockHashString = mock((input: string) => 'mocked-hash');
 
 import { detectChanges } from './file-indexer';
 
@@ -28,24 +28,23 @@ function makeBunFile(opts: { size: number; lastModified: number; text?: string }
   } as any;
 }
 
-beforeEach(() => {
-  mock.module('node:fs', () => ({
-    promises: { glob: mockGlob },
-  }));
-  mock.module('../common/hasher', () => ({
-    hashString: mockHashString,
-  }));
-  mockGlob.mockReset();
-  mockHashString.mockReset();
-  mockHashString.mockReturnValue('mocked-hash');
-  spyOn(Bun, 'file').mockRestore();
-});
-
-afterEach(() => {
-  spyOn(Bun, 'file').mockRestore();
-});
-
 describe('detectChanges', () => {
+  beforeEach(() => {
+    mock.module('node:fs', () => ({
+      promises: { glob: mockGlob },
+    }));
+    mock.module('../common/hasher', () => ({
+      hashString: mockHashString,
+    }));
+    mockGlob.mockReset();
+    mockHashString.mockReset();
+    mockHashString.mockReturnValue('mocked-hash');
+    spyOn(Bun, 'file').mockRestore();
+  });
+
+  afterEach(() => {
+    spyOn(Bun, 'file').mockRestore();
+  });
   // [HP] new file not in DB → ends up in changed[]
   it('should put new file in changed[] when it does not exist in DB', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/index.ts'; });
@@ -121,7 +120,7 @@ describe('detectChanges', () => {
   });
 
   // [HP] contentHash computed for new files
-  it('should compute contentHash for new files', async () => {
+  it('should compute contentHash when files are newly discovered', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/new.ts'; });
     spyOn(Bun, 'file').mockReturnValue(makeBunFile({ size: 50, lastModified: 500 }));
     mockHashString.mockReturnValue('computed-hash');
@@ -145,7 +144,7 @@ describe('detectChanges', () => {
   });
 
   // [HP] extension filter: non-.ts file excluded
-  it('should exclude files that do not match extensions', async () => {
+  it('should exclude files when extensions do not match', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/styles.css'; });
     const fileRepo = makeFileRepo(new Map());
 
@@ -155,7 +154,7 @@ describe('detectChanges', () => {
   });
 
   // [HP] ignorePattern matched file excluded
-  it('should exclude files matching ignorePatterns', async () => {
+  it('should exclude files when paths match ignorePatterns', async () => {
     mockGlob.mockImplementation(async function* () { yield 'node_modules/lib/index.ts'; });
     const fileRepo = makeFileRepo(new Map());
 
@@ -193,7 +192,7 @@ describe('detectChanges', () => {
   });
 
   // [CO] new + deleted in same scan
-  it('should correctly categorize new and deleted files in the same scan', async () => {
+  it('should categorize new and deleted files correctly when scanned together', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/new.ts'; });
     spyOn(Bun, 'file').mockReturnValue(makeBunFile({ size: 50, lastModified: 500 }));
     const existing = new Map([['src/gone.ts', { filePath: 'src/gone.ts', mtimeMs: 1000, size: 100, contentHash: 'abc' }]]);
@@ -206,28 +205,44 @@ describe('detectChanges', () => {
   });
 
   // [HP] mix: new + changed + unchanged + deleted all in one result
-  it('should correctly categorize all four types simultaneously', async () => {
-    mockGlob.mockImplementation(async function* () {
-      yield 'src/new.ts';
-      yield 'src/changed.ts';
-      yield 'src/same.ts';
-    });
-    let callCount = 0;
-    spyOn(Bun, 'file').mockImplementation((_p: any) => {
-      callCount++;
-      return makeBunFile({ size: 50, lastModified: 9999 });
-    });
-    mockHashString.mockImplementation((text: string) => text === 'same' ? 'hash-same' : 'hash-new');
-    const existing = new Map([
-      ['src/changed.ts', { filePath: 'src/changed.ts', mtimeMs: 1, size: 50, contentHash: 'hash-old' }],
-      ['src/same.ts', { filePath: 'src/same.ts', mtimeMs: 9999, size: 50, contentHash: 'hash-same' }],
-      ['src/deleted.ts', { filePath: 'src/deleted.ts', mtimeMs: 1, size: 50, contentHash: 'hash-x' }],
-    ]);
-    const fileRepo = makeFileRepo(existing);
+  describe('when new, changed, unchanged, and deleted files appear simultaneously', () => {
+    let result: Awaited<ReturnType<typeof detectChanges>>;
 
-    const result = await detectChanges({ projectRoot: PROJECT_ROOT, extensions: EXTENSIONS, ignorePatterns: IGNORE_PATTERNS, fileRepo: fileRepo as any });
+    beforeEach(async () => {
+      mockGlob.mockImplementation(async function* () {
+        yield 'src/new.ts';
+        yield 'src/changed.ts';
+        yield 'src/same.ts';
+      });
+      spyOn(Bun, 'file').mockImplementation((p: any) => {
+        return makeBunFile({ size: 50, lastModified: 9999 });
+      });
+      mockHashString.mockImplementation((text: string) => text === 'same' ? 'hash-same' : 'hash-new');
+      const existing = new Map([
+        ['src/changed.ts', { filePath: 'src/changed.ts', mtimeMs: 1, size: 50, contentHash: 'hash-old' }],
+        ['src/same.ts', { filePath: 'src/same.ts', mtimeMs: 9999, size: 50, contentHash: 'hash-same' }],
+        ['src/deleted.ts', { filePath: 'src/deleted.ts', mtimeMs: 1, size: 50, contentHash: 'hash-x' }],
+      ]);
+      const fileRepo = makeFileRepo(existing);
 
-    expect(result.changed.some((f) => f.filePath === 'src/new.ts')).toBe(true);
-    expect(result.deleted).toContain('src/deleted.ts');
+      result = await detectChanges({ projectRoot: PROJECT_ROOT, extensions: EXTENSIONS, ignorePatterns: IGNORE_PATTERNS, fileRepo: fileRepo as any });
+    });
+
+    it('should include newly discovered file in changed list', () => {
+      expect(result.changed.some((f) => f.filePath === 'src/new.ts')).toBe(true);
+    });
+
+    it('should include modified file in changed list', () => {
+      expect(result.changed.some((f) => f.filePath === 'src/changed.ts')).toBe(true);
+    });
+
+    it('should exclude unchanged file from changed and deleted lists', () => {
+      expect(result.changed.some((f) => f.filePath === 'src/same.ts')).toBe(false);
+      expect(result.deleted).not.toContain('src/same.ts');
+    });
+
+    it('should include missing file in deleted list', () => {
+      expect(result.deleted).toContain('src/deleted.ts');
+    });
   });
 });

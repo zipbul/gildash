@@ -1,6 +1,7 @@
 import type { Program } from 'oxc-parser';
 import { extractRelations } from '../extractor/relation-extractor';
 import { toAbsolutePath, toRelativePath } from '../common/path-utils';
+import type { TsconfigPaths } from '../common/tsconfig-resolver';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ export interface IndexFileRelationsOptions {
   relationRepo: RelationRepoPart;
   projectRoot: string;
   /** Optional tsconfig path mappings to pass to the extractor. */
-  tsconfigPaths?: any;
+  tsconfigPaths?: TsconfigPaths;
 }
 
 // ── Implementation ─────────────────────────────────────────────────────────

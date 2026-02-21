@@ -1,5 +1,6 @@
 import type { SymbolKind } from '../extractor/types';
 import type { SymbolRecord } from '../store/repositories/symbol.repository';
+import { toFtsPrefixQuery } from '../store/repositories/fts-utils';
 
 export interface SymbolSearchQuery {
   text?: string;
@@ -51,11 +52,8 @@ export function symbolSearch(options: {
   };
 
   if (query.text) {
-    opts.ftsQuery = query.text
-      .trim()
-      .split(/\s+/)
-      .map(t => t.replace(/["*^()\-]/g, '\\$&') + '*')
-      .join(' ');
+    const ftsQuery = toFtsPrefixQuery(query.text);
+    if (ftsQuery) opts.ftsQuery = ftsQuery;
   }
 
   const records = symbolRepo.searchByQuery(opts);
@@ -72,6 +70,9 @@ export function symbolSearch(options: {
     isExported: r.isExported === 1,
     signature: r.signature,
     fingerprint: r.fingerprint,
-    detail: r.detailJson ? (JSON.parse(r.detailJson) as Record<string, unknown>) : {},
+    detail: r.detailJson ? (() => {
+      try { return JSON.parse(r.detailJson!) as Record<string, unknown>; }
+      catch { return {}; }
+    })() : {},
   }));
 }

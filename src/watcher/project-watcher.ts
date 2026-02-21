@@ -1,13 +1,17 @@
 import type {
   AsyncSubscription,
-  FileEvent,
   SubscribeCallback,
-  SubscribeOptions,
 } from "@parcel/watcher";
 import { subscribe as parcelSubscribe } from "@parcel/watcher";
+
+// FileEvent and SubscribeOptions are not directly exported by this version of
+// @parcel/watcher — derive them from the public subscribe signature instead.
+type FileEvent = Parameters<SubscribeCallback>[1][number];
+type SubscribeOptions = NonNullable<Parameters<typeof parcelSubscribe>[2]>;
 import path from "node:path";
 import { WatcherError } from "../errors";
 import type { FileChangeEvent, FileChangeEventType, WatcherOptions } from "./types";
+import type { Logger } from "../codeledger";
 
 type SubscribeFn = (
   directoryPath: string,
@@ -46,8 +50,9 @@ export class ProjectWatcher {
   #ignoreGlobs: string[];
   #extensions: Set<string>;
   #subscribe: SubscribeFn;
+  #logger: Logger;
 
-  constructor(options: WatcherOptions, subscribeFn: SubscribeFn = parcelSubscribe) {
+  constructor(options: WatcherOptions, subscribeFn: SubscribeFn = parcelSubscribe, logger: Logger = console) {
     this.#rootPath = options.projectRoot;
     this.#ignoreGlobs = [...WATCHER_IGNORE_GLOBS, ...(options.ignorePatterns ?? [])];
     this.#extensions = new Set(
@@ -56,6 +61,7 @@ export class ProjectWatcher {
       ),
     );
     this.#subscribe = subscribeFn;
+    this.#logger = logger;
   }
 
   async start(onChange: (event: FileChangeEvent) => void): Promise<void> {
@@ -64,7 +70,7 @@ export class ProjectWatcher {
         this.#rootPath,
         (error, events) => {
           if (error) {
-            console.error(new WatcherError("Callback error", { cause: error }));
+            this.#logger.error(new WatcherError("Callback error", { cause: error }));
             return;
           }
 
@@ -94,7 +100,7 @@ export class ProjectWatcher {
               });
             }
           } catch (callbackError) {
-            console.error(new WatcherError("Callback error", { cause: callbackError }));
+            this.#logger.error(new WatcherError("Callback error", { cause: callbackError }));
           }
         },
         {

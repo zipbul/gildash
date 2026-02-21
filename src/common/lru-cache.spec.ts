@@ -185,7 +185,7 @@ describe("LruCache", () => {
     expect(sut.get("a")).toBeUndefined();
   });
 
-  it("should return same value on repeated get calls", () => {
+  it("should return same value when get is called repeatedly", () => {
     const sut = new LruCache<string, number>(3);
 
     sut.set("a", 42);
@@ -194,7 +194,7 @@ describe("LruCache", () => {
     expect(sut.get("a")).toBe(42);
   });
 
-  it("should return false on repeated delete of non-existent key", () => {
+  it("should return false when deleting non-existent key repeatedly", () => {
     const sut = new LruCache<string, number>(2);
 
     expect(sut.delete("x")).toBe(false);
@@ -214,7 +214,7 @@ describe("LruCache", () => {
     expect(sut.get("c")).toBe(3);
   });
 
-  it("should evict different key depending on insertion order", () => {
+  it("should evict different key when insertion order differs", () => {
     const sutAB = new LruCache<string, number>(2);
     sutAB.set("a", 1);
     sutAB.set("b", 2);

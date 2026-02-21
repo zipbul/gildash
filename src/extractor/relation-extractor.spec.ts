@@ -64,10 +64,6 @@ describe('extractRelations', () => {
     expect(relations.some((r) => r.type === 'calls')).toBe(true);
   });
 
-  it('should return empty array when source is empty', () => {
-    expect(extractRelations(FAKE_AST, FILE)).toEqual([]);
-  });
-
   it('should return empty array when source has no imports or calls', () => {
     expect(extractRelations(FAKE_AST, FILE)).toEqual([]);
   });

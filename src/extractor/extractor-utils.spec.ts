@@ -1,9 +1,9 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 
 // ── Mock node:path ──
-const mockResolve = mock((..._args: string[]) => '');
-const mockDirname = mock((_p: string) => '');
-const mockExtname = mock((_p: string) => '');
+const mockResolve = mock((...args: string[]) => '');
+const mockDirname = mock((p: string) => '');
+const mockExtname = mock((p: string) => '');
 
 import { resolveImport, buildImportMap } from './extractor-utils';
 
@@ -223,6 +223,24 @@ describe('resolveImport', () => {
     expect(result).toContain('/project/src/utils/index.mts');
     expect(result).toContain('/project/src/utils/index.cts');
   });
+
+  it('should map .js/.mjs/.cjs imports when resolving .ts/.mts/.cts candidates', () => {
+    mockDirname.mockReturnValue('/project/src');
+    mockResolve.mockImplementation((base: string, target: string) => {
+      if (target === './utils.js') return '/project/src/utils.js';
+      if (target === './utils.mjs') return '/project/src/utils.mjs';
+      return '/project/src/utils.cjs';
+    });
+
+    mockExtname
+      .mockReturnValueOnce('.js')
+      .mockReturnValueOnce('.mjs')
+      .mockReturnValueOnce('.cjs');
+
+    expect(resolveImport('/project/src/index.ts', './utils.js')).toEqual(['/project/src/utils.ts']);
+    expect(resolveImport('/project/src/index.ts', './utils.mjs')).toEqual(['/project/src/utils.mts']);
+    expect(resolveImport('/project/src/index.ts', './utils.cjs')).toEqual(['/project/src/utils.cts']);
+  });
 });
 
 // ============================================================
@@ -230,7 +248,7 @@ describe('resolveImport', () => {
 // ============================================================
 describe('buildImportMap', () => {
   const mockResolveImportFn = mock(
-    (_currentFilePath: string, _importPath: string, _tsconfigPaths?: any) => [] as string[],
+    (currentFilePath: string, importPath: string, tsconfigPaths?: any) => [] as string[],
   );
 
   beforeEach(() => {

@@ -15,7 +15,7 @@ export class DependencyGraph {
     },
   ) {}
 
-  async build(): Promise<void> {
+  build(): void {
     this.adjacencyList = new Map();
     this.reverseAdjacencyList = new Map();
 
@@ -66,27 +66,41 @@ export class DependencyGraph {
 
   hasCycle(): boolean {
     const visited = new Set<string>();
-    const recursionStack = new Set<string>();
+    const inPath = new Set<string>();
 
-    const dfs = (node: string): boolean => {
-      visited.add(node);
-      recursionStack.add(node);
+    for (const startNode of this.adjacencyList.keys()) {
+      if (visited.has(startNode)) continue;
 
-      for (const neighbor of this.adjacencyList.get(node) ?? []) {
-        if (!visited.has(neighbor)) {
-          if (dfs(neighbor)) return true;
-        } else if (recursionStack.has(neighbor)) {
+      const stack: Array<{ node: string; entered: boolean }> = [{ node: startNode, entered: false }];
+
+      while (stack.length > 0) {
+        const current = stack.pop()!;
+
+        if (current.entered) {
+          inPath.delete(current.node);
+          continue;
+        }
+
+        if (inPath.has(current.node)) {
           return true;
         }
-      }
 
-      recursionStack.delete(node);
-      return false;
-    };
+        if (visited.has(current.node)) {
+          continue;
+        }
 
-    for (const node of this.adjacencyList.keys()) {
-      if (!visited.has(node)) {
-        if (dfs(node)) return true;
+        visited.add(current.node);
+        inPath.add(current.node);
+        stack.push({ node: current.node, entered: true });
+
+        for (const neighbor of this.adjacencyList.get(current.node) ?? []) {
+          if (inPath.has(neighbor)) {
+            return true;
+          }
+          if (!visited.has(neighbor)) {
+            stack.push({ node: neighbor, entered: false });
+          }
+        }
       }
     }
 

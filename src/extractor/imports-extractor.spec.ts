@@ -4,7 +4,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 const mockResolveImport = mock(() => [] as string[]);
 
 // ── Mock ../parser/ast-utils ──
-const mockVisit = mock((_node: any, _cb: any) => {});
+const mockVisit = mock((node: any, cb: any) => {});
 const mockGetStringLiteralValue = mock(() => null as string | null);
 
 import { extractImports } from './imports-extractor';
@@ -47,7 +47,7 @@ describe('extractImports', () => {
     ]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
 
-    expect(relations[0].srcFilePath).toBe(FILE);
+    expect(relations[0]!.srcFilePath).toBe(FILE);
   });
 
   it('should set srcSymbolName to null when import is a top-level static import', () => {
@@ -56,7 +56,7 @@ describe('extractImports', () => {
     ]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
 
-    expect(relations[0].srcSymbolName).toBeNull();
+    expect(relations[0]!.srcSymbolName).toBeNull();
   });
 
   it('should set dstSymbolName to null when import is a top-level static import', () => {
@@ -65,7 +65,7 @@ describe('extractImports', () => {
     ]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
 
-    expect(relations[0].dstSymbolName).toBeNull();
+    expect(relations[0]!.dstSymbolName).toBeNull();
   });
 
   // NE — external package
@@ -88,7 +88,7 @@ describe('extractImports', () => {
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
 
     if (relations.length > 0) {
-      expect(relations[0].metaJson).toContain('"isType":true');
+      expect(relations[0]!.metaJson).toContain('"isType":true');
     }
   });
 
@@ -105,7 +105,7 @@ describe('extractImports', () => {
 
   // dynamic import
   it('should produce an imports relation with {"isDynamic":true} when declaration is a dynamic import()', () => {
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
+    mockVisit.mockImplementation((ast: any, cb: any) => {
       cb({ type: 'ImportExpression', source: { type: 'StringLiteral', value: './dynamic' } });
     });
     mockGetStringLiteralValue.mockReturnValue('./dynamic');

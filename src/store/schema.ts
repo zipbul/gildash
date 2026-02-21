@@ -76,6 +76,10 @@ export const relations = sqliteTable(
       columns: [table.project, table.srcFilePath],
       foreignColumns: [files.project, files.filePath],
     }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.project, table.dstFilePath],
+      foreignColumns: [files.project, files.filePath],
+    }).onDelete('cascade'),
   ],
 );
 

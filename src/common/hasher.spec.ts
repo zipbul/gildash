@@ -40,7 +40,7 @@ describe("hashString", () => {
     expect(result).toMatch(/^[0-9a-f]{16}$/);
   });
 
-  it("should return same hash on repeated calls with same input", () => {
+  it("should return same hash when called repeatedly with same input", () => {
     const results = Array.from({ length: 5 }, () => hashString("idempotent"));
 
     expect(new Set(results).size).toBe(1);
@@ -70,7 +70,7 @@ describe("hashFile", () => {
     expect(result).toMatch(/^[0-9a-f]{16}$/);
   });
 
-  it("should return same hash on repeated calls for same file", async () => {
+  it("should return same hash when hashing the same file repeatedly", async () => {
     const content = "idempotent content";
     spyOn(Bun, "file").mockReturnValue({ text: async () => content } as ReturnType<typeof Bun.file>);
 
@@ -83,7 +83,7 @@ describe("hashFile", () => {
   it("should throw when file text rejects", async () => {
     spyOn(Bun, "file").mockReturnValue({
       text: async () => { throw new Error("file not found"); },
-    } as ReturnType<typeof Bun.file>);
+    } as unknown as ReturnType<typeof Bun.file>);
 
     await expect(hashFile("/nonexistent/path/file.txt")).rejects.toThrow();
   });

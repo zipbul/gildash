@@ -15,7 +15,7 @@ describe('parseJsDoc', () => {
     mockParse.mockImplementation(() => [{ description: 'A description.', tags: [] as any[] }]);
   });
   // HP
-  it('should return description and empty tags for a simple comment', () => {
+  it('should return description and empty tags when comment is simple', () => {
     // Arrange & Act
     const result = parseJsDoc('/** A description. */');
     // Assert
@@ -38,12 +38,12 @@ describe('parseJsDoc', () => {
     // Assert
     expect(result.description).toBe('Handles auth.');
     expect(result.tags).toHaveLength(1);
-    expect(result.tags[0].tag).toBe('param');
-    expect(result.tags[0].name).toBe('userId');
-    expect(result.tags[0].type).toBe('string');
+    expect(result.tags[0]!.tag).toBe('param');
+    expect(result.tags[0]!.name).toBe('userId');
+    expect(result.tags[0]!.type).toBe('string');
   });
 
-  it('should map optional field from comment-parser tag', () => {
+  it('should map optional field when comment-parser tag includes optional', () => {
     mockParse.mockImplementationOnce(() => ([
       {
         description: '',
@@ -53,7 +53,7 @@ describe('parseJsDoc', () => {
       },
     ]));
     const result = parseJsDoc('/** @param {number} [x] */');
-    expect(result.tags[0].optional).toBe(true);
+    expect(result.tags[0]!.optional).toBe(true);
   });
 
   it('should map default field from comment-parser tag when present', () => {
@@ -66,7 +66,7 @@ describe('parseJsDoc', () => {
       },
     ]));
     const result = parseJsDoc('/** @param {number} [x=42] */');
-    expect(result.tags[0].default).toBe('42');
+    expect(result.tags[0]!.default).toBe('42');
   });
 
   // NE — comment-parser throws
@@ -75,7 +75,7 @@ describe('parseJsDoc', () => {
     expect(() => parseJsDoc('/** broken */')).toThrow(ParseError);
   });
 
-  it('should preserve original error as cause inside thrown ParseError', () => {
+  it('should preserve original error as cause when ParseError is thrown', () => {
     const cause = new Error('inner');
     mockParse.mockImplementationOnce(() => { throw cause; });
     let thrown: unknown;
@@ -84,12 +84,12 @@ describe('parseJsDoc', () => {
   });
 
   // ED
-  it('should handle empty comment text without throwing', () => {
+  it('should handle empty comment text when parser returns empty description', () => {
     mockParse.mockImplementationOnce(() => ([{ description: '', tags: [] }]));
     expect(() => parseJsDoc('')).not.toThrow();
   });
 
-  it('should handle undefined default in tag gracefully (no default field)', () => {
+  it('should handle undefined default gracefully when tag has no default field', () => {
     mockParse.mockImplementationOnce(() => ([
       {
         description: '',
@@ -99,7 +99,7 @@ describe('parseJsDoc', () => {
       },
     ]));
     const result = parseJsDoc('/** @param {string} x */');
-    expect(result.tags[0].default).toBeUndefined();
+    expect(result.tags[0]!.default).toBeUndefined();
   });
 
   // ID
@@ -111,7 +111,7 @@ describe('parseJsDoc', () => {
   });
 
   // plain text without /** wrapper — G14
-  it('should parse input without /** wrapper by passing it through as description', () => {
+  it('should parse input as description when /** wrapper is not present', () => {
     mockParse.mockImplementationOnce(() => ([{ description: 'plain text', tags: [] }]));
     const result = parseJsDoc('plain text');
     expect(result.description).toBe('plain text');

@@ -21,37 +21,37 @@ describe('buildLineOffsets', () => {
     expect(offsets).toEqual([0]);
   });
 
-  it('should return [0, 6] for a two-line string', () => {
+  it('should return [0, 6] when input is a two-line string', () => {
     const source = 'hello\nworld';
     const offsets = buildLineOffsets(source);
     expect(offsets).toEqual([0, 6]);
   });
 
-  it('should return correct offsets for three lines', () => {
+  it('should return correct offsets when input has three lines', () => {
     const source = 'a\nbb\nccc';
     const offsets = buildLineOffsets(source);
     expect(offsets).toEqual([0, 2, 5]);
   });
 
-  it('should handle a string that ends with a newline', () => {
+  it('should handle trailing newline when input string ends with a newline', () => {
     const source = 'a\nb\n';
     const offsets = buildLineOffsets(source);
     expect(offsets).toEqual([0, 2, 4]);
   });
 
-  it('should handle consecutive newlines (blank lines)', () => {
+  it('should handle consecutive newlines when blank lines exist in input', () => {
     const source = 'a\n\nb';
     const offsets = buildLineOffsets(source);
     expect(offsets).toEqual([0, 2, 3]);
   });
 
-  it('should handle a string that is only newlines', () => {
+  it('should handle input that is only newlines when building line offsets', () => {
     const source = '\n\n';
     const offsets = buildLineOffsets(source);
     expect(offsets).toEqual([0, 1, 2]);
   });
 
-  it('should treat \\r\\n as two characters and place offset after \\n', () => {
+  it('should treat \\r\\n as two characters when building line offsets', () => {
     // CRLF: '\r' at index 1, '\n' at index 2 → next line starts at 3
     const source = 'a\r\nb';
     const offsets = buildLineOffsets(source);
@@ -66,7 +66,7 @@ describe('buildLineOffsets', () => {
   });
 
   // ED
-  it('should handle a single newline character', () => {
+  it('should handle single newline character when building line offsets', () => {
     const source = '\n';
     const offsets = buildLineOffsets(source);
     expect(offsets).toEqual([0, 1]);
@@ -86,33 +86,33 @@ describe('buildLineOffsets', () => {
 // ============================================================
 describe('getLineColumn', () => {
   // HP
-  it('should return line 1 column 0 for offset 0 on a single-line file', () => {
+  it('should return line 1 column 0 when offset is 0 on a single-line file', () => {
     const offsets = buildLineOffsets('hello');
     const pos = getLineColumn(offsets, 0);
     expect(pos).toEqual({ line: 1, column: 0 });
   });
 
-  it('should return correct column within the first line', () => {
+  it('should return correct column when offset points within the first line', () => {
     const offsets = buildLineOffsets('hello\nworld');
     const pos = getLineColumn(offsets, 3);
     expect(pos).toEqual({ line: 1, column: 3 });
   });
 
-  it('should return line 2 column 0 for the exact start of the second line', () => {
+  it('should return line 2 column 0 when offset is exact start of second line', () => {
     const source = 'hello\nworld';
     const offsets = buildLineOffsets(source);
     const pos = getLineColumn(offsets, 6); // 'w' in 'world'
     expect(pos).toEqual({ line: 2, column: 0 });
   });
 
-  it('should return correct position within the second line', () => {
+  it('should return correct position when offset points within the second line', () => {
     const source = 'hello\nworld';
     const offsets = buildLineOffsets(source);
     const pos = getLineColumn(offsets, 8); // 'r' in 'world'
     expect(pos).toEqual({ line: 2, column: 2 });
   });
 
-  it('should return correct position on the third line', () => {
+  it('should return correct position when offset points to the third line', () => {
     const source = 'a\nbb\nccc';
     const offsets = buildLineOffsets(source);
     const pos = getLineColumn(offsets, 7); // second 'c'
@@ -120,35 +120,35 @@ describe('getLineColumn', () => {
   });
 
   // NE
-  it('should return line 1 column 0 for offset 0 even with multi-line source', () => {
+  it('should return line 1 column 0 when offset is 0 in multi-line source', () => {
     const offsets = buildLineOffsets('a\nb\nc');
     const pos = getLineColumn(offsets, 0);
     expect(pos).toEqual({ line: 1, column: 0 });
   });
 
   // ED
-  it('should handle offset pointing to the newline character itself', () => {
+  it('should handle newline character offset when offset points to newline itself', () => {
     const source = 'ab\ncd';
     const offsets = buildLineOffsets(source);
     const pos = getLineColumn(offsets, 2); // '\n'
     expect(pos).toEqual({ line: 1, column: 2 });
   });
 
-  it('should handle offset at the last character of a multi-line file', () => {
+  it('should handle last character offset when offset points to file end', () => {
     const source = 'a\nb';
     const offsets = buildLineOffsets(source);
     const pos = getLineColumn(offsets, 3); // 'b'
     expect(pos).toEqual({ line: 2, column: 1 });
   });
 
-  it('should handle single-character source at offset 0', () => {
+  it('should handle single-character source when offset is 0', () => {
     const offsets = buildLineOffsets('x');
     const pos = getLineColumn(offsets, 0);
     expect(pos).toEqual({ line: 1, column: 0 });
   });
 
   // CO
-  it('should handle offset 0 on a file that starts with a newline (blank first line)', () => {
+  it('should handle offset 0 when file starts with a newline (blank first line)', () => {
     const source = '\nhello';
     const offsets = buildLineOffsets(source);
     const pos = getLineColumn(offsets, 0);

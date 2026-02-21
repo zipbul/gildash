@@ -17,11 +17,29 @@ export function extractHeritage(
 ): CodeRelation[] {
   const relations: CodeRelation[] = [];
 
-  visit(ast as any, (node) => {
+  visit(ast, (node) => {
+    if (node.type === 'TSInterfaceDeclaration') {
+      const interfaceName: string = ((node.id as { name?: string } | undefined)?.name) ?? 'AnonymousInterface';
+      const interfaces = (node.extends as unknown[] | undefined) ?? [];
+      for (const item of interfaces) {
+        const expr = (item as { expression?: unknown }).expression ?? item;
+        const qn = getQualifiedName(expr);
+        if (!qn) continue;
+        const rel = resolveHeritageDst(qn, filePath, importMap);
+        relations.push({
+          type: 'extends',
+          srcFilePath: filePath,
+          srcSymbolName: interfaceName,
+          ...rel,
+        });
+      }
+      return;
+    }
+
     if (node.type !== 'ClassDeclaration' && node.type !== 'ClassExpression') return;
 
     const className: string =
-      (node.id as any)?.name ?? 'AnonymousClass';
+      ((node.id as { name?: string } | undefined)?.name) ?? 'AnonymousClass';
 
     // extends
     if (node.superClass) {
@@ -38,9 +56,9 @@ export function extractHeritage(
     }
 
     // implements
-    const impls: any[] = (node as any).implements ?? [];
+    const impls = (node.implements as unknown[] | undefined) ?? [];
     for (const impl of impls) {
-      const expr = impl.expression ?? impl;
+      const expr = (impl as { expression?: unknown }).expression ?? impl;
       const qn = getQualifiedName(expr);
       if (!qn) continue;
       const rel = resolveHeritageDst(qn, filePath, importMap);

@@ -1,6 +1,7 @@
 import { eq, and, sql, count } from 'drizzle-orm';
 import { symbols } from '../schema';
 import type { DbConnection } from '../connection';
+import { toFtsPrefixQuery } from './fts-utils';
 
 export interface SymbolRecord {
   project: string;
@@ -85,7 +86,9 @@ export class SymbolRepository {
    */
   searchByName(project: string, query: string, opts: SearchOptions = {}): SymbolRecord[] {
     const limit = opts.limit ?? 50;
-    const ftsQuery = `${query.replace(/["*^()\-]/g, '\\$&')}*`;
+    const ftsQuery = toFtsPrefixQuery(query);
+
+    if (!ftsQuery) return [];
 
     let builder = this.db.drizzleDb
       .select()

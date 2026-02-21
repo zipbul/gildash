@@ -1,15 +1,57 @@
-# @bunner/treemonkey
+# @zipbul/codeledger
 
-To install dependencies:
+A Bun-first TypeScript code indexer with symbol search, relation search, and dependency graph APIs.
 
-```bash
-bun install
-```
-
-To run:
+## Install
 
 ```bash
-bun run index.ts
+bun add @zipbul/codeledger
 ```
 
-This project was created using `bun init` in bun v1.3.8. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+## Quick Start
+
+```ts
+import { Codeledger } from '@zipbul/codeledger';
+
+const ledger = await Codeledger.open({
+	projectRoot: '/absolute/path/to/project',
+});
+
+const symbols = ledger.searchSymbols({ text: 'UserService' });
+const deps = ledger.getDependencies('src/app.ts');
+
+await ledger.close();
+```
+
+## API
+
+- `Codeledger.open(options)`
+- `searchSymbols(query)`
+- `searchRelations(query)`
+- `getDependencies(filePath, project?)`
+- `getDependents(filePath, project?)`
+- `getAffected(changedFiles, project?)`
+- `hasCycle(project?)`
+- `reindex()`
+
+## Runtime
+
+- Bun `v1.3+`
+- TypeScript sources: `.ts`, `.mts`, `.cts`
+
+## Testing
+
+```bash
+bun test
+```
+
+```bash
+bun run coverage
+```
+
+## Project Docs
+
+- [Contributing](./CONTRIBUTING.md)
+- [Security](./SECURITY.md)
+- [Code of Conduct](./CODE_OF_CONDUCT.md)
+- [Changelog](./CHANGELOG.md)

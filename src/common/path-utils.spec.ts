@@ -14,7 +14,7 @@ describe("toRelativePath", () => {
     expect(result).toBe("../../shared/types.ts");
   });
 
-  it("should normalize mixed separators while preserving traversal segments", () => {
+  it("should normalize mixed separators when traversal segments are present", () => {
     const result = toRelativePath("C:/repo", "C:/repo/apps\\web/..\\shared\\a.ts");
 
     expect(result).toBe("apps/web/../shared/a.ts");
@@ -26,7 +26,7 @@ describe("toRelativePath", () => {
     expect(result).toBe("");
   });
 
-  it("should return same result on repeated calls with same input", () => {
+  it("should return same result when called repeatedly with same input", () => {
     const first = toRelativePath("/repo", "/repo/src/main.ts");
     const second = toRelativePath("/repo", "/repo/src/main.ts");
 
@@ -47,7 +47,7 @@ describe("toAbsolutePath", () => {
     expect(result).toBe("/repo/apps/shared/a.ts");
   });
 
-  it("should keep absolute input path as absolute result", () => {
+  it("should keep absolute input path as absolute result when input is absolute", () => {
     const result = toAbsolutePath("/repo", "/external/file.ts");
 
     expect(result).toBe("/external/file.ts");

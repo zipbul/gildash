@@ -18,10 +18,9 @@ export function resolveImport(
   importPath: string,
   tsconfigPaths?: TsconfigPaths,
 ): string[] {
-  // 1. Relative imports
-  if (importPath.startsWith('.')) {
-    const resolved = resolve(dirname(currentFilePath), importPath);
-    if (extname(resolved) === '') {
+  const withTypeScriptCandidates = (resolved: string): string[] => {
+    const extension = extname(resolved);
+    if (extension === '') {
       return [
         resolved + '.ts',
         resolved + '/index.ts',
@@ -31,7 +30,16 @@ export function resolveImport(
         resolved + '/index.cts',
       ];
     }
+    if (extension === '.js') return [resolved.slice(0, -3) + '.ts'];
+    if (extension === '.mjs') return [resolved.slice(0, -4) + '.mts'];
+    if (extension === '.cjs') return [resolved.slice(0, -4) + '.cts'];
     return [resolved];
+  };
+
+  // 1. Relative imports
+  if (importPath.startsWith('.')) {
+    const resolved = resolve(dirname(currentFilePath), importPath);
+    return withTypeScriptCandidates(resolved);
   }
 
   // 2. tsconfig path aliases
@@ -44,18 +52,11 @@ export function resolveImport(
       if (starIdx === -1) {
         // Exact match
         if (importPath === pattern) {
-          const resolved = resolve(tsconfigPaths.baseUrl, targets[0]);
-          if (extname(resolved) === '') {
-            return [
-              resolved + '.ts',
-              resolved + '/index.ts',
-              resolved + '.mts',
-              resolved + '/index.mts',
-              resolved + '.cts',
-              resolved + '/index.cts',
-            ];
+          const candidates: string[] = [];
+          for (const t of targets) {
+            candidates.push(...withTypeScriptCandidates(resolve(tsconfigPaths.baseUrl, t)));
           }
-          return [resolved];
+          return candidates;
         }
       } else {
         const prefix = pattern.slice(0, starIdx);
@@ -68,19 +69,11 @@ export function resolveImport(
             prefix.length,
             suffix === '' ? undefined : importPath.length - suffix.length,
           );
-          const target = targets[0].replace('*', captured);
-          const resolved = resolve(tsconfigPaths.baseUrl, target);
-          if (extname(resolved) === '') {
-            return [
-              resolved + '.ts',
-              resolved + '/index.ts',
-              resolved + '.mts',
-              resolved + '/index.mts',
-              resolved + '.cts',
-              resolved + '/index.cts',
-            ];
+          const candidates: string[] = [];
+          for (const t of targets) {
+            candidates.push(...withTypeScriptCandidates(resolve(tsconfigPaths.baseUrl, t.replace('*', captured))));
           }
-          return [resolved];
+          return candidates;
         }
       }
     }
@@ -110,32 +103,34 @@ export function buildImportMap(
   ) => string[] = resolveImport,
 ): Map<string, ImportReference> {
   const map = new Map<string, ImportReference>();
+  const body = (ast as unknown as { body?: Array<Record<string, unknown>> }).body ?? [];
 
-  for (const node of (ast as any).body ?? []) {
+  for (const node of body) {
     if (node.type !== 'ImportDeclaration') continue;
 
-    const sourcePath: string = node.source?.value ?? '';
+    const sourcePath: string = ((node.source as { value?: string } | undefined)?.value) ?? '';
     const candidates = resolveImportFn(currentFilePath, sourcePath, tsconfigPaths);
     if (candidates.length === 0) continue;
     const resolved = candidates[0];
 
-    for (const spec of node.specifiers ?? []) {
+    const specifiers = (node.specifiers as Array<Record<string, unknown>> | undefined) ?? [];
+    for (const spec of specifiers) {
       switch (spec.type) {
         case 'ImportSpecifier':
-          map.set(spec.local.name, {
-            path: resolved,
-            importedName: spec.imported.name,
+          map.set((spec.local as { name: string }).name, {
+            path: resolved!,
+            importedName: (spec.imported as { name: string }).name,
           });
           break;
         case 'ImportDefaultSpecifier':
-          map.set(spec.local.name, {
-            path: resolved,
+          map.set((spec.local as { name: string }).name, {
+            path: resolved!,
             importedName: 'default',
           });
           break;
         case 'ImportNamespaceSpecifier':
-          map.set(spec.local.name, {
-            path: resolved,
+          map.set((spec.local as { name: string }).name, {
+            path: resolved!,
             importedName: '*',
           });
           break;

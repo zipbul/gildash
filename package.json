@@ -1,7 +1,35 @@
 {
-  "name": "@zipbul/code-ledger",
+  "name": "@zipbul/codeledger",
+  "version": "0.1.0",
+  "description": "TypeScript code indexing and dependency graph engine for Bun",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zipbul/codeledger.git"
+  },
+  "author": "zipbul",
+  "keywords": [
+    "typescript",
+    "indexer",
+    "code-analysis",
+    "dependency-graph",
+    "bun"
+  ],
   "module": "index.ts",
   "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md"
+  ],
   "scripts": {
     "coverage": "bun test --coverage"
   },
@@ -17,8 +45,5 @@
     "@types/bun": "latest",
     "drizzle-kit": "^0.31.9",
     "husky": "^9.1.7"
-  },
-  "peerDependencies": {
-    "typescript": "^5.9.3"
   }
 }

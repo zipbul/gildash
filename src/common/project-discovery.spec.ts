@@ -110,7 +110,7 @@ describe("discoverProjects", () => {
     expect(boundaries).toEqual([]);
   });
 
-  it("should pass exclusion patterns to glob for node_modules git and dist directories", async () => {
+  it("should pass exclusion patterns when glob scans node_modules git and dist directories", async () => {
     setupGlobAndFiles({
       "package.json": { name: "@ws/root" },
     });

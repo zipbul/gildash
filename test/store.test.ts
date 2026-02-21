@@ -75,7 +75,7 @@ let symbolRepo: SymbolRepository;
 let relationRepo: RelationRepository;
 
 beforeEach(async () => {
-  tmpDir = await mkdtemp(join(tmpdir(), 'code-ledger-store-test-'));
+  tmpDir = await mkdtemp(join(tmpdir(), 'codeledger-store-test-'));
   db = new DbConnection({ projectRoot: tmpDir });
   db.open();
   fileRepo = new FileRepository(db);
@@ -96,14 +96,14 @@ describe('DbConnection', () => {
     expect(existsSync(join(tmpDir, '.zipbul'))).toBe(true);
   });
 
-  it('should enable WAL journal mode after open', () => {
+  it('should enable WAL journal mode when db is opened', () => {
     const result = db.transaction(() => {
       return db.query('PRAGMA journal_mode');
     });
     expect(result).toBe('wal');
   });
 
-  it('should create all schema tables after migrations', () => {
+  it('should create all schema tables when db is opened', () => {
     const tables = db.transaction(() => db.getTableNames());
     expect(tables).toContain('files');
     expect(tables).toContain('symbols');
@@ -111,12 +111,12 @@ describe('DbConnection', () => {
     expect(tables).toContain('watcher_owner');
   });
 
-  it('should create symbols_fts virtual table after migrations', () => {
+  it('should create symbols_fts virtual table when db is opened', () => {
     const tables = db.transaction(() => db.getTableNames());
     expect(tables).toContain('symbols_fts');
   });
 
-  it('should commit transaction fn return value', () => {
+  it('should commit transaction fn return value when transaction fn succeeds', () => {
     const result = db.transaction(() => 42);
     expect(result).toBe(42);
   });
@@ -132,20 +132,20 @@ describe('DbConnection', () => {
     expect(fileRepo.getFile('test-project', 'src/index.ts')).toBeNull();
   });
 
-  it('should support nested transactions via savepoints', () => {
+  it('should support nested transactions via savepoints when transaction is nested', () => {
     const result = db.transaction(() => {
       return db.transaction(() => 'nested');
     });
     expect(result).toBe('nested');
   });
 
-  it('should allow re-opening after close', () => {
+  it('should allow re-opening when open is called again after close', () => {
     db.close();
     db.open();
     expect(() => db.transaction(() => 1)).not.toThrow();
   });
 
-  it('should wrap migration failure with StoreError', async () => {
+  it('should wrap migration failure with StoreError when migration throws', async () => {
     const badDb = new DbConnection({ projectRoot: join(tmpDir, 'nonexistent-migrations') });
     // Should either succeed or throw StoreError; no plain Error slipthrough
     try {
@@ -157,7 +157,7 @@ describe('DbConnection', () => {
   });
 
   // [HP] transaction fn 인자로 DbConnection 인스턴스(this)가 전달되어야 한다 (I-5)
-  it('should pass the DbConnection instance as argument to the transaction fn', () => {
+  it('should pass the DbConnection instance as argument when transaction fn is executed', () => {
     let receivedTx: any;
     db.transaction((tx) => {
       receivedTx = tx;
@@ -169,7 +169,7 @@ describe('DbConnection', () => {
   // ── C-1: immediateTransaction ─────────────────────────────────────────────
 
   // [HP] immediateTransaction fn 반환값이 그대로 전달된다
-  it('should return the fn result from immediateTransaction', () => {
+  it('should return the fn result when immediateTransaction succeeds', () => {
     const result = (db as any).immediateTransaction(() => 42);
     expect(result).toBe(42);
   });
@@ -179,6 +179,13 @@ describe('DbConnection', () => {
     expect(() => {
       (db as any).immediateTransaction(() => { throw new Error('tx failed'); });
     }).toThrow('tx failed');
+  });
+
+  it('should allow nested transaction call when transaction is called inside immediateTransaction', () => {
+    const result = (db as any).immediateTransaction(() => {
+      return db.transaction(() => 7);
+    });
+    expect(result).toBe(7);
   });
 });
 
@@ -190,7 +197,7 @@ describe('FileRepository', () => {
     expect(result).toBeNull();
   });
 
-  it('should return FileRecord after upsert', () => {
+  it('should return FileRecord when file is upserted', () => {
     const file = makeFileRecord();
     fileRepo.upsertFile(file);
     const result = fileRepo.getFile('test-project', 'src/index.ts');
@@ -198,32 +205,32 @@ describe('FileRepository', () => {
     expect(result!.contentHash).toBe('abc123');
   });
 
-  it('should update existing record on conflict', () => {
+  it('should update existing record when upsert conflicts on same key', () => {
     fileRepo.upsertFile(makeFileRecord({ contentHash: 'old' }));
     fileRepo.upsertFile(makeFileRecord({ contentHash: 'new' }));
     const result = fileRepo.getFile('test-project', 'src/index.ts');
     expect(result!.contentHash).toBe('new');
   });
 
-  it('should not create duplicate rows on re-upsert', () => {
+  it('should not create duplicate rows when same file is repeatedly upserted', () => {
     fileRepo.upsertFile(makeFileRecord());
     fileRepo.upsertFile(makeFileRecord());
     const all = fileRepo.getAllFiles('test-project');
     expect(all.length).toBe(1);
   });
 
-  it('should return all files for project', () => {
+  it('should return all files when querying project that has files', () => {
     fileRepo.upsertFile(makeFileRecord({ filePath: 'src/a.ts' }));
     fileRepo.upsertFile(makeFileRecord({ filePath: 'src/b.ts' }));
     const all = fileRepo.getAllFiles('test-project');
     expect(all.length).toBe(2);
   });
 
-  it('should return empty array for unknown project', () => {
+  it('should return empty array when querying unknown project', () => {
     expect(fileRepo.getAllFiles('unknown-project')).toEqual([]);
   });
 
-  it('should return files as Map keyed by filePath', () => {
+  it('should return files as Map keyed by filePath when getFilesMap is called', () => {
     fileRepo.upsertFile(makeFileRecord({ filePath: 'src/a.ts' }));
     fileRepo.upsertFile(makeFileRecord({ filePath: 'src/b.ts' }));
     const map = fileRepo.getFilesMap('test-project');
@@ -232,7 +239,7 @@ describe('FileRepository', () => {
     expect(map.has('src/b.ts')).toBe(true);
   });
 
-  it('should remove file from db on deleteFile', () => {
+  it('should remove file from db when deleteFile is called for existing file', () => {
     fileRepo.upsertFile(makeFileRecord());
     fileRepo.deleteFile('test-project', 'src/index.ts');
     expect(fileRepo.getFile('test-project', 'src/index.ts')).toBeNull();
@@ -242,7 +249,7 @@ describe('FileRepository', () => {
     expect(() => fileRepo.deleteFile('test-project', 'src/missing.ts')).not.toThrow();
   });
 
-  it('should not return files from different project', () => {
+  it('should not return files when querying different project', () => {
     fileRepo.upsertFile(makeFileRecord({ project: 'other' }));
     expect(fileRepo.getAllFiles('test-project')).toEqual([]);
   });
@@ -256,7 +263,7 @@ describe('SymbolRepository', () => {
     fileRepo.upsertFile(makeFileRecord({ filePath: 'src/utils.ts' }));
   });
 
-  it('should return inserted symbols after replaceFileSymbols', () => {
+  it('should return inserted symbols when replaceFileSymbols inserts symbols', () => {
     symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
       makeSymbolRecord(),
     ]);
@@ -265,7 +272,7 @@ describe('SymbolRepository', () => {
     expect(result[0]!.name).toBe('myFn');
   });
 
-  it('should replace all symbols for file on second call', () => {
+  it('should replace all symbols for file when replaceFileSymbols is called twice', () => {
     symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
       makeSymbolRecord({ name: 'old' }),
     ]);
@@ -283,11 +290,11 @@ describe('SymbolRepository', () => {
     expect(symbolRepo.getFileSymbols('test-project', 'src/index.ts')).toEqual([]);
   });
 
-  it('should return empty array for unknown file', () => {
+  it('should return empty array when querying symbols for unknown file', () => {
     expect(symbolRepo.getFileSymbols('test-project', 'src/missing.ts')).toEqual([]);
   });
 
-  it('should find symbol by name prefix via FTS5', () => {
+  it('should find symbol by name prefix when searchByName uses FTS5', () => {
     symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
       makeSymbolRecord({ name: 'handleRequest' }),
     ]);
@@ -301,7 +308,7 @@ describe('SymbolRepository', () => {
     expect(symbolRepo.searchByName('test-project', 'zzzzNonExistent')).toEqual([]);
   });
 
-  it('should filter searchByName by kind', () => {
+  it('should filter searchByName by kind when kind filter is provided', () => {
     symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
       makeSymbolRecord({ name: 'MyClass', kind: 'class' }),
       makeSymbolRecord({ name: 'myFn', kind: 'function', fingerprint: 'fp002' }),
@@ -310,7 +317,7 @@ describe('SymbolRepository', () => {
     expect(result.every((r) => r.kind === 'class')).toBe(true);
   });
 
-  it('should cap results at limit in searchByName', () => {
+  it('should cap results at limit when searchByName limit is provided', () => {
     const symbols = Array.from({ length: 10 }, (_, i) =>
       makeSymbolRecord({ name: `fn${i}`, fingerprint: `fp${i}` }),
     );
@@ -319,7 +326,7 @@ describe('SymbolRepository', () => {
     expect(result.length).toBeLessThanOrEqual(3);
   });
 
-  it('should return symbols by kind via searchByKind', () => {
+  it('should return symbols by kind when searchByKind is called', () => {
     symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
       makeSymbolRecord({ kind: 'class', name: 'MyClass', fingerprint: 'fp-c' }),
       makeSymbolRecord({ kind: 'function', name: 'myFn', fingerprint: 'fp-f' }),
@@ -328,7 +335,7 @@ describe('SymbolRepository', () => {
     expect(result.every((r) => r.kind === 'class')).toBe(true);
   });
 
-  it('should return correct stats', () => {
+  it('should return correct stats when project has indexed symbols', () => {
     fileRepo.upsertFile(makeFileRecord({ filePath: 'src/extra.ts' }));
     symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
       makeSymbolRecord({ name: 'fn1', fingerprint: 'fp1' }),
@@ -341,7 +348,7 @@ describe('SymbolRepository', () => {
     expect(stats.symbolCount).toBe(3);
   });
 
-  it('should return symbols by fingerprint', () => {
+  it('should return symbols when querying existing fingerprint', () => {
     symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
       makeSymbolRecord({ fingerprint: 'unique-fp' }),
     ]);
@@ -349,11 +356,11 @@ describe('SymbolRepository', () => {
     expect(result.length).toBe(1);
   });
 
-  it('should return empty array for unknown fingerprint', () => {
+  it('should return empty array when querying unknown fingerprint', () => {
     expect(symbolRepo.getByFingerprint('test-project', 'no-such-fp')).toEqual([]);
   });
 
-  it('should remove all symbols on deleteFileSymbols', () => {
+  it('should remove all symbols when deleteFileSymbols is called', () => {
     symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [makeSymbolRecord()]);
     symbolRepo.deleteFileSymbols('test-project', 'src/index.ts');
     expect(symbolRepo.getFileSymbols('test-project', 'src/index.ts')).toEqual([]);
@@ -365,12 +372,19 @@ describe('SymbolRepository', () => {
     expect(symbolRepo.getFileSymbols('test-project', 'src/index.ts')).toEqual([]);
   });
 
-  it('should reflect FTS5 insert immediately after replaceFileSymbols', () => {
+  it('should reflect FTS5 insert immediately when replaceFileSymbols inserts symbol', () => {
     symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
       makeSymbolRecord({ name: 'freshSymbol', fingerprint: 'fp-fresh' }),
     ]);
     const result = symbolRepo.searchByName('test-project', 'freshSymbol');
     expect(result.length).toBe(1);
+  });
+
+  it('should not throw when searchByName query contains special FTS characters', () => {
+    symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
+      makeSymbolRecord({ name: 'A"B', fingerprint: 'fp-special' }),
+    ]);
+    expect(() => symbolRepo.searchByName('test-project', 'A"B')).not.toThrow();
   });
 });
 
@@ -380,25 +394,26 @@ describe('RelationRepository', () => {
   beforeEach(() => {
     fileRepo.upsertFile(makeFileRecord({ filePath: 'src/index.ts' }));
     fileRepo.upsertFile(makeFileRecord({ filePath: 'src/utils.ts' }));
+    fileRepo.upsertFile(makeFileRecord({ filePath: 'src/other.ts' }));
   });
 
-  it('should return outgoing relations after replaceFileRelations', () => {
+  it('should return outgoing relations when replaceFileRelations inserts relations', () => {
     relationRepo.replaceFileRelations('test-project', 'src/index.ts', [makeRelationRecord()]);
     const result = relationRepo.getOutgoing('test-project', 'src/index.ts');
     expect(result.length).toBe(1);
   });
 
-  it('should replace relations on second replaceFileRelations call', () => {
+  it('should replace relations when replaceFileRelations is called twice for same source', () => {
     relationRepo.replaceFileRelations('test-project', 'src/index.ts', [makeRelationRecord()]);
     relationRepo.replaceFileRelations('test-project', 'src/index.ts', []);
     expect(relationRepo.getOutgoing('test-project', 'src/index.ts')).toEqual([]);
   });
 
-  it('should return empty array for unknown src file', () => {
+  it('should return empty array when querying outgoing relations for unknown source file', () => {
     expect(relationRepo.getOutgoing('test-project', 'src/nothing.ts')).toEqual([]);
   });
 
-  it('should return only matching srcSymbolName and null-srcSymbolName rows via getOutgoing filter', () => {
+  it('should return matching srcSymbolName and null-srcSymbolName rows when getOutgoing filter is used', () => {
     relationRepo.replaceFileRelations('test-project', 'src/index.ts', [
       makeRelationRecord({ srcSymbolName: 'myFn' }),
       makeRelationRecord({ srcSymbolName: null, type: 'imports', dstFilePath: 'src/other.ts' }),
@@ -408,17 +423,17 @@ describe('RelationRepository', () => {
     expect(result.some((r) => r.srcSymbolName === null)).toBe(true);
   });
 
-  it('should return incoming relations for dstFilePath', () => {
+  it('should return incoming relations when destination file has incoming edges', () => {
     relationRepo.replaceFileRelations('test-project', 'src/index.ts', [makeRelationRecord()]);
     const result = relationRepo.getIncoming('test-project', 'src/utils.ts');
     expect(result.length).toBe(1);
   });
 
-  it('should return empty array for unknown dst file', () => {
+  it('should return empty array when querying incoming relations for unknown destination file', () => {
     expect(relationRepo.getIncoming('test-project', 'src/nothing.ts')).toEqual([]);
   });
 
-  it('should return only matching type via getByType', () => {
+  it('should return only matching type when getByType is called with type filter', () => {
     relationRepo.replaceFileRelations('test-project', 'src/index.ts', [
       makeRelationRecord({ type: 'imports' }),
     ]);
@@ -426,13 +441,13 @@ describe('RelationRepository', () => {
     expect(result.every((r) => r.type === 'imports')).toBe(true);
   });
 
-  it('should remove all src relations on deleteFileRelations', () => {
+  it('should remove all source relations when deleteFileRelations is called', () => {
     relationRepo.replaceFileRelations('test-project', 'src/index.ts', [makeRelationRecord()]);
     relationRepo.deleteFileRelations('test-project', 'src/index.ts');
     expect(relationRepo.getOutgoing('test-project', 'src/index.ts')).toEqual([]);
   });
 
-  it('should retarget relations from old to new symbol', () => {
+  it('should retarget relations from old to new symbol when matching old symbol exists', () => {
     fileRepo.upsertFile(makeFileRecord({ filePath: 'src/new.ts' }));
     relationRepo.replaceFileRelations('test-project', 'src/index.ts', [
       makeRelationRecord({ dstFilePath: 'src/utils.ts', dstSymbolName: 'OldFn' }),
@@ -452,7 +467,13 @@ describe('RelationRepository', () => {
     expect(relationRepo.getOutgoing('test-project', 'src/index.ts')).toEqual([]);
   });
 
-  it('should not return relations from different project', () => {
+  it('should cascade-delete relations when dst file is deleted', () => {
+    relationRepo.replaceFileRelations('test-project', 'src/index.ts', [makeRelationRecord({ dstFilePath: 'src/utils.ts' })]);
+    fileRepo.deleteFile('test-project', 'src/utils.ts');
+    expect(relationRepo.getIncoming('test-project', 'src/utils.ts')).toEqual([]);
+  });
+
+  it('should not return relations when querying different project', () => {
     relationRepo.replaceFileRelations('test-project', 'src/index.ts', [makeRelationRecord()]);
     expect(relationRepo.getOutgoing('other-project', 'src/index.ts')).toEqual([]);
   });
@@ -477,7 +498,7 @@ describe('RelationRepository', () => {
     ]);
     const result = relationRepo.getOutgoing('test-project', 'src/module2.ts', 'anyFn');
     expect(result.length).toBe(1);
-    expect(result[0].srcSymbolName).toBeNull();
+    expect(result[0]!.srcSymbolName).toBeNull();
   });
 });
 
@@ -490,7 +511,7 @@ describe('DbConnection WatcherOwnerStore', () => {
   });
 
   // [HP] insertOwner 후 selectOwner → pid + heartbeat_at 올바른 shape
-  it('should return the inserted owner row from selectOwner after insertOwner', () => {
+  it('should return inserted owner row from selectOwner when insertOwner is called', () => {
     db.insertOwner(1234);
     const row = db.selectOwner();
     expect(row).toBeDefined();
@@ -520,19 +541,19 @@ describe('DbConnection WatcherOwnerStore', () => {
   });
 
   // [HP] touchOwner: heartbeat_at 변경, pid 유지
-  it('should update heartbeat_at while keeping pid intact after touchOwner', () => {
+  it('should update heartbeat_at while keeping pid intact when touchOwner is called', () => {
     db.insertOwner(5);
     const before = db.selectOwner()!.heartbeat_at;
-    // Ensure at least 1 ms passes
-    const later = new Date(Date.now() + 1).toISOString();
+    // Ensure at least 1 ms passes so the new timestamp is strictly greater
+    Bun.sleepSync(1);
     db.touchOwner(5);
     const after = db.selectOwner()!.heartbeat_at;
-    expect(after >= later || after > before || after !== before || true).toBe(true);
+    expect(after > before).toBe(true);
     expect(db.selectOwner()!.pid).toBe(5);
   });
 
   // [HP] deleteOwner: row 삭제 확인
-  it('should remove the owner row after deleteOwner', () => {
+  it('should remove owner row when deleteOwner is called for matching pid', () => {
     db.insertOwner(7);
     db.deleteOwner(7);
     expect(db.selectOwner()).toBeUndefined();

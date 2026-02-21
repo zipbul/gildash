@@ -53,7 +53,7 @@ describe("loadTsconfigPaths", () => {
   });
 
   it("should return null when tsconfig does not exist", async () => {
-    spyOn(Bun, "file").mockImplementation((_p) => {
+    spyOn(Bun, "file").mockImplementation((p) => {
       return makeBunFile(null);
     });
 
@@ -153,7 +153,7 @@ describe("loadTsconfigPaths", () => {
     expect(result?.paths.get("#/*")).toEqual(["lib/*"]);
   });
 
-  it("should filter non-string values from paths array entries", async () => {
+  it("should filter non-string values when resolving paths array entries", async () => {
     spyOn(Bun, "file").mockImplementation((p) => {
       if (String(p) === TSCONFIG_PATH) {
         return makeBunFile({

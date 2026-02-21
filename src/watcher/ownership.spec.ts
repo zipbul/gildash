@@ -42,7 +42,15 @@ function createFakeDb(initialRow?: Row): WatcherOwnerStore & {
   return db;
 }
 
+
 describe("acquireWatcherRole", () => {
+  let killSpy: Mock<typeof process.kill> | undefined;
+
+  afterEach(() => {
+    killSpy?.mockRestore();
+    killSpy = undefined;
+  });
+
   it("should return owner when owner row does not exist", () => {
     const db = createFakeDb();
 
@@ -118,7 +126,7 @@ describe("acquireWatcherRole", () => {
 
   it("should return owner when process is missing and default isAlive receives ESRCH", () => {
     const db = createFakeDb({ pid: 7, heartbeat_at: new Date().toISOString() });
-    const killSpy = spyOn(process, "kill").mockImplementation(() => {
+    killSpy = spyOn(process, "kill").mockImplementation(() => {
       throw Object.assign(new Error("no such process"), { code: "ESRCH" });
     });
 
@@ -130,12 +138,11 @@ describe("acquireWatcherRole", () => {
     expect(role).toBe("owner");
     expect(db.row?.pid).toBe(100);
     expect(killSpy).toHaveBeenCalledWith(7, 0);
-    killSpy.mockRestore();
   });
 
   it("should return reader when process exists but kill check throws EPERM", () => {
     const db = createFakeDb({ pid: 7, heartbeat_at: new Date().toISOString() });
-    const killSpy = spyOn(process, "kill").mockImplementation(() => {
+    killSpy = spyOn(process, "kill").mockImplementation(() => {
       throw Object.assign(new Error("operation not permitted"), { code: "EPERM" });
     });
 
@@ -146,12 +153,11 @@ describe("acquireWatcherRole", () => {
 
     expect(role).toBe("reader");
     expect(db.row?.pid).toBe(7);
-    killSpy.mockRestore();
   });
 
   it("should return reader when kill check throws error without code", () => {
     const db = createFakeDb({ pid: 7, heartbeat_at: new Date().toISOString() });
-    const killSpy = spyOn(process, "kill").mockImplementation(() => {
+    killSpy = spyOn(process, "kill").mockImplementation(() => {
       throw { reason: "unknown" };
     });
 
@@ -162,7 +168,6 @@ describe("acquireWatcherRole", () => {
 
     expect(role).toBe("reader");
     expect(db.row?.pid).toBe(7);
-    killSpy.mockRestore();
   });
 
   it("should return owner when heartbeat string is invalid", () => {
@@ -215,7 +220,7 @@ describe("acquireWatcherRole", () => {
     expect(db.replaceOwner).not.toHaveBeenCalled();
   });
 
-  it("should re-acquire owner role after previous owner releases", () => {
+  it("should re-acquire owner role when previous owner releases ownership", () => {
     const db = createFakeDb({ pid: 7, heartbeat_at: new Date().toISOString() });
 
     releaseWatcherRole(db, 7);
@@ -247,40 +252,15 @@ describe("acquireWatcherRole", () => {
 
   // [HP] acquireWatcherRole은 transaction이 아닌 immediateTransaction을 사용해야 한다
   it("should use immediateTransaction instead of transaction when acquiring watcher role", () => {
-    let immediateTransactionCalled = false;
+    const immediateTransaction = mock(<T>(fn: () => T): T => fn());
     const db = {
       ...createFakeDb(),
-      immediateTransaction: <T>(fn: () => T): T => {
-        immediateTransactionCalled = true;
-        return fn();
-      },
+      immediateTransaction,
     } as any;
 
     acquireWatcherRole(db, 100, { now: () => 0, isAlive: () => false, staleAfterSeconds: 90 });
 
-    expect(immediateTransactionCalled).toBe(true);
-  });
-});
-
-describe("releaseWatcherRole", () => {
-  it("should remove row when current pid is owner", () => {
-    const db = createFakeDb({ pid: 123, heartbeat_at: new Date().toISOString() });
-
-    releaseWatcherRole(db, 123);
-
-    expect(db.row).toBeUndefined();
-    expect(db.deleteOwner).toHaveBeenCalledTimes(1);
-    expect(db.deleteOwner).toHaveBeenCalledWith(123);
-  });
-
-  it("should keep row when pid does not match current owner", () => {
-    const db = createFakeDb({ pid: 123, heartbeat_at: new Date().toISOString() });
-
-    releaseWatcherRole(db, 999);
-
-    expect(db.row?.pid).toBe(123);
-    expect(db.deleteOwner).toHaveBeenCalledTimes(1);
-    expect(db.deleteOwner).toHaveBeenCalledWith(999);
+    expect(immediateTransaction).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -305,9 +285,7 @@ describe("updateHeartbeat", () => {
     expect(db.touchOwner).toHaveBeenCalledWith(999);
     expect(db.row?.heartbeat_at).toBe(originalHeartbeat);
   });
-});
 
-describe("updateHeartbeat", () => {
   it("should increment touchOwner call when heartbeat is called immediately after acquire", () => {
     const db = createFakeDb();
 
@@ -324,6 +302,26 @@ describe("updateHeartbeat", () => {
 });
 
 describe("releaseWatcherRole", () => {
+  it("should remove row when current pid is owner", () => {
+    const db = createFakeDb({ pid: 123, heartbeat_at: new Date().toISOString() });
+
+    releaseWatcherRole(db, 123);
+
+    expect(db.row).toBeUndefined();
+    expect(db.deleteOwner).toHaveBeenCalledTimes(1);
+    expect(db.deleteOwner).toHaveBeenCalledWith(123);
+  });
+
+  it("should keep row when pid does not match current owner", () => {
+    const db = createFakeDb({ pid: 123, heartbeat_at: new Date().toISOString() });
+
+    releaseWatcherRole(db, 999);
+
+    expect(db.row?.pid).toBe(123);
+    expect(db.deleteOwner).toHaveBeenCalledTimes(1);
+    expect(db.deleteOwner).toHaveBeenCalledWith(999);
+  });
+
   it("should clear row when release is called after acquire and heartbeat", () => {
     const db = createFakeDb();
 
