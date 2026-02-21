@@ -1,7 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import type { ImportReference } from './types';
 
-// ── Mock ../parser/ast-utils ──
 const mockVisit = mock((node: any, cb: any) => {});
 const mockGetQualifiedName = mock(() => null as any);
 
@@ -13,7 +12,6 @@ function makeImportMap(entries: [string, ImportReference][] = []): Map<string, I
   return new Map(entries);
 }
 
-// ── Fake class node helpers ──
 function fakeClassNode(
   name: string,
   opts: { superClass?: any; implements?: any[] } = {},
@@ -39,7 +37,6 @@ describe('extractHeritage', () => {
     mockGetQualifiedName.mockReturnValue(null);
   });
 
-  // HP — extends (local)
   it('should produce an extends relation when class extends a locally defined class', () => {
     const superClassNode = { type: 'Identifier', name: 'Animal' };
     mockVisit.mockImplementation((ast: any, cb: any) => {
@@ -55,7 +52,6 @@ describe('extractHeritage', () => {
     expect(rel!.metaJson).toContain('"isLocal":true');
   });
 
-  // HP — implements (local)
   it('should produce an implements relation when class implements a locally defined interface', () => {
     const exprNode = { type: 'Identifier', name: 'Service' };
     mockVisit.mockImplementation((ast: any, cb: any) => {
@@ -70,7 +66,6 @@ describe('extractHeritage', () => {
     expect(rel!.dstSymbolName).toBe('Service');
   });
 
-  // HP — extends (imported)
   it('should set dstFilePath to imported module path when base class is an imported symbol', () => {
     const superClassNode = { type: 'Identifier', name: 'Base' };
     mockVisit.mockImplementation((ast: any, cb: any) => {
@@ -87,7 +82,6 @@ describe('extractHeritage', () => {
     expect(rel?.dstFilePath).toBe('/project/src/base.ts');
   });
 
-  // HP — implements (imported)
   it('should set dstFilePath to imported module path when implemented interface is an imported symbol', () => {
     const exprNode = { type: 'Identifier', name: 'IFoo' };
     mockVisit.mockImplementation((ast: any, cb: any) => {
@@ -104,7 +98,6 @@ describe('extractHeritage', () => {
     expect(rel?.dstFilePath).toBe('/project/src/ifoo.ts');
   });
 
-  // NE — no heritage
   it('should return empty array when class has no extends or implements clause', () => {
     mockVisit.mockImplementation((ast: any, cb: any) => {
       cb(fakeClassNode('Plain'));
@@ -115,15 +108,12 @@ describe('extractHeritage', () => {
     expect(relations).toEqual([]);
   });
 
-  // ED — empty source
   it('should return empty array when source is empty', () => {
-    // visit never calls callback → no relations
     const relations = extractHeritage({} as any, FILE, makeImportMap());
 
     expect(relations).toEqual([]);
   });
 
-  // multiple implements
   it('should produce one relation per interface when class implements multiple interfaces', () => {
     const exprA = { type: 'Identifier', name: 'A' };
     const exprB = { type: 'Identifier', name: 'B' };
@@ -144,7 +134,6 @@ describe('extractHeritage', () => {
     expect(implRels.length).toBe(3);
   });
 
-  // namespace import
   it('should include {"isNamespaceImport":true} in metaJson when base class is accessed via namespace import', () => {
     const superClassNode = { type: 'MemberExpression', object: { type: 'Identifier', name: 'ns' }, property: { name: 'Base' } };
     mockVisit.mockImplementation((ast: any, cb: any) => {
@@ -161,7 +150,6 @@ describe('extractHeritage', () => {
     expect(rel?.metaJson).toContain('"isNamespaceImport":true');
   });
 
-  // ID
   it('should return identical relations when called repeatedly with the same AST', () => {
     const superClassNode = { type: 'Identifier', name: 'A' };
     mockVisit.mockImplementation((ast: any, cb: any) => {

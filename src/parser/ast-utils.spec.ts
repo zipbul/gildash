@@ -11,9 +11,6 @@ import {
   getQualifiedName,
 } from './ast-utils';
 
-// ============================================================
-// isNode
-// ============================================================
 describe('isNode', () => {
   it('should return true when input is a plain object', () => {
     expect(isNode({ type: 'Identifier' })).toBe(true);
@@ -36,9 +33,6 @@ describe('isNode', () => {
   });
 });
 
-// ============================================================
-// isNodeArray
-// ============================================================
 describe('isNodeArray', () => {
   it('should return true when input is an array', () => {
     expect(isNodeArray([])).toBe(true);
@@ -61,9 +55,6 @@ describe('isNodeArray', () => {
   });
 });
 
-// ============================================================
-// visit
-// ============================================================
 describe('visit', () => {
   it('should call callback when visit is called with a single root node', () => {
     const visited: string[] = [];
@@ -129,9 +120,6 @@ describe('visit', () => {
   });
 });
 
-// ============================================================
-// collectNodes
-// ============================================================
 describe('collectNodes', () => {
   it('should collect nodes when predicate matches node type', () => {
     const tree = {
@@ -170,9 +158,6 @@ describe('collectNodes', () => {
   });
 });
 
-// ============================================================
-// getNodeHeader
-// ============================================================
 describe('getNodeHeader', () => {
   it('should return node.id.name when node is FunctionDeclaration-like', () => {
     const node = { type: 'FunctionDeclaration', id: { name: 'myFunc' } };
@@ -200,7 +185,6 @@ describe('getNodeHeader', () => {
     expect(getNodeHeader(node)).toBe('myMethod');
   });
 
-  // parent context — G11
   it('should use parent.key.name when parent is MethodDefinition', () => {
     const node = { type: 'FunctionExpression' };
     const parent = { type: 'MethodDefinition', key: { name: 'render' } };
@@ -214,9 +198,6 @@ describe('getNodeHeader', () => {
   });
 });
 
-// ============================================================
-// isFunctionNode
-// ============================================================
 describe('isFunctionNode', () => {
   it('should return true when node type is FunctionDeclaration', () => {
     expect(isFunctionNode({ type: 'FunctionDeclaration' })).toBe(true);
@@ -239,9 +220,6 @@ describe('isFunctionNode', () => {
   });
 });
 
-// ============================================================
-// getNodeName
-// ============================================================
 describe('getNodeName', () => {
   it('should return the name string when node has a string name property', () => {
     expect(getNodeName({ type: 'Identifier', name: 'foo' })).toBe('foo');
@@ -261,9 +239,6 @@ describe('getNodeName', () => {
   });
 });
 
-// ============================================================
-// getStringLiteralValue
-// ============================================================
 describe('getStringLiteralValue', () => {
   it('should return value when node is StringLiteral', () => {
     expect(getStringLiteralValue({ type: 'StringLiteral', value: 'hello' })).toBe('hello');
@@ -287,9 +262,6 @@ describe('getStringLiteralValue', () => {
   });
 });
 
-// ============================================================
-// getQualifiedName
-// ============================================================
 describe('getQualifiedName', () => {
   it('should return { root, parts: [], full } when node is Identifier', () => {
     const node = { type: 'Identifier', name: 'foo' };
@@ -356,7 +328,6 @@ describe('getQualifiedName', () => {
     expect(result).toEqual({ root: 'this', parts: ['method'], full: 'this.method' });
   });
 
-  // super.method — G13
   it('should resolve super.method when node combines Super and MemberExpression', () => {
     const node = {
       type: 'MemberExpression',

@@ -1,13 +1,15 @@
 {
-  "name": "@zipbul/codeledger",
-  "version": "0.1.0",
+  "name": "@zipbul/gildash",
+  "version": "0.0.1",
   "description": "TypeScript code indexing and dependency graph engine for Bun",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/zipbul/codeledger.git"
+    "url": "https://github.com/zipbul/gildash.git"
   },
-  "author": "zipbul",
+  "bugs": "https://github.com/zipbul/gildash/issues",
+  "homepage": "https://github.com/zipbul/gildash#readme",
+  "author": "Junhyung Park (https://github.com/parkrevil)",
   "keywords": [
     "typescript",
     "indexer",
@@ -15,23 +17,28 @@
     "dependency-graph",
     "bun"
   ],
-  "module": "index.ts",
+  "module": "dist/index.js",
   "type": "module",
+  "types": "dist/index.d.ts",
   "exports": {
-    ".": "./index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "files": [
-    "index.ts",
-    "src",
+    "dist",
     "README.md",
-    "LICENSE",
-    "CHANGELOG.md",
-    "SECURITY.md",
-    "CONTRIBUTING.md",
-    "CODE_OF_CONDUCT.md"
+    "LICENSE"
   ],
   "scripts": {
-    "coverage": "bun test --coverage"
+    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --sourcemap=linked && tsc -p tsconfig.build.json && cp -r src/store/migrations dist/migrations",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "coverage": "bun test --coverage",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish"
   },
   "dependencies": {
     "@parcel/watcher": "^2.5.6",
@@ -40,6 +47,8 @@
     "oxc-parser": "0.114.0"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.5.2",
+    "@changesets/cli": "^2.29.8",
     "@commitlint/cli": "^20.4.2",
     "@commitlint/config-conventional": "^20.4.2",
     "@types/bun": "latest",

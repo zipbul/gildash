@@ -3,8 +3,6 @@ import type { ExtractedSymbol } from '../extractor/types';
 import { extractSymbols } from '../extractor/symbol-extractor';
 import { hashString } from '../common/hasher';
 
-// ── Types ─────────────────────────────────────────────────────────────────
-
 export interface SymbolDbRow {
   project: string;
   filePath: string;
@@ -39,8 +37,6 @@ export interface IndexFileSymbolsOptions {
   symbolRepo: SymbolRepoPart;
 }
 
-// ── Signature ─────────────────────────────────────────────────────────────
-
 function buildSignature(sym: ExtractedSymbol): string | null {
   if (sym.kind === 'function' || sym.kind === 'method') {
     const paramCount = sym.parameters?.length ?? 0;
@@ -49,8 +45,6 @@ function buildSignature(sym: ExtractedSymbol): string | null {
   }
   return null;
 }
-
-// ── Detail JSON ────────────────────────────────────────────────────────────
 
 function buildDetailJson(sym: ExtractedSymbol): string | null {
   const detail: Record<string, unknown> = {};
@@ -70,8 +64,6 @@ function buildDetailJson(sym: ExtractedSymbol): string | null {
 
   return Object.keys(detail).length > 0 ? JSON.stringify(detail) : null;
 }
-
-// ── Row builder ────────────────────────────────────────────────────────────
 
 function buildRow(
   sym: ExtractedSymbol,
@@ -101,12 +93,6 @@ function buildRow(
   };
 }
 
-// ── Main ───────────────────────────────────────────────────────────────────
-
-/**
- * Extracts symbols from `parsed`, maps them to DB rows (flattening
- * class/interface/enum members), and writes them via `symbolRepo`.
- */
 export function indexFileSymbols(opts: IndexFileSymbolsOptions): void {
   const { parsed, project, filePath, contentHash, symbolRepo } = opts;
 
@@ -116,7 +102,6 @@ export function indexFileSymbols(opts: IndexFileSymbolsOptions): void {
   for (const sym of extracted) {
     rows.push(buildRow(sym, sym.name, project, filePath, contentHash));
 
-    // Flatten members (class methods, interface props, enum values, …).
     for (const member of sym.members ?? []) {
       rows.push(buildRow(member, `${sym.name}.${member.name}`, project, filePath, contentHash));
     }

@@ -1,7 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import type { CodeRelation } from './types';
 
-// ── Mock declarations ──────────────────────────────────────
 const mockBuildImportMap = mock(() => new Map());
 const mockExtractImports = mock((): CodeRelation[] => []);
 const mockExtractCalls = mock((): CodeRelation[] => []);
@@ -14,7 +13,6 @@ mock.module('./heritage-extractor', () => ({ extractHeritage: mockExtractHeritag
 
 import { extractRelations } from './relation-extractor';
 
-// ── Constants ──────────────────────────────────────────────
 const FILE = '/project/src/index.ts';
 const FAKE_AST = {} as any;
 const SENTINEL_MAP = new Map([['__sentinel__', { path: '/__s__', importedName: '__s__' }]]);
@@ -36,7 +34,6 @@ describe('extractRelations', () => {
     mockExtractHeritage.mockReturnValue([]);
   });
 
-  // HP — merges all extractors
   it('should include imports relations in the merged result when source has import declarations', () => {
     mockExtractImports.mockReturnValue([
       { type: 'imports', srcFilePath: FILE, srcSymbolName: null, dstFilePath: '/project/src/foo.ts', dstSymbolName: null },
@@ -68,7 +65,6 @@ describe('extractRelations', () => {
     expect(extractRelations(FAKE_AST, FILE)).toEqual([]);
   });
 
-  // tsconfigPaths forwarding
   it('should resolve import path using tsconfig aliases when tsconfigPaths option is provided', () => {
     const tsconfigPaths = {
       baseUrl: '/project',
@@ -88,7 +84,6 @@ describe('extractRelations', () => {
     expect(rel?.dstFilePath).toContain('utils/format');
   });
 
-  // ID
   it('should return identical relations when called repeatedly with the same AST', () => {
     mockExtractImports.mockReturnValue([
       { type: 'imports', srcFilePath: FILE, srcSymbolName: null, dstFilePath: '/project/src/x.ts', dstSymbolName: null },
@@ -105,7 +100,6 @@ describe('extractRelations', () => {
     expect(r1.length).toBe(r2.length);
   });
 
-  // implements
   it('should include implements relations in the merged result when source has class interface implementation', () => {
     mockExtractHeritage.mockReturnValue([
       { type: 'implements', srcFilePath: FILE, srcSymbolName: 'C', dstFilePath: FILE, dstSymbolName: 'I' },

@@ -4,8 +4,6 @@ import { FileRepository } from './file.repository';
 import type { FileRecord } from './file.repository';
 import type { DbConnection } from '../connection';
 
-// ── Chainable drizzle mock ────────────────────────────────────────────────
-
 function makeChainMock() {
   const chain: Record<string, Mock<any>> = {};
   for (const m of [
@@ -26,8 +24,6 @@ function makeDbMock() {
   return { db, chain };
 }
 
-// ── Fixtures ──────────────────────────────────────────────────────────────
-
 function makeFileRecord(overrides: Partial<FileRecord> = {}): FileRecord {
   return {
     project: 'test-project',
@@ -40,10 +36,7 @@ function makeFileRecord(overrides: Partial<FileRecord> = {}): FileRecord {
   };
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────
-
 describe('FileRepository', () => {
-  // 1. [HP] getFile returns FileRecord when drizzle.get() returns record
   it('should return FileRecord when getFile finds matching record', () => {
     const { db, chain } = makeDbMock();
     const record = makeFileRecord();
@@ -58,7 +51,6 @@ describe('FileRepository', () => {
     expect(chain['get']).toHaveBeenCalled();
   });
 
-  // 2. [HP] upsertFile calls insert chain with all fields
   it('should call insert chain with all record fields when upsertFile is invoked', () => {
     const { db, chain } = makeDbMock();
     const record = makeFileRecord({ filePath: 'src/utils.ts', contentHash: 'xyz789' });
@@ -77,7 +69,6 @@ describe('FileRepository', () => {
     expect(chain['run']).toHaveBeenCalled();
   });
 
-  // 3. [HP] getAllFiles returns array from drizzle.all()
   it('should return all file records when getAllFiles is called', () => {
     const { db, chain } = makeDbMock();
     const records = [makeFileRecord({ filePath: 'src/a.ts' }), makeFileRecord({ filePath: 'src/b.ts' })];
@@ -90,7 +81,6 @@ describe('FileRepository', () => {
     expect(chain['all']).toHaveBeenCalled();
   });
 
-  // 4. [HP] getFilesMap with 3 records → Map with 3 entries keyed by filePath
   it('should return Map with 3 entries keyed by filePath when getFilesMap is called with 3 records', () => {
     const { db, chain } = makeDbMock();
     const records = [
@@ -109,7 +99,6 @@ describe('FileRepository', () => {
     expect(map.get('src/c.ts')).toEqual(records[2]);
   });
 
-  // 5. [HP] deleteFile calls delete chain
   it('should call delete chain when deleteFile is invoked', () => {
     const { db, chain } = makeDbMock();
 
@@ -121,7 +110,6 @@ describe('FileRepository', () => {
     expect(chain['run']).toHaveBeenCalled();
   });
 
-  // 6. [NE] getFile not found → drizzle returns undefined → returns null
   it('should return null when getFile does not find a matching record', () => {
     const { db, chain } = makeDbMock();
     chain['get']!.mockReturnValue(undefined as unknown);
@@ -132,7 +120,6 @@ describe('FileRepository', () => {
     expect(result).toBeNull();
   });
 
-  // 7. [NE] getAllFiles no records → returns []
   it('should return empty array when getAllFiles finds no records', () => {
     const { db, chain } = makeDbMock();
     chain['all']!.mockReturnValue([]);
@@ -143,7 +130,6 @@ describe('FileRepository', () => {
     expect(result).toEqual([]);
   });
 
-  // 8. [ED] getFilesMap 0 records → returns empty Map (size 0)
   it('should return empty Map when getFilesMap finds no records', () => {
     const { db, chain } = makeDbMock();
     chain['all']!.mockReturnValue([]);
@@ -155,7 +141,6 @@ describe('FileRepository', () => {
     expect(map).toBeInstanceOf(Map);
   });
 
-  // 9. [ED] getFilesMap 1 record → Map with exactly 1 entry
   it('should return Map with exactly 1 entry when getFilesMap receives 1 record', () => {
     const { db, chain } = makeDbMock();
     const record = makeFileRecord({ filePath: 'src/only.ts' });
@@ -168,23 +153,21 @@ describe('FileRepository', () => {
     expect(map.get('src/only.ts')).toEqual(record);
   });
 
-  // 10. [CO] upsertFile then getFile on same repo — two sequential chain calls work
   it('should support sequential upsertFile then getFile calls on the same repository instance', () => {
     const { db, chain } = makeDbMock();
     const record = makeFileRecord();
 
     const repo = new FileRepository(db);
-    repo.upsertFile(record); // uses insert chain
+    repo.upsertFile(record);
 
     chain['get']!.mockReturnValue(record as unknown);
-    const fetched = repo.getFile('test-project', 'src/index.ts'); // uses select chain
+    const fetched = repo.getFile('test-project', 'src/index.ts');
 
     expect(fetched).toEqual(record);
     expect(chain['insert']).toHaveBeenCalled();
     expect(chain['select']).toHaveBeenCalled();
   });
 
-  // 11. [ST] same FileRepository instance can call multiple methods sequentially
   it('should not throw when multiple methods are called on the same FileRepository instance', () => {
     const { db, chain } = makeDbMock();
     chain['all']!.mockReturnValue([makeFileRecord() as unknown]);

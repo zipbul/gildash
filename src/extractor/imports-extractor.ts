@@ -4,15 +4,6 @@ import type { CodeRelation } from './types';
 import { resolveImport } from './extractor-utils';
 import { visit, getStringLiteralValue } from '../parser/ast-utils';
 
-/**
- * Extracts all import/re-export relations from the AST.
- * Two passes: top-level statements + dynamic import() expressions.
- *
- * @param ast              - The parsed Program AST.
- * @param filePath         - File path of the source file (used as srcFilePath).
- * @param tsconfigPaths    - Optional tsconfig paths for alias resolution.
- * @param resolveImportFn  - Resolver function (DI seam, defaults to resolveImport).
- */
 export function extractImports(
   ast: Program,
   filePath: string,
@@ -26,7 +17,6 @@ export function extractImports(
   const relations: CodeRelation[] = [];
   const body = (ast as unknown as { body?: Array<Record<string, unknown>> }).body ?? [];
 
-  // Pass 1 — top-level statements
   for (const node of body) {
     if (node.type === 'ImportDeclaration') {
       const sourcePath: string = ((node.source as { value?: string } | undefined)?.value) ?? '';
@@ -83,7 +73,6 @@ export function extractImports(
     }
   }
 
-  // Pass 2 — deep traversal for dynamic import()
   visit(ast, (node) => {
     if (node.type !== 'ImportExpression') return;
     const sourceValue = getStringLiteralValue(node.source);

@@ -13,15 +13,11 @@ function makeParsedFile(filePath: string): ParsedFile {
 }
 
 describe('ParseCache', () => {
-  // HP
   it('should store and retrieve a ParsedFile when filePath is used as key', () => {
-    // Arrange
     const cache = new ParseCache(10);
     const file = makeParsedFile('/project/a.ts');
-    // Act
     cache.set('/project/a.ts', file);
     const result = cache.get('/project/a.ts');
-    // Assert
     expect(result).toBe(file);
   });
 
@@ -51,7 +47,6 @@ describe('ParseCache', () => {
     expect(cache.size()).toBe(1);
   });
 
-  // NE — invalidate
   it('should return undefined when entry is invalidated', () => {
     const cache = new ParseCache(10);
     cache.set('/project/a.ts', makeParsedFile('/project/a.ts'));
@@ -64,7 +59,6 @@ describe('ParseCache', () => {
     expect(() => cache.invalidate('/project/nonexistent.ts')).not.toThrow();
   });
 
-  // NE — invalidateAll
   it('should clear all entries when invalidateAll is called', () => {
     const cache = new ParseCache(10);
     cache.set('/project/a.ts', makeParsedFile('/project/a.ts'));
@@ -75,7 +69,6 @@ describe('ParseCache', () => {
     expect(cache.get('/project/b.ts')).toBeUndefined();
   });
 
-  // ED — capacity eviction
   it('should evict the least recently used entry when capacity is exceeded', () => {
     const cache = new ParseCache(2);
     const a = makeParsedFile('/project/a.ts');
@@ -83,9 +76,7 @@ describe('ParseCache', () => {
     const c = makeParsedFile('/project/c.ts');
     cache.set('/project/a.ts', a);
     cache.set('/project/b.ts', b);
-    // Access a to make it recently used
     cache.get('/project/a.ts');
-    // Adding c should evict b (LRU)
     cache.set('/project/c.ts', c);
     expect(cache.get('/project/b.ts')).toBeUndefined();
     expect(cache.get('/project/a.ts')).toBe(a);
@@ -102,7 +93,6 @@ describe('ParseCache', () => {
     expect(cache.get('/project/b.ts')).toBe(b);
   });
 
-  // ST
   it('should allow re-insertion when entry is invalidated first', () => {
     const cache = new ParseCache(10);
     const original = makeParsedFile('/project/a.ts');
@@ -123,7 +113,6 @@ describe('ParseCache', () => {
     expect(cache.size()).toBe(1);
   });
 
-  // ID
   it('should return the same value when get is called repeatedly', () => {
     const cache = new ParseCache(10);
     const file = makeParsedFile('/project/a.ts');

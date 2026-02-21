@@ -18,7 +18,6 @@ afterEach(() => {
 
 function setupGlobAndFiles(entries: Record<string, Record<string, unknown> | null>): void {
   const paths = Object.keys(entries);
-  // sort by descending length so more-specific paths match before shorter ones
   const sortedPaths = [...paths].sort((a, b) => b.length - a.length);
 
   mockGlob.mockImplementation(async function* () {

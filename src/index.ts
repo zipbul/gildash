@@ -1,10 +1,8 @@
-// ── Public API ──
-export { Codeledger } from "./codeledger";
-export type { CodeledgerOptions, Logger } from "./codeledger";
+export { Gildash } from "./gildash";
+export type { GildashOptions, Logger } from "./gildash";
 
-// Errors
 export {
-  CodeledgerError,
+  GildashError,
   WatcherError,
   ParseError,
   ExtractError,
@@ -13,7 +11,6 @@ export {
   SearchError,
 } from "./errors";
 
-// Search
 export { symbolSearch } from "./search/symbol-search";
 export type { SymbolSearchQuery, SymbolSearchResult } from "./search/symbol-search";
 export { relationSearch } from "./search/relation-search";

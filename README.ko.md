@@ -1,71 +1,110 @@
-# @zipbul/codeledger
+# @zipbul/gildash
 
-Bun 런타임 전용 TypeScript 코드 인덱서.
-소스 코드 심볼 추출, 파일 간 관계 분석, 의존성 그래프 구축을 하나의 로컬 SQLite DB로 제공합니다.
+[English](./README.md) | **한국어**
 
-## 주요 기능
+[![npm](https://img.shields.io/npm/v/@zipbul/gildash)](https://www.npmjs.com/package/@zipbul/gildash)
+[![CI](https://github.com/zipbul/gildash/actions/workflows/ci.yml/badge.svg)](https://github.com/zipbul/gildash/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
+**Bun 네이티브** TypeScript 코드 인덱서.
+심볼 추출, 파일 간 관계 추적, 의존성 그래프 구축을 하나의 로컬 SQLite 데이터베이스로 제공합니다.
+
+<br>
+
+## ✨ 주요 기능
 
 - **심볼 추출** — 함수, 클래스, 변수, 타입, 인터페이스, 열거형, 프로퍼티를 AST 수준에서 추출
-- **관계 분석** — import, 함수 호출(calls), 상속(extends), 구현(implements) 관계 추적
+- **관계 분석** — `import`, `calls`, `extends`, `implements` 관계를 파일 간에 추적
 - **전문 검색** — SQLite FTS5 기반 심볼 이름 전문 검색
-- **의존성 그래프** — 파일 간 import 관계로 방향 그래프 구축, 순환 감지, 영향도 분석
-- **증분 인덱싱** — @parcel/watcher 기반 파일 변경 감지, 변경된 파일만 재인덱싱
+- **의존성 그래프** — 방향 import 그래프로 순환 감지 및 전이적(transitive) 영향도 분석
+- **증분 인덱싱** — `@parcel/watcher` 기반 파일 변경 감지, 변경된 파일만 재인덱싱
 - **멀티 프로세스 안전** — owner/reader 역할 분리로 단일 writer 보장
 
-## 요구사항
+<br>
+
+## 📋 요구사항
 
 - **Bun** v1.3 이상
 - 지원 확장자: `.ts`, `.mts`, `.cts`
 
-## 설치
+<br>
+
+## 📦 설치
 
 ```bash
-bun add @zipbul/codeledger
+bun add @zipbul/gildash
 ```
 
-## 빠른 시작
+<br>
+
+## 🚀 빠른 시작
 
 ```ts
-import { Codeledger } from '@zipbul/codeledger';
+import { Gildash } from '@zipbul/gildash';
 
-// 인덱서 열기 — 최초 실행 시 전체 인덱싱 자동 수행
-const ledger = await Codeledger.open({
+// 인덱서 열기 — 최초 실행 시 전체 인덱싱 자동 수행, 이후 파일 변경을 감시
+const ledger = await Gildash.open({
   projectRoot: '/absolute/path/to/project',
 });
 
 // 심볼 검색
-const symbols = ledger.searchSymbols({ text: 'UserService' });
+const hits = ledger.searchSymbols({ text: 'UserService', kind: 'class' });
 
-// 특정 파일의 의존성 조회
-const deps = ledger.getDependencies('src/app.ts');
+// 의존성 그래프 조회
+const deps     = ledger.getDependencies('src/app.ts');
+const affected = await ledger.getAffected(['src/utils.ts']);
+const cyclic   = await ledger.hasCycle();
 
-// 종료
 await ledger.close();
 ```
 
-## API 레퍼런스
+<br>
 
-### `Codeledger.open(options)`
+## 🔍 API 개요
+
+| 메서드 | 반환 타입 | 설명 |
+|--------|-----------|------|
+| `searchSymbols(query)` | `SymbolSearchResult[]` | FTS5 전문 검색 + 필터 조합 |
+| `searchRelations(query)` | `CodeRelation[]` | 파일/심볼/관계 유형 필터 |
+| `getDependencies(filePath, project?)` | `string[]` | 이 파일이 import하는 파일 목록 |
+| `getDependents(filePath, project?)` | `string[]` | 이 파일을 import하는 파일 목록 |
+| `getAffected(changedFiles, project?)` | `Promise<string[]>` | 변경 파일의 전이적 영향 범위 |
+| `hasCycle(project?)` | `Promise<boolean>` | 순환 의존성 감지 |
+| `reindex()` | `Promise<IndexResult>` | 강제 전체 재인덱싱 |
+| `onIndexed(callback)` | `() => void` | 인덱싱 완료 이벤트 구독 |
+| `parseSource(filePath, src)` | `ParsedFile` | 파일 파싱 후 AST 캐시 |
+| `extractSymbols(parsed)` | `ExtractedSymbol[]` | 파싱된 파일에서 심볼 추출 |
+| `extractRelations(parsed)` | `CodeRelation[]` | 파싱된 파일에서 관계 추출 |
+| `projects` | `ProjectBoundary[]` | 감지된 프로젝트 경계 (모노레포) |
+| `getStats(project?)` | `SymbolStats` | 심볼 통계 |
+| `close()` | `Promise<void>` | 인덱서 종료 |
+
+<br>
+
+## ⚙️ API 레퍼런스
+
+### `Gildash.open(options)`
 
 인덱서 인스턴스를 생성합니다. 최초 실행 시 전체 인덱싱을 수행하고, 이후 파일 변경을 감시합니다.
 
 ```ts
-const ledger = await Codeledger.open({
-  projectRoot: '/absolute/path',     // 필수. 절대 경로
+const ledger = await Gildash.open({
+  projectRoot: '/absolute/path',       // 필수. 절대 경로
   extensions: ['.ts', '.mts', '.cts'], // 선택. 인덱싱 대상 확장자
-  ignorePatterns: ['dist', 'vendor'], // 선택. 무시할 디렉토리/패턴
-  parseCacheCapacity: 500,            // 선택. 파싱 캐시 크기
+  ignorePatterns: ['dist', 'vendor'],  // 선택. 무시할 디렉토리/패턴
+  parseCacheCapacity: 500,             // 선택. 파싱 캐시 크기
 });
 ```
 
 | 옵션 | 타입 | 기본값 | 설명 |
 |------|------|--------|------|
-| `projectRoot` | `string` | — | 프로젝트 루트 절대 경로 (필수) |
+| `projectRoot` | `string` | — | 프로젝트 루트 절대 경로 **(필수)** |
 | `extensions` | `string[]` | `['.ts', '.mts', '.cts']` | 인덱싱 대상 파일 확장자 |
 | `ignorePatterns` | `string[]` | `[]` | 무시할 경로 패턴 |
 | `parseCacheCapacity` | `number` | `500` | LRU 파싱 캐시 최대 크기 |
+| `logger` | `Logger` | `console` | 커스텀 로거 (`{ error(...args): void }`) |
 
-**반환**: `Promise<Codeledger>`
+**반환**: `Promise<Gildash>`
 
 ---
 
@@ -317,10 +356,12 @@ const relations = ledger.extractRelations(parsed);
 
 **반환**: `CodeRelation[]`
 
-## 아키텍처
+<br>
+
+## 🏗 아키텍처
 
 ```
-Codeledger (파사드)
+Gildash (파사드)
 ├── Parser      — oxc-parser 기반 TypeScript AST 파싱
 ├── Extractor   — 심볼/관계 추출 (imports, calls, heritage)
 ├── Store       — bun:sqlite + drizzle-orm (files, symbols, relations, FTS5)
@@ -333,29 +374,13 @@ Codeledger (파사드)
 
 동일 SQLite DB를 여러 프로세스가 공유할 때, 단일 writer를 보장합니다.
 
-- **Owner**: watcher 실행, 인덱싱 수행, heartbeat 전송 (30초 간격)
-- **Reader**: 읽기 전용 접근, 주기적으로 owner 상태 확인 (60초 간격)
-- Owner 프로세스가 stale 상태가 되면 reader 중 하나가 owner로 승격
+- **Owner** — watcher 실행, 인덱싱 수행, heartbeat 전송 (30초 간격)
+- **Reader** — 읽기 전용 접근, 60초 간격으로 owner 상태 확인; owner가 stale 상태가 되면 reader 중 하나가 owner로 승격
 
-## 의존성
+<br>
 
-| 패키지 | 용도 |
-|--------|------|
-| [oxc-parser](https://oxc.rs) | TypeScript AST 파싱 |
-| [drizzle-orm](https://orm.drizzle.team) | SQLite ORM + 마이그레이션 |
-| [@parcel/watcher](https://github.com/parcel-bundler/watcher) | 네이티브 파일 변경 감시 |
-| [comment-parser](https://github.com/syavorsky/comment-parser) | JSDoc 주석 파싱 |
+##  라이선스
 
-## 테스트
+[MIT](./LICENSE) © [zipbul](https://github.com/zipbul)
 
-```bash
-# 전체 테스트 실행
-bun test
 
-# 커버리지 포함
-bun run coverage
-```
-
-## 라이선스
-
-[MIT](./LICENSE)

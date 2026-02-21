@@ -42,7 +42,6 @@ function createFakeDb(initialRow?: Row): WatcherOwnerStore & {
   return db;
 }
 
-
 describe("acquireWatcherRole", () => {
   let killSpy: Mock<typeof process.kill> | undefined;
 
@@ -248,9 +247,6 @@ describe("acquireWatcherRole", () => {
     expect(role).toBe("reader");
   });
 
-  // ── C-1: immediateTransaction 사용 검증 ────────────────────────────────────
-
-  // [HP] acquireWatcherRole은 transaction이 아닌 immediateTransaction을 사용해야 한다
   it("should use immediateTransaction instead of transaction when acquiring watcher role", () => {
     const immediateTransaction = mock(<T>(fn: () => T): T => fn());
     const db = {

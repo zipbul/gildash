@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
-  CodeledgerError,
+  GildashError,
   ExtractError,
   IndexError,
   ParseError,
@@ -9,29 +9,29 @@ import {
   WatcherError,
 } from "./errors";
 
-describe("CodeledgerError", () => {
+describe("GildashError", () => {
   it("should set name and message when created", () => {
-    const sut = new CodeledgerError("failed");
+    const sut = new GildashError("failed");
 
-    expect(sut.name).toBe("CodeledgerError");
+    expect(sut.name).toBe("GildashError");
     expect(sut.message).toBe("failed");
   });
 
   it("should preserve cause when cause option is provided", () => {
     const cause = new Error("root");
-    const sut = new CodeledgerError("failed", { cause });
+    const sut = new GildashError("failed", { cause });
 
     expect(sut.cause).toBe(cause);
   });
 
   it("should set empty string message when empty string is provided", () => {
-    const sut = new CodeledgerError("");
+    const sut = new GildashError("");
 
     expect(sut.message).toBe("");
   });
 
   it("should be instance of Error when instantiated", () => {
-    const sut = new CodeledgerError("failed");
+    const sut = new GildashError("failed");
 
     expect(sut).toBeInstanceOf(Error);
   });
@@ -41,7 +41,7 @@ describe("WatcherError", () => {
   it("should have subclass name when instantiated", () => {
     const sut = new WatcherError("watcher failed");
 
-    expect(sut).toBeInstanceOf(CodeledgerError);
+    expect(sut).toBeInstanceOf(GildashError);
     expect(sut.name).toBe("WatcherError");
   });
 
@@ -63,7 +63,7 @@ describe("ParseError", () => {
   it("should have subclass name when instantiated", () => {
     const sut = new ParseError("parse failed");
 
-    expect(sut).toBeInstanceOf(CodeledgerError);
+    expect(sut).toBeInstanceOf(GildashError);
     expect(sut.name).toBe("ParseError");
   });
 
@@ -85,7 +85,7 @@ describe("ExtractError", () => {
   it("should have subclass name when instantiated", () => {
     const sut = new ExtractError("extract failed");
 
-    expect(sut).toBeInstanceOf(CodeledgerError);
+    expect(sut).toBeInstanceOf(GildashError);
     expect(sut.name).toBe("ExtractError");
   });
 
@@ -107,7 +107,7 @@ describe("IndexError", () => {
   it("should have subclass name when instantiated", () => {
     const sut = new IndexError("index failed");
 
-    expect(sut).toBeInstanceOf(CodeledgerError);
+    expect(sut).toBeInstanceOf(GildashError);
     expect(sut.name).toBe("IndexError");
   });
 
@@ -129,7 +129,7 @@ describe("StoreError", () => {
   it("should have subclass name when instantiated", () => {
     const sut = new StoreError("store failed");
 
-    expect(sut).toBeInstanceOf(CodeledgerError);
+    expect(sut).toBeInstanceOf(GildashError);
     expect(sut.name).toBe("StoreError");
   });
 
@@ -151,7 +151,7 @@ describe("SearchError", () => {
   it("should have subclass name when instantiated", () => {
     const sut = new SearchError("search failed");
 
-    expect(sut).toBeInstanceOf(CodeledgerError);
+    expect(sut).toBeInstanceOf(GildashError);
     expect(sut.name).toBe("SearchError");
   });
 

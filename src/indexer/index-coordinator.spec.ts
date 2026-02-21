@@ -5,7 +5,6 @@ import type { FileRecord } from '../store/repositories/file.repository';
 import type { SymbolRecord } from '../store/repositories/symbol.repository';
 import type { TsconfigPaths } from '../common/tsconfig-resolver';
 
-// ── Mock module-level imports ── (must be before IndexCoordinator import)
 const mockDetectChanges = mock(async (opts: any): Promise<DetectChangesResult> => ({ changed: [], unchanged: [], deleted: [] }));
 const mockIndexFileSymbols = mock((opts: any) => {});
 const mockIndexFileRelations = mock((opts: any) => 0);
@@ -23,7 +22,6 @@ const mockDiscoverProjects = mock(async (root: string) => [{ dir: '.', project: 
 
 import { IndexCoordinator } from './index-coordinator';
 
-// ── Fake repo factories ────────────────────────────────────────────────────
 function makeFileRepo() {
   return {
     upsertFile: mock((r: any) => {}),
@@ -68,7 +66,6 @@ function makeFakeFile(filePath: string) {
   return { filePath, contentHash: 'hash-' + filePath, mtimeMs: 1000, size: 100 };
 }
 
-// ── Shared setup ───────────────────────────────────────────────────────────
 const PROJECT_ROOT = '/project';
 const BOUNDARIES = [{ dir: '.', project: 'test-project' }];
 const EXTENSIONS = ['.ts'];
@@ -88,7 +85,6 @@ function makeCoordinator(overrides: Partial<{
     fileRepo: (overrides.fileRepo ?? makeFileRepo()) as any,
     symbolRepo: (overrides.symbolRepo ?? makeSymbolRepo()) as any,
     relationRepo: overrides.relationRepo ?? makeRelationRepo(),
-    // Inject the mock directly — avoids mock.module pollution of parse-source.spec.ts
     parseSourceFn: mockParseSource as any,
   });
 }
@@ -130,7 +126,6 @@ describe('IndexCoordinator', () => {
   afterEach(() => {
     jest.useRealTimers();
   });
-  // [HP] fullIndex processes all files, returns correct IndexResult
   it('should return IndexResult with correct indexedFiles count when fullIndex completes with changed files', async () => {
     const files = [makeFakeFile('src/a.ts'), makeFakeFile('src/b.ts')];
     mockDetectChanges.mockResolvedValue({ changed: files, unchanged: [], deleted: [] });
@@ -142,7 +137,6 @@ describe('IndexCoordinator', () => {
     expect(result.indexedFiles).toBe(2);
   });
 
-  // [ED] fullIndex with 0 files → IndexResult.indexedFiles=0
   it('should return indexedFiles=0 when there are no files to index', async () => {
     mockDetectChanges.mockResolvedValue({ changed: [], unchanged: [], deleted: [] });
     const coordinator = makeCoordinator();
@@ -152,7 +146,6 @@ describe('IndexCoordinator', () => {
     expect(result.indexedFiles).toBe(0);
   });
 
-  // [HP] incrementalIndex(changedFiles=[file]) processes that file
   it('should index the provided file when incrementalIndex is called with explicit changedFiles', async () => {
     const file = makeFakeFile('src/index.ts');
     spyOn(Bun, 'file').mockReturnValue({ text: async () => 'code' } as any);
@@ -164,7 +157,6 @@ describe('IndexCoordinator', () => {
     expect(mockParseSource).toHaveBeenCalled();
   });
 
-  // [HP] incrementalIndex(undefined) calls detectChanges
   it('should call detectChanges when incrementalIndex is called without arguments', async () => {
     const coordinator = makeCoordinator();
 
@@ -173,7 +165,6 @@ describe('IndexCoordinator', () => {
     expect(mockDetectChanges).toHaveBeenCalled();
   });
 
-  // [HP] onIndexed callback fires after incrementalIndex completes
   it('should invoke onIndexed callback when incrementalIndex finishes', async () => {
     const coordinator = makeCoordinator();
     const cb = mock((result: any) => {});
@@ -184,7 +175,6 @@ describe('IndexCoordinator', () => {
     expect(cb).toHaveBeenCalledTimes(1);
   });
 
-  // [HP] onIndexed unsubscribe → callback no longer fires
   it('should not invoke callback when unsubscribe is called before indexing completes', async () => {
     const coordinator = makeCoordinator();
     const cb = mock((result: any) => {});
@@ -196,7 +186,6 @@ describe('IndexCoordinator', () => {
     expect(cb).not.toHaveBeenCalled();
   });
 
-  // [OR] multiple onIndexed callbacks fire in registration order
   it('should fire multiple onIndexed callbacks in registration order when multiple callbacks are registered', async () => {
     const coordinator = makeCoordinator();
     const order: number[] = [];
@@ -208,7 +197,6 @@ describe('IndexCoordinator', () => {
     expect(order).toEqual([1, 2]);
   });
 
-  // [NE] onIndexed callback throws → logged, other callbacks still execute
   it('should continue executing remaining callbacks when one onIndexed callback throws', async () => {
     const coordinator = makeCoordinator();
     const spyConsoleError = spyOn(console, 'error').mockImplementation(() => {});
@@ -222,7 +210,6 @@ describe('IndexCoordinator', () => {
     spyConsoleError.mockRestore();
   });
 
-  // [HP] move tracking: 1 deleted + 1 new same fingerprint → retargetRelations called
   it('should call retargetRelations when deleted and new symbol share the same fingerprint', async () => {
     const relationRepo = makeRelationRepo();
     const symbolRepo = makeSymbolRepo();
@@ -242,7 +229,6 @@ describe('IndexCoordinator', () => {
     expect(relationRepo.retargetRelations).toHaveBeenCalled();
   });
 
-  // [CO] move tracking ambiguous (2 deleted + 2 new same fingerprint) → no retarget
   it('should not retarget relations when fingerprint match is ambiguous (multiple matches)', async () => {
     const relationRepo = makeRelationRepo();
     const symbolRepo = makeSymbolRepo();
@@ -267,7 +253,6 @@ describe('IndexCoordinator', () => {
     expect(relationRepo.retargetRelations).not.toHaveBeenCalled();
   });
 
-  // [CR] handleWatcherEvent with indexingLock=true → queued, not executed immediately
   it('should queue watcher event without starting indexing when indexingLock is active', async () => {
     let resolveIndex!: () => void;
     const inflightPromise = new Promise<void>((res) => { resolveIndex = res; });
@@ -276,17 +261,14 @@ describe('IndexCoordinator', () => {
     const coordinator = makeCoordinator();
     const firstIndex = coordinator.incrementalIndex();
 
-    // Fire watcher event while first index is running
     coordinator.handleWatcherEvent({ eventType: 'change', filePath: 'src/late.ts' });
 
-    // Verify first index hasn't finished yet
     expect(mockDetectChanges).toHaveBeenCalledTimes(1);
 
     resolveIndex();
     await firstIndex;
   });
 
-  // [CR] handleWatcherEvent debounce: rapid fire → single incrementalIndex call
   it('should coalesce rapid handleWatcherEvent calls into a single incrementalIndex when debounce window is active', async () => {
     const coordinator = makeCoordinator();
     const results: any[] = [];
@@ -299,12 +281,10 @@ describe('IndexCoordinator', () => {
     jest.runAllTimers();
     await coordinator.shutdown();
 
-    // Events coalesced into a single batch
     expect(results).toHaveLength(1);
     expect(results[0].indexedFiles).toBe(3);
   });
 
-  // [CR] debounce timer not started twice if already running
   it('should not start a second debounce timer when one is already pending', async () => {
     const coordinator = makeCoordinator();
     const spySetTimeout = spyOn(globalThis, 'setTimeout');
@@ -312,12 +292,10 @@ describe('IndexCoordinator', () => {
     coordinator.handleWatcherEvent({ eventType: 'create', filePath: 'src/a.ts' });
     coordinator.handleWatcherEvent({ eventType: 'create', filePath: 'src/b.ts' });
 
-    // Should only start the timer once for both events
     expect(spySetTimeout).toHaveBeenCalledTimes(1);
     spySetTimeout.mockRestore();
   });
 
-  // [ST] indexingLock released after incrementalIndex completes even if error
   it('should release indexingLock when incrementalIndex fails so subsequent calls can proceed', async () => {
     mockDetectChanges
       .mockRejectedValueOnce(new Error('index error'))
@@ -329,7 +307,6 @@ describe('IndexCoordinator', () => {
     await expect(coordinator.incrementalIndex()).resolves.toBeDefined();
   });
 
-  // [ST] pending queue consumed after indexing unlock
   it('should process queued events when events are queued during active indexing', async () => {
     let resolveFirst!: () => void;
     const firstDone = new Promise<{ changed: any[]; unchanged: any[]; deleted: any[] }>((res) => { resolveFirst = () => res({ changed: [], unchanged: [], deleted: [] }); });
@@ -348,11 +325,9 @@ describe('IndexCoordinator', () => {
     await firstIndex;
     await coordinator.shutdown();
 
-    // Two runs: initial incrementalIndex + drained queued events
     expect(results.length).toBeGreaterThanOrEqual(2);
   });
 
-  // [HP] handleWatcherEvent 'create' event → file ends up in incrementalIndex
   it('should trigger incrementalIndex batch that includes the created file when create event is received and debounce expires', async () => {
     const coordinator = makeCoordinator();
     const results: any[] = [];
@@ -367,7 +342,6 @@ describe('IndexCoordinator', () => {
     expect(results[0].indexedFiles).toBe(1);
   });
 
-  // [HP] handleWatcherEvent 'delete' event → file ends up in deleted
   it('should pass delete event filePath in the batch when delete event is received and debounce expires', async () => {
     const fileRepo = makeFileRepo();
     const symbolRepo = makeSymbolRepo();
@@ -382,7 +356,6 @@ describe('IndexCoordinator', () => {
     expect(fileRepo.deleteFile).toHaveBeenCalledWith('test-project', 'src/gone.ts');
   });
 
-  // [HP] handleWatcherEvent 'change' event → re-indexed
   it('should trigger indexing when change event is received and debounce expires', async () => {
     const coordinator = makeCoordinator();
     const results: any[] = [];
@@ -397,13 +370,11 @@ describe('IndexCoordinator', () => {
     expect(results[0].indexedFiles).toBe(1);
   });
 
-  // [HP] shutdown with no in-flight indexing → resolves immediately
   it('should resolve shutdown immediately when no indexing is in progress', async () => {
     const coordinator = makeCoordinator();
     await expect(coordinator.shutdown()).resolves.toBeUndefined();
   });
 
-  // [NE] shutdown with in-flight indexing → waits for completion
   it('should wait for ongoing indexing to complete when shutdown is called during active indexing', async () => {
     let resolveIndex!: () => void;
     const done = new Promise<{ changed: any[]; unchanged: any[]; deleted: any[] }>((res) => {
@@ -427,7 +398,6 @@ describe('IndexCoordinator', () => {
     expect(shutdownResolved).toBe(true);
   });
 
-  // [HP] shutdown clears debounce timer
   it('should clear any pending debounce timers when shutdown is called with a pending debounce timer', async () => {
     const coordinator = makeCoordinator();
     const spyClearTimeout = spyOn(globalThis, 'clearTimeout');
@@ -439,7 +409,6 @@ describe('IndexCoordinator', () => {
     spyClearTimeout.mockRestore();
   });
 
-  // [HP] fullIndex clears files before reindexing
   it('should call transaction wrapping fullIndex operations when fullIndex runs', async () => {
     const dbConnection = makeDbConnection();
     const coordinator = makeCoordinator({ dbConnection });
@@ -449,7 +418,6 @@ describe('IndexCoordinator', () => {
     expect(dbConnection.transaction).toHaveBeenCalled();
   });
 
-  // [HP] incrementalIndex deleted files: symbols/relations cascade
   it('should delete symbols and relations for deleted files when incrementalIndex receives delete events', async () => {
     const symbolRepo = makeSymbolRepo();
     const relationRepo = makeRelationRepo();
@@ -463,7 +431,6 @@ describe('IndexCoordinator', () => {
     expect(symbolRepo.deleteFileSymbols).toHaveBeenCalledWith('test-project', 'src/gone.ts');
   });
 
-  // [HP] parseCache.set called after each parse
   it('should store parsed result in parseCache when files are parsed during indexing', async () => {
     const files = [makeFakeFile('src/index.ts')];
     mockDetectChanges.mockResolvedValue({ changed: files, unchanged: [], deleted: [] });
@@ -476,7 +443,6 @@ describe('IndexCoordinator', () => {
     expect(parseCache.set).toHaveBeenCalled();
   });
 
-  // [HP] tsconfigPaths passed to RelationIndexer
   it('should load tsconfigPaths on construction and pass it to indexFileRelations when indexing runs', async () => {
     const fakePaths = { baseUrl: '/project', paths: new Map() };
     mockLoadTsconfigPaths.mockReturnValue(fakePaths);
@@ -492,7 +458,6 @@ describe('IndexCoordinator', () => {
     );
   });
 
-  // [HP] resolveFileProject used to assign project per file
   it('should call resolveFileProject to determine project for each indexed file when indexing changed files', async () => {
     const files = [makeFakeFile('apps/web/src/index.ts')];
     mockDetectChanges.mockResolvedValue({ changed: files, unchanged: [], deleted: [] });
@@ -504,30 +469,26 @@ describe('IndexCoordinator', () => {
     expect(mockResolveFileProject).toHaveBeenCalled();
   });
 
-  // [CO] tsconfig.json change → reload tsconfigPaths
   it('should reload tsconfigPaths when a tsconfig.json change event is handled', async () => {
     const coordinator = makeCoordinator();
 
     coordinator.handleWatcherEvent({ eventType: 'change', filePath: 'tsconfig.json' });
 
-    expect(mockLoadTsconfigPaths).toHaveBeenCalledTimes(2); // once on init, once on change
+    expect(mockLoadTsconfigPaths).toHaveBeenCalledTimes(2);
   });
 
-  // [HP] IndexResult stats: indexedFiles, totalSymbols, totalRelations accurate
   it('should include durationMs in returned IndexResult when indexing completes', async () => {
     const coordinator = makeCoordinator();
     const result = await coordinator.incrementalIndex();
     expect(typeof result.durationMs).toBe('number');
   });
 
-  // [ED] incrementalIndex with empty changedFiles
   it('should return IndexResult with 0 indexedFiles when changedFiles is empty array', async () => {
     const coordinator = makeCoordinator();
     const result = await coordinator.incrementalIndex([]);
     expect(result.indexedFiles).toBe(0);
   });
 
-  // [CO] fullIndex then handleWatcherEvent: lock prevents overlap
   it('should not run a second fullIndex when fullIndex is called concurrently', async () => {
     let resolveFirst!: () => void;
     const first = new Promise<{ changed: any[]; unchanged: any[]; deleted: any[] }>((res) => {
@@ -538,19 +499,16 @@ describe('IndexCoordinator', () => {
     const coordinator = makeCoordinator();
     const fullIndexPromise = coordinator.fullIndex();
 
-    // Second call while first is running
     coordinator.handleWatcherEvent({ eventType: 'change', filePath: 'src/a.ts' });
     jest.runAllTimers();
     await Promise.resolve();
 
-    // detectChanges should only have been called once (for fullIndex)
     expect(mockDetectChanges).toHaveBeenCalledTimes(1);
 
     resolveFirst();
     await fullIndexPromise;
   });
 
-  // [ID] fullIndex twice → same DB state (idempotent rebuild)
   it('should produce the same number of calls on second fullIndex as on first when two fullIndex runs execute sequentially', async () => {
     mockDetectChanges.mockResolvedValue({ changed: [], unchanged: [], deleted: [] });
     const coordinator = makeCoordinator();
@@ -563,9 +521,6 @@ describe('IndexCoordinator', () => {
     expect(callsAfterSecond - callsAfterFirst).toBe(callsAfterFirst);
   });
 
-  // ── I-1: clearTsconfigPathsCache ─────────────────────────────────────────
-
-  // [HP] clearTsconfigPathsCache가 loadTsconfigPaths 전에 호출되어야 한다
   it('should call clearTsconfigPathsCache before reloading tsconfigPaths when tsconfig.json changes', () => {
     const coordinator = makeCoordinator();
 
@@ -574,20 +529,18 @@ describe('IndexCoordinator', () => {
     expect(mockClearTsconfigPathsCache).toHaveBeenCalledTimes(1);
   });
 
-  // [HP] clearTsconfigPathsCache가 loadTsconfigPaths보다 순서상 먼저 호출되어야 한다
   it('should call clearTsconfigPathsCache before loadTsconfigPaths when tsconfig.json changes', () => {
     const callOrder: string[] = [];
     mockClearTsconfigPathsCache.mockImplementation(() => { callOrder.push('clear'); });
     mockLoadTsconfigPaths.mockImplementation(() => { callOrder.push('load'); return null; });
     const coordinator = makeCoordinator();
-    callOrder.length = 0; // constructor의 loadTsconfigPaths 호출 제거
+    callOrder.length = 0;
 
     coordinator.handleWatcherEvent({ eventType: 'change', filePath: 'tsconfig.json' });
 
     expect(callOrder).toEqual(['clear', 'load']);
   });
 
-  // [OR] tsconfig.json 이벤트에서 clear → load → fullIndex 순서 보장
   it('should trigger fullIndex when tsconfig.json change clears and reloads tsconfig paths', async () => {
     const coordinator = makeCoordinator();
     const onIndexed = mock((r: any) => {});
@@ -597,13 +550,10 @@ describe('IndexCoordinator', () => {
     await coordinator.shutdown();
 
     expect(mockClearTsconfigPathsCache).toHaveBeenCalled();
-    expect(mockLoadTsconfigPaths).toHaveBeenCalledTimes(2); // init + reload
+    expect(mockLoadTsconfigPaths).toHaveBeenCalledTimes(2);
     expect(onIndexed).toHaveBeenCalled();
   });
 
-  // ── I-2: fullIndex monorepo 경계 ─────────────────────────────────────────
-
-  // [HP] monorepo 2개 project 모두의 파일을 fullIndex 트랜잭션에서 삭제해야 한다
   it('should delete all files across all project boundaries when fullIndex runs in multi-boundary project', async () => {
     const fileRepo = makeFileRepo();
     fileRepo.getAllFiles
@@ -632,7 +582,6 @@ describe('IndexCoordinator', () => {
     expect(fileRepo.deleteFile).toHaveBeenCalledWith('pkg-b', 'packages/b/src/b.ts');
   });
 
-  // [ED] boundary 1개 → 단일 project 파일 삭제 (기존 동작 유지)
   it('should delete files for the single project boundary when fullIndex runs in single-boundary project', async () => {
     const fileRepo = makeFileRepo();
     fileRepo.getAllFiles.mockReturnValue([{ project: 'test-project', filePath: 'src/a.ts' }] as unknown as FileRecord[]);
@@ -643,9 +592,6 @@ describe('IndexCoordinator', () => {
     expect(fileRepo.deleteFile).toHaveBeenCalledWith('test-project', 'src/a.ts');
   });
 
-  // ── I-3: totalSymbols/totalRelations 실제 값 ─────────────────────────────
-
-  // [HP] 파일 인덱싱 후 totalSymbols는 실제 심볼 수여야 한다
   it('should return actual totalSymbols count in IndexResult when symbol repository returns per-file counts', async () => {
     const symbolRepo = makeSymbolRepo();
     symbolRepo.getFileSymbols.mockReturnValue([
@@ -666,7 +612,6 @@ describe('IndexCoordinator', () => {
     expect(result.totalSymbols).toBe(3);
   });
 
-  // [NE] changed=[] 일 때 totalSymbols=0이어야 한다
   it('should return totalSymbols=0 when no files are indexed', async () => {
     mockDetectChanges.mockResolvedValue({ changed: [], unchanged: [], deleted: [] });
     const coordinator = makeCoordinator();
@@ -676,9 +621,6 @@ describe('IndexCoordinator', () => {
     expect(result.totalSymbols).toBe(0);
   });
 
-  // ── I-4: IndexResult changedFiles / deletedFiles ──────────────────────────
-
-  // [HP] IndexResult는 changedFiles 배열을 포함해야 한다
   it('should include changedFiles array with indexed file paths when files are indexed', async () => {
     mockDetectChanges.mockResolvedValue({
       changed: [makeFakeFile('src/a.ts'), makeFakeFile('src/b.ts')],
@@ -693,7 +635,6 @@ describe('IndexCoordinator', () => {
     expect(result.changedFiles).toEqual(['src/a.ts', 'src/b.ts']);
   });
 
-  // [HP] IndexResult는 deletedFiles 배열을 포함해야 한다
   it('should include deletedFiles array with deleted file paths when files are deleted during incrementalIndex', async () => {
     const symbolRepo = makeSymbolRepo();
     symbolRepo.getFileSymbols.mockReturnValue([]);
@@ -709,7 +650,6 @@ describe('IndexCoordinator', () => {
     expect(result.deletedFiles).toEqual(['src/gone.ts']);
   });
 
-  // [ED] changed/deleted 모두 비어있을 때 changedFiles=[], deletedFiles=[]
   it('should return empty changedFiles and deletedFiles arrays when nothing changed', async () => {
     mockDetectChanges.mockResolvedValue({ changed: [], unchanged: [], deleted: [] });
     const coordinator = makeCoordinator();
@@ -720,9 +660,6 @@ describe('IndexCoordinator', () => {
     expect(result.deletedFiles).toEqual([]);
   });
 
-  // ── CRIT-3: detectChanges existingMap 집계 ────────────────────────────────
-
-  // [HP] boundaries 2개 → getFilesMap이 각 프로젝트로 호출됨
   it('should call getFilesMap with each boundary project when incrementalIndex runs without explicit events', async () => {
     const fileRepo = makeFileRepo();
     const coordinator = new IndexCoordinator({
@@ -748,9 +685,6 @@ describe('IndexCoordinator', () => {
     expect(calls).toContain('pkg-b');
   });
 
-  // ── CRIT-2: fullIndex 원자적 트랜잭션 ────────────────────────────────────
-
-  // [HP] fullIndex: transaction이 delete와 file insert를 모두 포함함
   it('should include both delete and file-insert operations inside the transaction when fullIndex processes changed files', async () => {
     const callLog: string[] = [];
     const dbConnection = makeDbConnection();
@@ -781,9 +715,6 @@ describe('IndexCoordinator', () => {
     expect(upsertIdx).toBeLessThan(txEnd);
   });
 
-  // ── HIGH-4: lock bypass 방지 ──────────────────────────────────────────────
-
-  // [HP] lock 활성 시 fullIndex 직접 호출 → 현재 실행 이후 queued fullIndex promise 반환
   it('should return a queued fullIndex promise when fullIndex is called while already indexing', async () => {
     let resolveFirst!: () => void;
     const first = new Promise<any>((res) => { resolveFirst = () => res({ changed: [], unchanged: [], deleted: [] }); });
@@ -791,7 +722,7 @@ describe('IndexCoordinator', () => {
 
     const coordinator = makeCoordinator();
     const p1 = coordinator.fullIndex();
-    const p2 = coordinator.fullIndex(); // lock active → queued fullIndex
+    const p2 = coordinator.fullIndex();
 
     expect(p2).not.toBe(p1);
 
@@ -800,7 +731,6 @@ describe('IndexCoordinator', () => {
     await p2;
   });
 
-  // [ST] pendingFullIndex=true → 현재 fullIndex 완료 후 두 번째 fullIndex 자동 실행
   it('should run a second fullIndex after the first completes when fullIndex was called while lock was active', async () => {
     let resolveFirst!: () => void;
     const first = new Promise<any>((res) => { resolveFirst = () => res({ changed: [], unchanged: [], deleted: [] }); });
@@ -811,23 +741,18 @@ describe('IndexCoordinator', () => {
     const coordinator = makeCoordinator();
 
     const p1 = coordinator.fullIndex();
-    coordinator.fullIndex(); // lock active → pendingFullIndex queued
+    coordinator.fullIndex();
 
-    // Only first detectChanges should be in-flight (post-fix: second is queued, not concurrent)
     await Promise.resolve();
     expect(mockDetectChanges).toHaveBeenCalledTimes(1);
 
     resolveFirst();
     await p1;
-    await coordinator.shutdown(); // waits for second fullIndex
+    await coordinator.shutdown();
 
-    // After first completes, second ran from pending queue
     expect(mockDetectChanges).toHaveBeenCalledTimes(2);
   });
 
-  // ── HIGH-5: totalRelations 집계 ───────────────────────────────────────────
-
-  // [HP] indexFileRelations가 3 반환 → IndexResult.totalRelations=3
   it('should return totalRelations equal to the sum returned by indexFileRelations when multiple files are indexed', async () => {
     mockIndexFileRelations.mockReturnValue(3);
     mockDetectChanges.mockResolvedValue({ changed: [makeFakeFile('src/a.ts')], unchanged: [], deleted: [] });
@@ -839,7 +764,6 @@ describe('IndexCoordinator', () => {
     expect(result.totalRelations).toBe(3);
   });
 
-  // [NE] lock 활성 + incrementalIndex 호출 → pendingFullIndex 설정 안됨
   it('should not schedule a subsequent fullIndex when incrementalIndex is called while lock is active', async () => {
     let resolveFirst!: () => void;
     const first = new Promise<any>((res) => { resolveFirst = () => res({ changed: [], unchanged: [], deleted: [] }); });
@@ -848,19 +772,15 @@ describe('IndexCoordinator', () => {
       .mockResolvedValue({ changed: [], unchanged: [], deleted: [] });
 
     const coordinator = makeCoordinator();
-    const p1 = coordinator.fullIndex(); // starts
-    coordinator.incrementalIndex(); // lock active → no pendingFullIndex
+    const p1 = coordinator.fullIndex();
+    coordinator.incrementalIndex();
 
     resolveFirst();
     await p1;
 
-    // Only the first fullIndex ran detectChanges — no second run triggered
     expect(mockDetectChanges).toHaveBeenCalledTimes(1);
   });
 
-  // ── C-3: processChanged 에러 격리 ──────────────────────────────────────────
-
-  // [HP] 모든 파일 성공 → failedFiles=[]
   it('should return empty failedFiles when all processFile calls succeed', async () => {
     mockDetectChanges.mockResolvedValue({
       changed: [makeFakeFile('src/a.ts'), makeFakeFile('src/b.ts')],
@@ -875,7 +795,6 @@ describe('IndexCoordinator', () => {
     expect((result as any).failedFiles).toEqual([]);
   });
 
-  // [NE] 한 파일 throw → failedFiles에 추가, 나머지 계속 처리
   it('should add file to failedFiles and continue processing others when processFile throws', async () => {
     mockDetectChanges.mockResolvedValue({
       changed: [makeFakeFile('src/fail.ts'), makeFakeFile('src/ok.ts')],
@@ -898,7 +817,6 @@ describe('IndexCoordinator', () => {
     expect((result as any).failedFiles).toEqual(['src/fail.ts']);
   });
 
-  // [NE] 모든 파일 throw → 모두 failedFiles에 포함
   it('should include all files in failedFiles when every processFile call throws', async () => {
     mockDetectChanges.mockResolvedValue({
       changed: [makeFakeFile('src/a.ts'), makeFakeFile('src/b.ts')],

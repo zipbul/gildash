@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
-// ── Mock ../extractor/relation-extractor ──────────────────────────────────
 const mockExtractRelations = mock((ast: any, filePath: string, tsconfig?: any) => [] as any[]);
 
-// ── Mock ../common/path-utils ──────────────────────────────────────────────
 const mockToRelativePath = mock((root: string, abs: string) => '');
 const mockToAbsolutePath = mock((root: string, rel: string) => '');
 mock.module('../extractor/relation-extractor', () => ({ extractRelations: mockExtractRelations }));
@@ -53,7 +51,6 @@ describe('indexFileRelations', () => {
       abs.replace('/project/', ''),
     );
   });
-  // [HP] in-project dst → relation included in output
   it('should include relation when dst is within project root', () => {
     mockExtractRelations.mockReturnValue([makeRelation()]);
     mockToRelativePath.mockReturnValue('src/utils.ts');
@@ -65,7 +62,6 @@ describe('indexFileRelations', () => {
     expect(rels.length).toBe(1);
   });
 
-  // [NE] out-of-project dst ('../other/file.ts') → filtered out
   it('should filter out relation when dst normalizes to path starting with ..', () => {
     mockExtractRelations.mockReturnValue([makeRelation({ dstFilePath: '/other/project/file.ts' })]);
     mockToRelativePath.mockImplementation((root: string, abs: string) =>
@@ -79,7 +75,6 @@ describe('indexFileRelations', () => {
     expect(rels).toEqual([]);
   });
 
-  // [HP] extractRelations called with absolute filePath
   it('should call extractRelations when absolute filePath is provided', () => {
     mockToAbsolutePath.mockReturnValue(ABS_FILE);
     const relationRepo = makeRelationRepo();
@@ -89,7 +84,6 @@ describe('indexFileRelations', () => {
     expect(mockExtractRelations).toHaveBeenCalledWith(expect.anything(), ABS_FILE, undefined);
   });
 
-  // [HP] replaceFileRelations called with relative filePath
   it('should call replaceFileRelations when relative filePath is computed', () => {
     const relationRepo = makeRelationRepo();
 
@@ -99,7 +93,6 @@ describe('indexFileRelations', () => {
     expect(filePath).toBe(REL_FILE);
   });
 
-  // [HP] dst absolute path normalized to relative
   it('should normalize absolute dst paths when writing output relations', () => {
     mockExtractRelations.mockReturnValue([makeRelation({ dstFilePath: '/project/src/utils.ts' })]);
     mockToRelativePath.mockReturnValue('src/utils.ts');
@@ -111,7 +104,6 @@ describe('indexFileRelations', () => {
     expect(rels[0].dstFilePath).toBe('src/utils.ts');
   });
 
-  // [ED] 0 relations → replaceFileRelations([]) called
   it('should call replaceFileRelations with empty array when extractRelations returns nothing', () => {
     mockExtractRelations.mockReturnValue([]);
     const relationRepo = makeRelationRepo();
@@ -122,7 +114,6 @@ describe('indexFileRelations', () => {
     expect(rels).toEqual([]);
   });
 
-  // [CO] mix: in-project + out-of-project → only in-project survive
   it('should retain only in-project relations when mix of in/out-project are returned', () => {
     mockExtractRelations.mockReturnValue([
       makeRelation({ dstFilePath: '/project/src/utils.ts' }),
@@ -140,7 +131,6 @@ describe('indexFileRelations', () => {
     expect(rels[0].dstFilePath).toBe('src/utils.ts');
   });
 
-  // [HP] tsconfigPaths passed through to extractRelations
   it('should pass tsconfigPaths to extractRelations when provided', () => {
     const tsconfigPaths = { baseUrl: '/project', paths: new Map() };
     const relationRepo = makeRelationRepo();
@@ -150,7 +140,6 @@ describe('indexFileRelations', () => {
     expect(mockExtractRelations).toHaveBeenCalledWith(expect.anything(), expect.anything(), tsconfigPaths);
   });
 
-  // [NE] all relations filtered → empty array to replaceFileRelations
   it('should pass empty array to replaceFileRelations when all relations are filtered', () => {
     mockExtractRelations.mockReturnValue([
       makeRelation({ dstFilePath: '/other1/file.ts' }),
@@ -165,7 +154,6 @@ describe('indexFileRelations', () => {
     expect(rels).toEqual([]);
   });
 
-  // [ID] same input twice → same result
   it('should produce identical calls when invoked twice with same input', () => {
     mockExtractRelations.mockReturnValue([makeRelation()]);
     mockToRelativePath.mockReturnValue('src/utils.ts');
@@ -179,7 +167,6 @@ describe('indexFileRelations', () => {
     expect(rels1.length).toBe(rels2.length);
   });
 
-  // [HP] src filePath relative (not absolute) in output
   it('should set srcFilePath to relative path when relation output is created', () => {
     mockExtractRelations.mockReturnValue([makeRelation({ srcFilePath: ABS_FILE })]);
     mockToRelativePath.mockImplementation((root: string, abs: string) => {

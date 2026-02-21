@@ -1,6 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 
-// ── Mock node:path ──
 const mockResolve = mock((...args: string[]) => '');
 const mockDirname = mock((p: string) => '');
 const mockExtname = mock((p: string) => '');
@@ -9,7 +8,6 @@ import { resolveImport, buildImportMap } from './extractor-utils';
 
 const FAKE_PROJECT = '/project';
 
-// ── Fake AST helpers for buildImportMap ──
 function fakeAst(body: any[]): any {
   return { body };
 }
@@ -30,9 +28,6 @@ function fakeNamespaceSpec(localName: string): any {
   return { type: 'ImportNamespaceSpecifier', local: { name: localName } };
 }
 
-// ============================================================
-// resolveImport
-// ============================================================
 describe('resolveImport', () => {
   beforeEach(() => {
     mock.module('node:path', () => ({
@@ -45,7 +40,6 @@ describe('resolveImport', () => {
     mockExtname.mockClear();
   });
 
-  // HP — relative imports
   it('should resolve to absolute path when relative import already has .ts extension', () => {
     mockDirname.mockReturnValue('/project/src');
     mockResolve.mockReturnValue('/project/src/utils.ts');
@@ -92,7 +86,6 @@ describe('resolveImport', () => {
     expect(mockResolve).toHaveBeenCalledWith('/project/src/a/b', '../../utils');
   });
 
-  // HP — tsconfig path aliases
   it('should resolve to mapped path when import matches a wildcard tsconfig path alias', () => {
     mockResolve.mockReturnValue('/project/src/utils/formatter');
     mockExtname.mockReturnValue('');
@@ -121,7 +114,6 @@ describe('resolveImport', () => {
     expect(mockResolve).toHaveBeenCalledWith('/project', 'src/index');
   });
 
-  // NE — external packages
   it('should return null when import specifier is a bare npm package name', () => {
     const result = resolveImport('/project/src/index.ts', 'lodash');
     expect(result).toEqual([]);
@@ -141,7 +133,6 @@ describe('resolveImport', () => {
     expect(result).toEqual([]);
   });
 
-  // ED
   it('should resolve to directory path with .ts when relative import is a bare "."', () => {
     mockDirname.mockReturnValue('/project/src');
     mockResolve.mockReturnValue('/project/src');
@@ -152,7 +143,6 @@ describe('resolveImport', () => {
     expect(result).toContain('/project/src.ts');
   });
 
-  // ID
   it('should return identical result when called twice with the same input arguments', () => {
     mockDirname.mockReturnValue('/project/src');
     mockResolve.mockReturnValue('/project/src/b');
@@ -163,7 +153,6 @@ describe('resolveImport', () => {
     expect(r1).toEqual(r2);
   });
 
-  // tsconfig — append .ts to alias result when no extension
   it('should append .ts to resolved alias path when alias target has no file extension', () => {
     mockResolve.mockReturnValue('/project/lib/utils');
     mockExtname.mockReturnValue('');
@@ -178,7 +167,6 @@ describe('resolveImport', () => {
     expect(mockResolve).toHaveBeenCalledWith('/project', 'lib/utils');
   });
 
-  // tsconfig — target with extension already
   it('should not double-append .ts when alias target already includes .ts extension', () => {
     mockResolve.mockReturnValue('/project/lib/utils.ts');
     mockExtname.mockReturnValue('.ts');
@@ -192,9 +180,6 @@ describe('resolveImport', () => {
     expect(result).toEqual(['/project/lib/utils.ts']);
   });
 
-  // ── A-4: barrel pattern ───────────────────────────────────────────────────
-
-  // [NE/A-4] 확장자 없는 상대경로는 .ts 뿐 아니라 /index.ts 후보도 포함해야 한다
   it('should include both .ts and /index.ts candidates when relative import has no extension', () => {
     mockDirname.mockReturnValue('/project/src');
     mockResolve.mockReturnValue('/project/src/utils');
@@ -207,9 +192,6 @@ describe('resolveImport', () => {
     expect(result).toContain('/project/src/utils/index.ts');
   });
 
-  // ── B-4: .mts/.cts extension ──────────────────────────────────────────────
-
-  // [NE/B-4] 확장자 없는 상대경로는 .mts, .cts, /index.mts, /index.cts 후보도 포함해야 한다
   it('should include .mts, .cts, /index.mts, /index.cts candidates when relative import has no extension', () => {
     mockDirname.mockReturnValue('/project/src');
     mockResolve.mockReturnValue('/project/src/utils');
@@ -243,9 +225,6 @@ describe('resolveImport', () => {
   });
 });
 
-// ============================================================
-// buildImportMap
-// ============================================================
 describe('buildImportMap', () => {
   const mockResolveImportFn = mock(
     (currentFilePath: string, importPath: string, tsconfigPaths?: any) => [] as string[],
@@ -256,7 +235,6 @@ describe('buildImportMap', () => {
     mockResolveImportFn.mockReturnValue([]);
   });
 
-  // HP
   it('should map local name to importedName and resolved path when declaration has a named specifier', () => {
     mockResolveImportFn.mockReturnValue([`${FAKE_PROJECT}/src/utils.ts`]);
 
@@ -350,7 +328,6 @@ describe('buildImportMap', () => {
     expect(map.size).toBe(0);
   });
 
-  // ID
   it('should produce identical maps when called repeatedly with the same AST input', () => {
     mockResolveImportFn.mockReturnValue([`${FAKE_PROJECT}/src/x.ts`]);
 

@@ -29,28 +29,46 @@ import type { RelationSearchQuery } from './search/relation-search';
 import type { SymbolStats } from './store/repositories/symbol.repository';
 import { DependencyGraph } from './search/dependency-graph';
 
-// ── Constants ─────────────────────────────────────────────────────────────
-
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEALTHCHECK_INTERVAL_MS = 60_000;
 const MAX_HEALTHCHECK_RETRIES = 10;
 
-// ── Types ─────────────────────────────────────────────────────────────────
-
+/**
+ * Minimal logger interface accepted by {@link Gildash}.
+ *
+ * Any object with an `error` method (including `console`) satisfies this interface.
+ */
 export interface Logger {
+  /** Log one or more error-level messages. */
   error(...args: unknown[]): void;
 }
 
-export interface CodeledgerOptions {
+/**
+ * Options for creating a {@link Gildash} instance via {@link Gildash.open}.
+ *
+ * @example
+ * ```ts
+ * const ledger = await Gildash.open({
+ *   projectRoot: '/absolute/path/to/project',
+ *   extensions: ['.ts', '.tsx'],
+ *   ignorePatterns: ['vendor'],
+ * });
+ * ```
+ */
+export interface GildashOptions {
+  /** Absolute path to the project root directory. */
   projectRoot: string;
+  /** File extensions to index. Defaults to `['.ts', '.mts', '.cts']`. */
   extensions?: string[];
+  /** Glob patterns to ignore during indexing. */
   ignorePatterns?: string[];
+  /** Maximum number of parsed ASTs to keep in the LRU cache. Defaults to `500`. */
   parseCacheCapacity?: number;
+  /** Logger for error output. Defaults to `console`. */
   logger?: Logger;
 }
 
-/** @internal */
-interface CodeledgerInternalOptions {
+interface GildashInternalOptions {
   existsSyncFn?: (p: string) => boolean;
   dbConnectionFactory?: () => Pick<DbConnection, 'open' | 'close' | 'transaction'> & WatcherOwnerStore;
   watcherFactory?: () => Pick<ProjectWatcher, 'start' | 'close'>;
@@ -76,9 +94,26 @@ interface CodeledgerInternalOptions {
   loadTsconfigPathsFn?: typeof loadTsconfigPaths;
 }
 
-// ── Codeledger ────────────────────────────────────────────────────────────
-
-export class Codeledger {
+/**
+ * Main entry point for gildash.
+ *
+ * `Gildash` indexes TypeScript source code into a local SQLite database,
+ * watches for file changes, and provides search / dependency-graph queries.
+ *
+ * Create an instance with the static {@link Gildash.open} factory.
+ * Always call {@link Gildash.close} when done to release resources.
+ *
+ * @example
+ * ```ts
+ * import { Gildash } from '@zipbul/gildash';
+ *
+ * const ledger = await Gildash.open({ projectRoot: '/my/project' });
+ * const symbols = ledger.searchSymbols({ text: 'handle', kind: 'function' });
+ * await ledger.close();
+ * ```
+ */
+export class Gildash {
+  /** Absolute path to the indexed project root. */
   readonly projectRoot: string;
 
   private readonly db: Pick<DbConnection, 'open' | 'close' | 'transaction'> & WatcherOwnerStore;
@@ -145,9 +180,26 @@ export class Codeledger {
     this.role = opts.role;
   }
 
-  // ── Static factory ──────────────────────────────────────────────────────
-
-  static async open(options: CodeledgerOptions & CodeledgerInternalOptions): Promise<Codeledger> {
+  /**
+   * Create and initialise a new `Gildash` instance.
+   *
+   * Opens (or creates) a SQLite database alongside the project root,
+   * discovers sub-projects, acquires a watcher role, performs initial indexing,
+   * and begins watching for file changes.
+   *
+   * @param options - Configuration for the instance.
+   * @returns A fully-initialised `Gildash` ready for queries.
+   * @throws {Error} If `projectRoot` is not absolute or does not exist.
+   *
+   * @example
+   * ```ts
+   * const ledger = await Gildash.open({
+   *   projectRoot: '/home/user/my-app',
+   *   extensions: ['.ts', '.tsx'],
+   * });
+   * ```
+   */
+  static async open(options: GildashOptions & GildashInternalOptions): Promise<Gildash> {
     const {
       projectRoot,
       extensions = ['.ts', '.mts', '.cts'],
@@ -171,26 +223,22 @@ export class Codeledger {
       loadTsconfigPathsFn = loadTsconfigPaths,
     } = options;
 
-    // ── 1. Validate options ─────────────────────────────────────────────
     if (!path.isAbsolute(projectRoot)) {
-      throw new Error(`Codeledger: projectRoot must be an absolute path, got: "${projectRoot}"`);
+      throw new Error(`Gildash: projectRoot must be an absolute path, got: "${projectRoot}"`);
     }
     if (!existsSyncFn(projectRoot)) {
-      throw new Error(`Codeledger: projectRoot does not exist: "${projectRoot}"`);
+      throw new Error(`Gildash: projectRoot does not exist: "${projectRoot}"`);
     }
 
-    // ── 2. Open DB ──────────────────────────────────────────────────────
     const db = dbConnectionFactory
       ? dbConnectionFactory()
       : new DbConnection({ projectRoot });
     db.open();
     try {
 
-    // ── 3. Discover projects ────────────────────────────────────────────
     const boundaries: ProjectBoundary[] = await discoverProjectsFn(projectRoot);
     const defaultProject = boundaries[0]?.project ?? path.basename(projectRoot);
 
-    // ── 4. Create repositories ──────────────────────────────────────────
     const repos = repositoryFactory
       ? repositoryFactory()
       : (() => {
@@ -203,7 +251,6 @@ export class Codeledger {
           };
         })();
 
-    // ── 5. Acquire watcher role ─────────────────────────────────────────
     const role = await Promise.resolve(
       acquireWatcherRoleFn(db, process.pid, {}),
     );
@@ -214,7 +261,7 @@ export class Codeledger {
     }) | null = null;
     let watcher: Pick<ProjectWatcher, 'start' | 'close'> | null = null;
 
-    const instance = new Codeledger({
+    const instance = new Gildash({
       projectRoot,
       db,
       symbolRepo: repos.symbolRepo,
@@ -235,14 +282,11 @@ export class Codeledger {
     clearTsconfigPathsCache(projectRoot);
     instance.tsconfigPaths = await loadTsconfigPathsFn(projectRoot);
     instance.boundaries = boundaries;
-    // ── 6. Role-specific setup ──────────────────────────────────────────
     if (role === 'owner') {
-      // Create watcher
       const w = watcherFactory
         ? watcherFactory()
         : new ProjectWatcher({ projectRoot, ignorePatterns, extensions }, undefined, logger);
 
-      // Create coordinator
       const c = coordinatorFactory
         ? coordinatorFactory()
         : new IndexCoordinator({
@@ -258,34 +302,28 @@ export class Codeledger {
             logger,
           });
 
-      // Assign after construction
       instance.coordinator = c;
       instance.watcher = w;
 
-      // Start watcher
       await w.start((event) => c.handleWatcherEvent?.(event));
 
-      // Start heartbeat
       const timer = setInterval(() => {
         updateHeartbeatFn(db, process.pid);
       }, HEARTBEAT_INTERVAL_MS);
       instance.timer = timer;
 
-      // Initial full index
       await c.fullIndex();
     } else {
-      // Reader: start healthcheck timer
       let retryCount = 0;
       const healthcheck = async () => {
         try {
           const newRole = await Promise.resolve(
             acquireWatcherRoleFn(db, process.pid, {}),
           );
-          retryCount = 0; // A-1: 성공 시 retry 횟수 초기화
+          retryCount = 0;
           if (newRole === 'owner') {
             clearInterval(instance.timer!);
             instance.timer = null;
-            // A-2: owner 승격 setup 실패 시 타이머 복원
             let promotedWatcher: Pick<ProjectWatcher, 'start' | 'close'> | null = null;
             let promotedCoordinator: (Pick<IndexCoordinator, 'fullIndex' | 'shutdown' | 'onIndexed'> & {
               tsconfigPaths?: Promise<TsconfigPaths | null>;
@@ -309,7 +347,6 @@ export class Codeledger {
                     relationRepo: repos.relationRepo,
                     logger,
                   });
-              // Forward registered onIndexed callbacks to new coordinator
               for (const cb of instance.onIndexedCallbacks) {
                 promotedCoordinator.onIndexed(cb);
               }
@@ -317,39 +354,38 @@ export class Codeledger {
               const hbTimer = setInterval(() => {
                 updateHeartbeatFn(db, process.pid);
               }, HEARTBEAT_INTERVAL_MS);
-              instance.timer = hbTimer; // A-2: heartbeat 타이머 먼저 설정
-              instance.coordinator = promotedCoordinator;  // A-2: 타이머 설정 이후에 할당
-              instance.watcher = promotedWatcher;           // A-2: 타이머 설정 이후에 할당
+              instance.timer = hbTimer;
+              instance.coordinator = promotedCoordinator;
+              instance.watcher = promotedWatcher;
               await promotedCoordinator.fullIndex();
             } catch (setupErr) {
-              logger.error('[Codeledger] owner promotion failed, reverting to reader', setupErr);
-              // SRC-8: cleanup already-started resources before reverting to reader
+              logger.error('[Gildash] owner promotion failed, reverting to reader', setupErr);
               if (promotedWatcher) {
                 await promotedWatcher.close().catch((e) =>
-                  logger.error('[Codeledger] watcher close error during promotion rollback', e),
+                  logger.error('[Gildash] watcher close error during promotion rollback', e),
                 );
                 instance.watcher = null;
               }
               if (promotedCoordinator) {
                 await promotedCoordinator.shutdown().catch((e) =>
-                  logger.error('[Codeledger] coordinator shutdown error during promotion rollback', e),
+                  logger.error('[Gildash] coordinator shutdown error during promotion rollback', e),
                 );
                 instance.coordinator = null;
               }
-              if (instance.timer === null) { // A-2: hbTimer 미설정 시 healthcheck 복원
+              if (instance.timer === null) {
                 instance.timer = setInterval(healthcheck, HEALTHCHECK_INTERVAL_MS);
               }
             }
           }
         } catch (err) {
-          retryCount++; // A-1: 연속 실패 횟수 증가
-          logger.error('[Codeledger] healthcheck error', err);
-          if (retryCount >= MAX_HEALTHCHECK_RETRIES) { // A-1: 최대 retry 초과 시 종료
-            logger.error('[Codeledger] healthcheck failed too many times, shutting down');
+          retryCount++;
+          logger.error('[Gildash] healthcheck error', err);
+          if (retryCount >= MAX_HEALTHCHECK_RETRIES) {
+            logger.error('[Gildash] healthcheck failed too many times, shutting down');
             clearInterval(instance.timer!);
             instance.timer = null;
             instance.close().catch((closeErr) =>
-              logger.error('[Codeledger] close error during healthcheck shutdown', closeErr),
+              logger.error('[Gildash] close error during healthcheck shutdown', closeErr),
             );
           }
         }
@@ -358,10 +394,9 @@ export class Codeledger {
       instance.timer = timer;
     }
 
-    // ── 7. Signal handlers ──────────────────────────────────────────────
     const signals: Array<NodeJS.Signals | 'beforeExit'> = ['SIGTERM', 'SIGINT', 'beforeExit'];
     for (const sig of signals) {
-      const handler = () => { instance.close().catch(err => logger.error('[Codeledger] close error during signal', sig, err)); };
+      const handler = () => { instance.close().catch(err => logger.error('[Gildash] close error during signal', sig, err)); };
       if (sig === 'beforeExit') {
         process.on('beforeExit', handler);
       } else {
@@ -377,15 +412,21 @@ export class Codeledger {
     }
   }
 
-  // ── Lifecycle ───────────────────────────────────────────────────────────
-
+  /**
+   * Shut down the instance and release all resources.
+   *
+   * Stops the file watcher, shuts down the index coordinator,
+   * releases the watcher ownership role, and closes the database.
+   * Calling `close()` more than once is safe (subsequent calls are no-ops).
+   *
+   * @throws {AggregateError} If one or more sub-systems fail during shutdown.
+   */
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
 
     const closeErrors: Error[] = [];
 
-    // Remove signal handlers
     for (const [sig, handler] of this.signalHandlers) {
       if (sig === 'beforeExit') {
         process.off('beforeExit', handler);
@@ -395,7 +436,6 @@ export class Codeledger {
     }
     this.signalHandlers = [];
 
-    // Shutdown coordinator if owner
     if (this.coordinator) {
       try {
         await this.coordinator.shutdown();
@@ -404,7 +444,6 @@ export class Codeledger {
       }
     }
 
-    // Close watcher if owner
     if (this.watcher) {
       try {
         await this.watcher.close();
@@ -413,20 +452,17 @@ export class Codeledger {
       }
     }
 
-    // Clear timer (heartbeat or healthcheck)
     if (this.timer !== null) {
       clearInterval(this.timer);
       this.timer = null;
     }
 
-    // Release watcher role
     try {
       this.releaseWatcherRoleFn(this.db, process.pid);
     } catch (err) {
       closeErrors.push(err instanceof Error ? err : new Error(String(err)));
     }
 
-    // Close DB
     try {
       this.db.close();
     } catch (err) {
@@ -434,12 +470,25 @@ export class Codeledger {
     }
 
     if (closeErrors.length > 0) {
-      throw new AggregateError(closeErrors, 'Codeledger: one or more errors occurred during close()');
+      throw new AggregateError(closeErrors, 'Gildash: one or more errors occurred during close()');
     }
   }
 
-  // ── Event subscription ──────────────────────────────────────────────────
-
+  /**
+   * Register a callback that fires after each indexing run completes.
+   *
+   * @param callback - Receives the {@link IndexResult} for the completed run.
+   * @returns An unsubscribe function. Call it to remove the listener.
+   *
+   * @example
+   * ```ts
+   * const off = ledger.onIndexed(result => {
+   *   console.log(`Indexed ${result.filesProcessed} files`);
+   * });
+   * // later…
+   * off();
+   * ```
+   */
   onIndexed(callback: (result: IndexResult) => void): () => void {
     this.onIndexedCallbacks.add(callback);
     if (!this.coordinator) {
@@ -452,22 +501,43 @@ export class Codeledger {
     };
   }
 
-  // ── Stateless API ───────────────────────────────────────────────────────
-
+  /**
+   * Parse a TypeScript source string into an AST and cache the result.
+   *
+   * @param filePath - File path used as the cache key and for diagnostics.
+   * @param sourceText - Raw TypeScript source code.
+   * @returns The parsed file representation.
+   * @throws {Error} If the instance is closed.
+   */
   parseSource(filePath: string, sourceText: string): ParsedFile {
-    if (this.closed) throw new Error('Codeledger: instance is closed');
+    if (this.closed) throw new Error('Gildash: instance is closed');
     const parsed = this.parseSourceFn(filePath, sourceText);
     this.parseCache.set(filePath, parsed);
     return parsed;
   }
 
+  /**
+   * Extract all symbol declarations from a previously parsed file.
+   *
+   * @param parsed - A {@link ParsedFile} obtained from {@link parseSource}.
+   * @returns An array of {@link ExtractedSymbol} entries.
+   * @throws {Error} If the instance is closed.
+   */
   extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
-    if (this.closed) throw new Error('Codeledger: instance is closed');
+    if (this.closed) throw new Error('Gildash: instance is closed');
     return this.extractSymbolsFn(parsed);
   }
 
+  /**
+   * Extract inter-file relationships (imports, calls, extends, implements)
+   * from a previously parsed file.
+   *
+   * @param parsed - A {@link ParsedFile} obtained from {@link parseSource}.
+   * @returns An array of {@link CodeRelation} entries.
+   * @throws {Error} If the instance is closed.
+   */
   extractRelations(parsed: ParsedFile): CodeRelation[] {
-    if (this.closed) throw new Error('Codeledger: instance is closed');
+    if (this.closed) throw new Error('Gildash: instance is closed');
     return this.extractRelationsFn(
       parsed.program,
       parsed.filePath,
@@ -475,39 +545,83 @@ export class Codeledger {
     );
   }
 
-  // ── Search API ──────────────────────────────────────────────────────────
-
+  /**
+   * Trigger a full re-index of all tracked files.
+   *
+   * Only available to the instance that holds the *owner* role.
+   *
+   * @returns The indexing result summary.
+   * @throws {Error} If the instance is closed or is a reader.
+   */
   async reindex(): Promise<IndexResult> {
-    if (this.closed) throw new Error('Codeledger: instance is closed');
+    if (this.closed) throw new Error('Gildash: instance is closed');
     if (!this.coordinator) {
-      throw new Error('Codeledger: reindex() is not available for readers');
+      throw new Error('Gildash: reindex() is not available for readers');
     }
     return this.coordinator.fullIndex();
   }
 
+  /**
+   * Discovered project boundaries within the project root.
+   *
+   * Each entry contains a project name and its root directory.
+   */
   get projects(): ProjectBoundary[] {
     return [...this.boundaries];
   }
 
+  /**
+   * Return aggregate symbol statistics for the given project.
+   *
+   * @param project - Project name. Defaults to the auto-discovered primary project.
+   * @returns Counts grouped by symbol kind.
+   * @throws {Error} If the instance is closed.
+   */
   getStats(project?: string): SymbolStats {
-    if (this.closed) throw new Error('Codeledger: instance is closed');
+    if (this.closed) throw new Error('Gildash: instance is closed');
     return this.symbolRepo.getStats(project ?? this.defaultProject);
   }
 
+  /**
+   * Search indexed symbols by name, kind, file path, or export status.
+   *
+   * @param query - Search filters. All fields are optional; omitted fields match everything.
+   * @returns Matching {@link SymbolSearchResult} entries.
+   * @throws {Error} If the instance is closed.
+   *
+   * @example
+   * ```ts
+   * const fns = ledger.searchSymbols({ kind: 'function', isExported: true });
+   * ```
+   */
   searchSymbols(query: SymbolSearchQuery): SymbolSearchResult[] {
-    if (this.closed) throw new Error('Codeledger: instance is closed');
+    if (this.closed) throw new Error('Gildash: instance is closed');
     return this.symbolSearchFn({ symbolRepo: this.symbolRepo, project: this.defaultProject, query });
   }
 
+  /**
+   * Search indexed code relationships (imports, calls, extends, implements).
+   *
+   * @param query - Search filters. All fields are optional.
+   * @returns Matching {@link CodeRelation} entries.
+   * @throws {Error} If the instance is closed.
+   */
   searchRelations(query: RelationSearchQuery): CodeRelation[] {
-    if (this.closed) throw new Error('Codeledger: instance is closed');
+    if (this.closed) throw new Error('Gildash: instance is closed');
     return this.relationSearchFn({ relationRepo: this.relationRepo, project: this.defaultProject, query });
   }
 
-  // ── Dependency graph helpers ────────────────────────────────────────────
-
+  /**
+   * List the files that a given file directly imports.
+   *
+   * @param filePath - Absolute path of the source file.
+   * @param project - Project name. Defaults to the primary project.
+   * @param limit - Maximum results. Defaults to `10_000`.
+   * @returns Absolute paths of imported files.
+   * @throws {Error} If the instance is closed.
+   */
   getDependencies(filePath: string, project?: string, limit = 10_000): string[] {
-    if (this.closed) throw new Error('Codeledger: instance is closed');
+    if (this.closed) throw new Error('Gildash: instance is closed');
     return this.relationSearchFn({
       relationRepo: this.relationRepo,
       project: project ?? this.defaultProject,
@@ -515,8 +629,17 @@ export class Codeledger {
     }).map(r => r.dstFilePath);
   }
 
+  /**
+   * List the files that directly import a given file.
+   *
+   * @param filePath - Absolute path of the target file.
+   * @param project - Project name. Defaults to the primary project.
+   * @param limit - Maximum results. Defaults to `10_000`.
+   * @returns Absolute paths of files that import the target.
+   * @throws {Error} If the instance is closed.
+   */
   getDependents(filePath: string, project?: string, limit = 10_000): string[] {
-    if (this.closed) throw new Error('Codeledger: instance is closed');
+    if (this.closed) throw new Error('Gildash: instance is closed');
     return this.relationSearchFn({
       relationRepo: this.relationRepo,
       project: project ?? this.defaultProject,
@@ -524,8 +647,18 @@ export class Codeledger {
     }).map(r => r.srcFilePath);
   }
 
+  /**
+   * Compute the full set of files transitively affected by changes.
+   *
+   * Builds a dependency graph and walks all reverse edges from each changed file.
+   *
+   * @param changedFiles - Absolute paths of files that changed.
+   * @param project - Project name. Defaults to the primary project.
+   * @returns Paths of all transitively-dependent files (excludes the changed files themselves).
+   * @throws {Error} If the instance is closed.
+   */
   async getAffected(changedFiles: string[], project?: string): Promise<string[]> {
-    if (this.closed) throw new Error('Codeledger: instance is closed');
+    if (this.closed) throw new Error('Gildash: instance is closed');
     const g = new DependencyGraph({
       relationRepo: this.relationRepo,
       project: project ?? this.defaultProject,
@@ -534,8 +667,15 @@ export class Codeledger {
     return g.getAffectedByChange(changedFiles);
   }
 
+  /**
+   * Check whether the import graph contains a circular dependency.
+   *
+   * @param project - Project name. Defaults to the primary project.
+   * @returns `true` if at least one cycle exists.
+   * @throws {Error} If the instance is closed.
+   */
   async hasCycle(project?: string): Promise<boolean> {
-    if (this.closed) throw new Error('Codeledger: instance is closed');
+    if (this.closed) throw new Error('Gildash: instance is closed');
     const g = new DependencyGraph({
       relationRepo: this.relationRepo,
       project: project ?? this.defaultProject,

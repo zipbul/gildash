@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
-// ── Mock node:fs glob ──────────────────────────────────────────────────────
 const mockGlob = mock(async function* (): AsyncGenerator<string> {});
 
-// ── Mock hashString ────────────────────────────────────────────────────────
 const mockHashString = mock((input: string) => 'mocked-hash');
 
 import { detectChanges } from './file-indexer';
@@ -12,7 +10,6 @@ const PROJECT_ROOT = '/project';
 const EXTENSIONS = ['.ts'];
 const IGNORE_PATTERNS = ['**/node_modules/**'];
 
-// ── Fake fileRepo ──────────────────────────────────────────────────────────
 function makeFileRepo(filesMap: Map<string, any> = new Map()) {
   return {
     getFilesMap: mock(() => filesMap),
@@ -45,7 +42,6 @@ describe('detectChanges', () => {
   afterEach(() => {
     spyOn(Bun, 'file').mockRestore();
   });
-  // [HP] new file not in DB → ends up in changed[]
   it('should put new file in changed[] when it does not exist in DB', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/index.ts'; });
     spyOn(Bun, 'file').mockReturnValue(makeBunFile({ size: 100, lastModified: 1000 }));
@@ -56,7 +52,6 @@ describe('detectChanges', () => {
     expect(result.changed.some((f) => f.filePath === 'src/index.ts')).toBe(true);
   });
 
-  // [HP] file in DB, mtime+size same → unchanged[]
   it('should put file in unchanged[] when mtime and size match DB record', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/index.ts'; });
     spyOn(Bun, 'file').mockReturnValue(makeBunFile({ size: 100, lastModified: 1000 }));
@@ -69,7 +64,6 @@ describe('detectChanges', () => {
     expect(result.changed).toEqual([]);
   });
 
-  // [HP] file in DB, mtime changed, content changed → changed[]
   it('should put file in changed[] when mtime changed and contentHash differs', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/index.ts'; });
     spyOn(Bun, 'file').mockReturnValue(makeBunFile({ size: 100, lastModified: 9999, text: 'new content' }));
@@ -82,7 +76,6 @@ describe('detectChanges', () => {
     expect(result.changed.some((f) => f.filePath === 'src/index.ts')).toBe(true);
   });
 
-  // [CO] file in DB, mtime changed, content same → unchanged[] (optimization)
   it('should put file in unchanged[] when mtime changed but contentHash is same', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/index.ts'; });
     spyOn(Bun, 'file').mockReturnValue(makeBunFile({ size: 100, lastModified: 9999, text: 'same content' }));
@@ -96,7 +89,6 @@ describe('detectChanges', () => {
     expect(result.changed).toEqual([]);
   });
 
-  // [HP] file in DB but not on disk → deleted[]
   it('should put file in deleted[] when it exists in DB but not on disk', async () => {
     mockGlob.mockImplementation(async function* () {});
     const existing = new Map([['src/gone.ts', { filePath: 'src/gone.ts', mtimeMs: 1000, size: 100, contentHash: 'abc' }]]);
@@ -107,7 +99,6 @@ describe('detectChanges', () => {
     expect(result.deleted).toContain('src/gone.ts');
   });
 
-  // [ED] empty directory → all arrays empty
   it('should return all empty arrays when directory has no matching files and DB is empty', async () => {
     mockGlob.mockImplementation(async function* () {});
     const fileRepo = makeFileRepo(new Map());
@@ -119,7 +110,6 @@ describe('detectChanges', () => {
     expect(result.deleted).toEqual([]);
   });
 
-  // [HP] contentHash computed for new files
   it('should compute contentHash when files are newly discovered', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/new.ts'; });
     spyOn(Bun, 'file').mockReturnValue(makeBunFile({ size: 50, lastModified: 500 }));
@@ -131,7 +121,6 @@ describe('detectChanges', () => {
     expect(result.changed[0]?.contentHash).toBe('computed-hash');
   });
 
-  // [HP] contentHash NOT computed for mtime+size unchanged (optimization)
   it('should not call hashString when mtime and size are unchanged', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/index.ts'; });
     spyOn(Bun, 'file').mockReturnValue(makeBunFile({ size: 100, lastModified: 1000 }));
@@ -143,7 +132,6 @@ describe('detectChanges', () => {
     expect(mockHashString).not.toHaveBeenCalled();
   });
 
-  // [HP] extension filter: non-.ts file excluded
   it('should exclude files when extensions do not match', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/styles.css'; });
     const fileRepo = makeFileRepo(new Map());
@@ -153,7 +141,6 @@ describe('detectChanges', () => {
     expect(result.changed).toEqual([]);
   });
 
-  // [HP] ignorePattern matched file excluded
   it('should exclude files when paths match ignorePatterns', async () => {
     mockGlob.mockImplementation(async function* () { yield 'node_modules/lib/index.ts'; });
     const fileRepo = makeFileRepo(new Map());
@@ -163,7 +150,6 @@ describe('detectChanges', () => {
     expect(result.changed).toEqual([]);
   });
 
-  // [NE] Bun.file().text() throws → error propagates
   it('should propagate error when Bun.file().text() throws', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/bad.ts'; });
     spyOn(Bun, 'file').mockReturnValue({
@@ -177,7 +163,6 @@ describe('detectChanges', () => {
     ).rejects.toThrow('read error');
   });
 
-  // [ID] detectChanges twice, no changes → same result
   it('should return same result on second call when no files changed', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/index.ts'; });
     spyOn(Bun, 'file').mockReturnValue(makeBunFile({ size: 100, lastModified: 1000 }));
@@ -191,7 +176,6 @@ describe('detectChanges', () => {
     expect(r1.changed.length).toBe(r2.changed.length);
   });
 
-  // [CO] new + deleted in same scan
   it('should categorize new and deleted files correctly when scanned together', async () => {
     mockGlob.mockImplementation(async function* () { yield 'src/new.ts'; });
     spyOn(Bun, 'file').mockReturnValue(makeBunFile({ size: 50, lastModified: 500 }));
@@ -204,7 +188,6 @@ describe('detectChanges', () => {
     expect(result.deleted).toContain('src/gone.ts');
   });
 
-  // [HP] mix: new + changed + unchanged + deleted all in one result
   describe('when new, changed, unchanged, and deleted files appear simultaneously', () => {
     let result: Awaited<ReturnType<typeof detectChanges>>;
 

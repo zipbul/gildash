@@ -1,6 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 
-// comment-parser의 parse를 mock으로 교체. 변수를 여기서 캡처해야 mockImplementationOnce 사용 가능.
 const mockParse = mock(() => [{ description: 'A description.', tags: [] as any[] }]);
 
 import { parseJsDoc } from './jsdoc-parser';
@@ -14,17 +13,13 @@ describe('parseJsDoc', () => {
     mockParse.mockClear();
     mockParse.mockImplementation(() => [{ description: 'A description.', tags: [] as any[] }]);
   });
-  // HP
   it('should return description and empty tags when comment is simple', () => {
-    // Arrange & Act
     const result = parseJsDoc('/** A description. */');
-    // Assert
     expect(result.description).toBe('A description.');
     expect(result.tags).toEqual([]);
   });
 
   it('should return parsed tags when comment-parser returns tags', () => {
-    // Arrange
     mockParse.mockImplementationOnce(() => ([
       {
         description: 'Handles auth.',
@@ -33,9 +28,7 @@ describe('parseJsDoc', () => {
         ],
       },
     ]));
-    // Act
     const result = parseJsDoc('/** Handles auth. @param {string} userId The user ID. */');
-    // Assert
     expect(result.description).toBe('Handles auth.');
     expect(result.tags).toHaveLength(1);
     expect(result.tags[0]!.tag).toBe('param');
@@ -69,7 +62,6 @@ describe('parseJsDoc', () => {
     expect(result.tags[0]!.default).toBe('42');
   });
 
-  // NE — comment-parser throws
   it('should throw ParseError when comment-parser throws', () => {
     mockParse.mockImplementationOnce(() => { throw new Error('parse failure'); });
     expect(() => parseJsDoc('/** broken */')).toThrow(ParseError);
@@ -83,7 +75,6 @@ describe('parseJsDoc', () => {
     expect((thrown as ParseError).cause).toBe(cause);
   });
 
-  // ED
   it('should handle empty comment text when parser returns empty description', () => {
     mockParse.mockImplementationOnce(() => ([{ description: '', tags: [] }]));
     expect(() => parseJsDoc('')).not.toThrow();
@@ -102,7 +93,6 @@ describe('parseJsDoc', () => {
     expect(result.tags[0]!.default).toBeUndefined();
   });
 
-  // ID
   it('should return identical results when called twice with the same input', () => {
     mockParse.mockImplementation(() => ([{ description: 'Same.', tags: [] }]));
     const r1 = parseJsDoc('/** Same. */');
@@ -110,7 +100,6 @@ describe('parseJsDoc', () => {
     expect(r1).toEqual(r2);
   });
 
-  // plain text without /** wrapper — G14
   it('should parse input as description when /** wrapper is not present', () => {
     mockParse.mockImplementationOnce(() => ([{ description: 'plain text', tags: [] }]));
     const result = parseJsDoc('plain text');

@@ -3,16 +3,6 @@ import type { Program } from 'oxc-parser';
 import type { TsconfigPaths } from '../common/tsconfig-resolver';
 import type { ImportReference } from './types';
 
-/**
- * Resolves an import path to an absolute file path.
- * Handles relative imports and tsconfig path aliases.
- * Pure string resolution — no file system access.
- *
- * @param currentFilePath - Absolute path of the file containing the import.
- * @param importPath      - The raw import specifier string (e.g., './foo', '@alias/bar').
- * @param tsconfigPaths   - Optional tsconfig paths for alias resolution.
- * @returns Absolute resolved path, or null for external (npm) packages.
- */
 export function resolveImport(
   currentFilePath: string,
   importPath: string,
@@ -36,13 +26,11 @@ export function resolveImport(
     return [resolved];
   };
 
-  // 1. Relative imports
   if (importPath.startsWith('.')) {
     const resolved = resolve(dirname(currentFilePath), importPath);
     return withTypeScriptCandidates(resolved);
   }
 
-  // 2. tsconfig path aliases
   if (tsconfigPaths) {
     for (const [pattern, targets] of tsconfigPaths.paths) {
       if (targets.length === 0) continue;
@@ -50,7 +38,6 @@ export function resolveImport(
       const starIdx = pattern.indexOf('*');
 
       if (starIdx === -1) {
-        // Exact match
         if (importPath === pattern) {
           const candidates: string[] = [];
           for (const t of targets) {
@@ -79,19 +66,9 @@ export function resolveImport(
     }
   }
 
-  // 3. External package
   return [];
 }
 
-/**
- * Builds a map from local identifier names to their resolved import references.
- * Only walks top-level ast.body (no deep traversal).
- *
- * @param ast             - The parsed Program AST.
- * @param currentFilePath - Absolute path of the current file.
- * @param tsconfigPaths   - Optional tsconfig paths for alias resolution.
- * @returns Map from local name to ImportReference.
- */
 export function buildImportMap(
   ast: Program,
   currentFilePath: string,

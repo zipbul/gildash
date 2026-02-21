@@ -2,14 +2,6 @@ import type { Program } from 'oxc-parser';
 import type { ImportReference, CodeRelation } from './types';
 import { getQualifiedName } from '../parser/ast-utils';
 
-/**
- * Extracts all function call and constructor instantiation relations from the AST.
- * Maintains a function/class stack for caller identification.
- *
- * @param ast       - The parsed Program AST.
- * @param filePath  - File path of the source file (used as srcFilePath).
- * @param importMap - Map from local identifiers to their resolved import references.
- */
 export function extractCalls(
   ast: Program,
   filePath: string,
@@ -32,15 +24,12 @@ export function extractCalls(
     const ref = importMap.get(qn.root);
 
     if (qn.parts.length === 0) {
-      // No parts
       if (ref) {
         return { dstFilePath: ref.path, dstSymbolName: ref.importedName, resolution: 'import' };
       }
       return { dstFilePath: filePath, dstSymbolName: qn.root, resolution: 'local' };
     } else {
-      // Has parts
       if (ref && ref.importedName === '*') {
-        // Namespace import: utils.format() → dstFile = utils module, dstSymbol = last part
         const dstSymbolName = qn.parts[qn.parts.length - 1]!;
         return { dstFilePath: ref.path, dstSymbolName, resolution: 'namespace' };
       }
@@ -128,7 +117,6 @@ export function extractCalls(
         });
       }
       walk(call.callee);
-      // Also walk arguments
       for (const arg of call.arguments ?? []) walk(arg);
       return;
     }
@@ -155,7 +143,6 @@ export function extractCalls(
       return;
     }
 
-    // Generic: recurse into all object children (skip irrelevant keys)
     for (const key of Object.keys(record)) {
       if (key === 'loc' || key === 'start' || key === 'end' || key === 'scope') continue;
       const child = record[key];

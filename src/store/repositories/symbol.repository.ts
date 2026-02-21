@@ -33,17 +33,12 @@ export interface SymbolStats {
 export class SymbolRepository {
   constructor(private readonly db: DbConnection) {}
 
-  /**
-   * Atomically replaces all symbols stored for `(project, filePath)`.
-   * FTS5 is kept in sync via the `symbols_ai` / `symbols_ad` triggers.
-   */
   replaceFileSymbols(
     project: string,
     filePath: string,
     contentHash: string,
     syms: ReadonlyArray<Partial<SymbolRecord>>,
   ): void {
-    // Remove existing symbols (cascade-triggers remove FTS5 rows).
     this.db.drizzleDb
       .delete(symbols)
       .where(and(eq(symbols.project, project), eq(symbols.filePath, filePath)))
@@ -80,10 +75,6 @@ export class SymbolRepository {
       .all();
   }
 
-  /**
-   * Full-text prefix search on symbol names.
-   * FTS5 queries require raw SQL — drizzle has no virtual table support.
-   */
   searchByName(project: string, query: string, opts: SearchOptions = {}): SymbolRecord[] {
     const limit = opts.limit ?? 50;
     const ftsQuery = toFtsPrefixQuery(query);
@@ -145,10 +136,6 @@ export class SymbolRepository {
       .run();
   }
 
-  /**
-   * Flexible search across symbols with optional FTS5 full-text query and column filters.
-   * Used by the search module's symbolSearch function.
-   */
   searchByQuery(opts: {
     ftsQuery?: string;
     kind?: string;

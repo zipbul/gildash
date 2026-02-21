@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { ParsedFile } from '../parser/types';
 
-// ── Mock ../extractor/symbol-extractor ──────────────────────────────────────
 const mockExtractSymbols = mock((parsed: any) => [] as any[]);
 
-// ── Mock ../common/hasher ────────────────────────────────────────────────────
 const mockHashString = mock((input: string) => 'fp-hash');
 mock.module('../extractor/symbol-extractor', () => ({ extractSymbols: mockExtractSymbols }));
 mock.module('../common/hasher', () => ({ hashString: mockHashString }));
@@ -47,7 +45,6 @@ describe('indexFileSymbols', () => {
     mockHashString.mockReset();
     mockHashString.mockReturnValue('fp-hash');
   });
-  // [HP] function 2 params → signature='params:2|async:0'
   it('should set signature to params:2|async:0 when function has 2 params and is not async', () => {
     const sym = makeSymbol({ kind: 'function', parameters: [{ name: 'a', isOptional: false }, { name: 'b', isOptional: false }], modifiers: [] });
     mockExtractSymbols.mockReturnValue([sym]);
@@ -59,7 +56,6 @@ describe('indexFileSymbols', () => {
     expect(symbols[0].signature).toBe('params:2|async:0');
   });
 
-  // [HP] async function → signature='params:1|async:1'
   it('should set signature to params:1|async:1 when function is async with 1 param', () => {
     const sym = makeSymbol({ kind: 'function', parameters: [{ name: 'a', isOptional: false }], modifiers: ['async'] });
     mockExtractSymbols.mockReturnValue([sym]);
@@ -71,7 +67,6 @@ describe('indexFileSymbols', () => {
     expect(symbols[0].signature).toBe('params:1|async:1');
   });
 
-  // [HP] class with 3 methods → 4 rows (class + Class.m1 + Class.m2 + Class.m3)
   it('should produce 4 rows when class has 3 methods', () => {
     const cls = makeSymbol({
       kind: 'class', name: 'MyClass', modifiers: [],
@@ -93,7 +88,6 @@ describe('indexFileSymbols', () => {
     expect(symbols.some((s: any) => s.name === 'MyClass.baz')).toBe(true);
   });
 
-  // [HP] symbol with jsDoc → detail_json.jsDoc present
   it('should include jsDoc in detail_json when symbol has jsDoc', () => {
     const sym = makeSymbol({ jsDoc: { description: 'A function', tags: [] } });
     mockExtractSymbols.mockReturnValue([sym]);
@@ -106,7 +100,6 @@ describe('indexFileSymbols', () => {
     expect(detail.jsDoc).toEqual({ description: 'A function', tags: [] });
   });
 
-  // [ED] symbol without jsDoc → detail_json.jsDoc absent
   it('should omit jsDoc from detail_json when symbol has no jsDoc', () => {
     mockExtractSymbols.mockReturnValue([makeSymbol()]);
     const symbolRepo = makeSymbolRepo();
@@ -118,7 +111,6 @@ describe('indexFileSymbols', () => {
     expect(detail.jsDoc).toBeUndefined();
   });
 
-  // [ED] function 0 params → signature='params:0|async:0'
   it('should set signature to params:0|async:0 when function has no params', () => {
     const sym = makeSymbol({ kind: 'function', parameters: [], modifiers: [] });
     mockExtractSymbols.mockReturnValue([sym]);
@@ -130,7 +122,6 @@ describe('indexFileSymbols', () => {
     expect(symbols[0].signature).toBe('params:0|async:0');
   });
 
-  // [HP] type alias → signature null
   it('should set signature to null when symbol kind is type alias', () => {
     mockExtractSymbols.mockReturnValue([makeSymbol({ kind: 'type' })]);
     const symbolRepo = makeSymbolRepo();
@@ -141,7 +132,6 @@ describe('indexFileSymbols', () => {
     expect(symbols[0].signature).toBeNull();
   });
 
-  // [HP] fingerprint = hash('name|kind|signature')
   it('should compute fingerprint when name kind and signature are available', () => {
     mockHashString.mockReturnValue('fingerprint-val');
     const sym = makeSymbol({ kind: 'function', name: 'fn', parameters: [], modifiers: [] });
@@ -155,7 +145,6 @@ describe('indexFileSymbols', () => {
     expect(mockHashString).toHaveBeenCalledWith(expect.stringContaining('fn'));
   });
 
-  // [HP] replaceFileSymbols called with correct contentHash
   it('should call replaceFileSymbols when contentHash is provided', () => {
     mockExtractSymbols.mockReturnValue([makeSymbol()]);
     const symbolRepo = makeSymbolRepo();
@@ -166,7 +155,6 @@ describe('indexFileSymbols', () => {
     expect(hash).toBe('the-hash');
   });
 
-  // [ED] extractSymbols returns [] → replaceFileSymbols([]) called
   it('should call replaceFileSymbols with empty array when extractSymbols returns nothing', () => {
     mockExtractSymbols.mockReturnValue([]);
     const symbolRepo = makeSymbolRepo();
@@ -177,7 +165,6 @@ describe('indexFileSymbols', () => {
     expect(symbols).toEqual([]);
   });
 
-  // [HP] class with 0 members → 1 row only
   it('should produce 1 row when class has no members', () => {
     const cls = makeSymbol({ kind: 'class', name: 'Empty', members: [], modifiers: [] });
     mockExtractSymbols.mockReturnValue([cls]);
@@ -190,7 +177,6 @@ describe('indexFileSymbols', () => {
     expect(symbols[0].name).toBe('Empty');
   });
 
-  // [HP] interface members → flattened as 'Iface.prop'
   it('should flatten interface members when interface symbols are indexed', () => {
     const iface = makeSymbol({
       kind: 'interface', name: 'IUser', members: [
@@ -206,7 +192,6 @@ describe('indexFileSymbols', () => {
     expect(symbols.some((s: any) => s.name === 'IUser.id')).toBe(true);
   });
 
-  // [CO] enum 3 members → 4 rows
   it('should produce 4 rows when enum has 3 members', () => {
     const en = makeSymbol({
       kind: 'enum', name: 'Color', members: [
@@ -224,7 +209,6 @@ describe('indexFileSymbols', () => {
     expect(symbols.length).toBe(4);
   });
 
-  // [HP] detail_json omits undefined optional fields
   it('should omit undefined fields when building detail_json', () => {
     mockExtractSymbols.mockReturnValue([makeSymbol({ kind: 'variable' })]);
     const symbolRepo = makeSymbolRepo();
@@ -242,7 +226,6 @@ describe('indexFileSymbols', () => {
     }
   });
 
-  // [HP] detail_json includes parameters and returnType for functions
   it('should include parameters and returnType when symbol kind is function', () => {
     const sym = makeSymbol({
       kind: 'function',

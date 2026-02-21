@@ -11,8 +11,6 @@ const DISCOVERY_EXCLUDE = ["**/node_modules/**", "**/.git/**", "**/.zipbul/**", 
 export async function discoverProjects(projectRoot: string): Promise<ProjectBoundary[]> {
   const boundaries: ProjectBoundary[] = [];
 
-  // Bun.Glob.scan() does not support exclude option (PR #25789 unmerged as of Bun 1.3.8).
-  // node:fs promises.glob() is the official Bun-supported alternative with exclude support.
   for await (const relativePackageJson of fs.glob("**/package.json", {
     cwd: projectRoot,
     exclude: DISCOVERY_EXCLUDE,

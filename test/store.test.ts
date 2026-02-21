@@ -75,7 +75,7 @@ let symbolRepo: SymbolRepository;
 let relationRepo: RelationRepository;
 
 beforeEach(async () => {
-  tmpDir = await mkdtemp(join(tmpdir(), 'codeledger-store-test-'));
+  tmpDir = await mkdtemp(join(tmpdir(), 'gildash-store-test-'));
   db = new DbConnection({ projectRoot: tmpDir });
   db.open();
   fileRepo = new FileRepository(db);

@@ -2,14 +2,6 @@ import type { Program } from 'oxc-parser';
 import type { ImportReference, CodeRelation } from './types';
 import { visit, getQualifiedName } from '../parser/ast-utils';
 
-/**
- * Extracts class extends and implements relations from the AST.
- * Single pass via visit() over entire AST.
- *
- * @param ast       - The parsed Program AST.
- * @param filePath  - File path of the source file (used as srcFilePath).
- * @param importMap - Map from local identifiers to their resolved import references.
- */
 export function extractHeritage(
   ast: Program,
   filePath: string,
@@ -41,7 +33,6 @@ export function extractHeritage(
     const className: string =
       ((node.id as { name?: string } | undefined)?.name) ?? 'AnonymousClass';
 
-    // extends
     if (node.superClass) {
       const qn = getQualifiedName(node.superClass);
       if (qn) {
@@ -55,7 +46,6 @@ export function extractHeritage(
       }
     }
 
-    // implements
     const impls = (node.implements as unknown[] | undefined) ?? [];
     for (const impl of impls) {
       const expr = (impl as { expression?: unknown }).expression ?? impl;
@@ -83,7 +73,6 @@ function resolveHeritageDst(
 
   if (ref) {
     if (ref.importedName === '*') {
-      // namespace import: ns.Base → dstFile = ns module, dstSymbol = last part
       const dstSymbolName = qn.parts[qn.parts.length - 1] ?? qn.root;
       return {
         dstFilePath: ref.path,
@@ -91,14 +80,12 @@ function resolveHeritageDst(
         metaJson: JSON.stringify({ isNamespaceImport: true }),
       };
     }
-    // regular import
     return {
       dstFilePath: ref.path,
       dstSymbolName: qn.parts.length > 0 ? qn.full : ref.importedName,
     };
   }
 
-  // local symbol
   return {
     dstFilePath: currentFilePath,
     dstSymbolName: qn.full,

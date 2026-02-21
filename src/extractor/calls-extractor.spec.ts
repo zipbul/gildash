@@ -2,7 +2,6 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { parseSource } from '../parser/parse-source';
 import type { ImportReference } from './types';
 
-// ── Mock ../parser/ast-utils ──
 const mockGetQualifiedName = mock(() => null as any);
 
 import { extractCalls } from './calls-extractor';
@@ -27,7 +26,6 @@ describe('extractCalls', () => {
     mockGetQualifiedName.mockReturnValue(null);
   });
 
-  // HP — local call
   it('should extract a calls relation when callee is a locally defined function', () => {
     mockGetQualifiedName.mockReturnValue({ root: 'helper', parts: [], full: 'helper' });
 
@@ -43,7 +41,6 @@ describe('extractCalls', () => {
     expect(mockGetQualifiedName).toHaveBeenCalled();
   });
 
-  // HP — imported call
   it('should resolve dstFilePath to imported module path when callee local name is in importMap', () => {
     mockGetQualifiedName.mockReturnValue({ root: 'foo', parts: [], full: 'foo' });
 
@@ -57,7 +54,6 @@ describe('extractCalls', () => {
     expect(rel?.dstFilePath).toBe('/project/src/foo.ts');
   });
 
-  // HP — new expression
   it('should produce a calls relation with {"isNew":true} in metaJson when expression is NewExpression', () => {
     mockGetQualifiedName.mockReturnValue({ root: 'MyClass', parts: [], full: 'MyClass' });
 
@@ -68,7 +64,6 @@ describe('extractCalls', () => {
     expect(rel?.metaJson).toContain('"isNew":true');
   });
 
-  // HP — method call
   it('should set srcSymbolName to the class method name when call is inside a class method body', () => {
     mockGetQualifiedName.mockReturnValue({ root: 'this', parts: ['helper'], full: 'this.helper' });
 
@@ -79,7 +74,6 @@ describe('extractCalls', () => {
     expect(rel?.srcSymbolName).toContain('run');
   });
 
-  // HP — module-scope call
   it('should set srcSymbolName to null when call is at module level (not inside any function)', () => {
     mockGetQualifiedName.mockReturnValue({ root: 'init', parts: [], full: 'init' });
 
@@ -90,19 +84,16 @@ describe('extractCalls', () => {
     expect(rel?.srcSymbolName).toBeNull();
   });
 
-  // NE
   it('should return empty array when source has no function calls', () => {
     const ast = parse(`const x = 1;`);
     expect(extractCalls(ast, FILE, makeImportMap())).toEqual([]);
   });
 
-  // ED — empty file
   it('should return empty array when source is empty', () => {
     const ast = parse('');
     expect(extractCalls(ast, FILE, makeImportMap())).toEqual([]);
   });
 
-  // namespace import call
   it('should set dstFilePath to namespace module path when callee is a namespace import member', () => {
     mockGetQualifiedName.mockReturnValue({ root: 'utils', parts: ['format'], full: 'utils.format' });
 
@@ -116,7 +107,6 @@ describe('extractCalls', () => {
     expect(rel?.dstFilePath).toBe('/project/src/utils.ts');
   });
 
-  // ID
   it('should return identical relations when called repeatedly with the same AST', () => {
     mockGetQualifiedName.mockReturnValue({ root: 'b', parts: [], full: 'b' });
 
@@ -128,7 +118,6 @@ describe('extractCalls', () => {
     expect(r1.length).toBe(r2.length);
   });
 
-  // nested function
   it('should attribute a call to the enclosing named function when call is inside a nested arrow function', () => {
     mockGetQualifiedName
       .mockReturnValueOnce({ root: 'items', parts: ['forEach'], full: 'items.forEach' })
@@ -164,7 +153,6 @@ describe('extractCalls', () => {
     expect(calleeNames).toContain('getFactory');
   });
 
-  // VariableDeclarator + FunctionExpression (G1)
   it('should set srcSymbolName to the variable name when callee is inside a FunctionExpression assigned to a const', () => {
     mockGetQualifiedName.mockReturnValue({ root: 'callee', parts: [], full: 'callee' });
 
@@ -181,7 +169,6 @@ describe('extractCalls', () => {
     expect(extractCalls(ast, FILE, makeImportMap())).toEqual([]);
   });
 
-  // T-1: module-scope meta
   it('should include {"scope":"module"} in metaJson when call expression is at module scope', () => {
     mockGetQualifiedName.mockReturnValue({ root: 'init', parts: [], full: 'init' });
 

@@ -3,11 +3,9 @@ import { parseSource } from '../parser/parse-source';
 import type { ParsedFile } from '../parser/types';
 import type { JsDocTag } from '../extractor/types';
 
-// ── Mock ../parser/source-position ──
 const mockBuildLineOffsets = mock((sourceText: string) => [0]);
 const mockGetLineColumn = mock((offsets: number[], offset: number) => ({ line: 1, column: 0 }));
 
-// ── Mock ../parser/jsdoc-parser ──
 const mockParseJsDoc = mock((commentText: string) => ({ description: '', tags: [] as JsDocTag[] }));
 
 mock.module('../parser/source-position', () => ({
@@ -40,7 +38,6 @@ describe('extractSymbols', () => {
     mockGetLineColumn.mockReturnValue({ line: 1, column: 0 });
     mockParseJsDoc.mockReturnValue({ description: '', tags: [] });
   });
-  // HP — function
   it('should extract a function symbol when source has a top-level function declaration', () => {
     const parsed = makeFixture(`function greet(name: string): string { return name; }`);
     const symbols = extractSymbols(parsed);
@@ -80,7 +77,6 @@ describe('extractSymbols', () => {
     expect(fn?.returnType).toContain('boolean');
   });
 
-  // HP — class
   it('should extract a class symbol when source has a top-level class declaration', () => {
     const parsed = makeFixture(`class Animal {}`);
     const symbols = extractSymbols(parsed);
@@ -134,7 +130,6 @@ describe('extractSymbols', () => {
     expect(ctor).toBeDefined();
   });
 
-  // HP — interface
   it('should extract an interface symbol when source has a top-level interface declaration', () => {
     const parsed = makeFixture(`interface Shape { area(): number; }`);
     const symbols = extractSymbols(parsed);
@@ -149,7 +144,6 @@ describe('extractSymbols', () => {
     expect(dog?.heritage?.some((h) => h.kind === 'extends' && h.name === 'Animal')).toBe(true);
   });
 
-  // HP — enum
   it('should extract an enum symbol when source has a top-level enum declaration', () => {
     const parsed = makeFixture(`enum Direction { Up, Down, Left, Right }`);
     const symbols = extractSymbols(parsed);
@@ -165,7 +159,6 @@ describe('extractSymbols', () => {
     expect(en?.members?.some((m) => m.name === 'Green')).toBe(true);
   });
 
-  // HP — variable
   it('should extract a variable symbol with kind "variable" when declaration is a const initializer', () => {
     const parsed = makeFixture(`const PI = 3.14;`);
     const symbols = extractSymbols(parsed);
@@ -180,7 +173,6 @@ describe('extractSymbols', () => {
     expect(fn?.kind).toBe('function');
   });
 
-  // HP — type alias
   it('should extract a type symbol when source has a top-level type alias declaration', () => {
     const parsed = makeFixture(`type StringOrNumber = string | number;`);
     const symbols = extractSymbols(parsed);
@@ -188,7 +180,6 @@ describe('extractSymbols', () => {
     expect(t?.kind).toBe('type');
   });
 
-  // HP — span
   it('should set span.start.line to 1 when symbol is on the first line of the source', () => {
     const parsed = makeFixture(`function fn() {}`);
     const symbols = extractSymbols(parsed);
@@ -196,7 +187,6 @@ describe('extractSymbols', () => {
     expect(fn?.span.start.line).toBe(1);
   });
 
-  // NE
   it('should return empty array when source is empty', () => {
     const parsed = makeFixture('');
     expect(extractSymbols(parsed)).toEqual([]);
@@ -205,7 +195,6 @@ describe('extractSymbols', () => {
   it('should name the symbol "default" when export default declaration has an anonymous function', () => {
     const parsed = makeFixture(`export default function() {}`);
     const symbols = extractSymbols(parsed);
-    // ExportDefaultDeclaration anonymous function → name is 'default'
     const def = symbols.find((s) => s.name === 'default');
     expect(def).toBeDefined();
   });
@@ -216,7 +205,6 @@ describe('extractSymbols', () => {
     expect(symbols.find((s) => s.name === 'inner')).toBeUndefined();
   });
 
-  // decorator
   it('should populate decorators list when class has a call-expression decorator', () => {
     const parsed = makeFixture(`
       @Injectable()
@@ -227,7 +215,6 @@ describe('extractSymbols', () => {
     expect(cls?.decorators?.some((d) => d.name === 'Injectable')).toBe(true);
   });
 
-  // modifiers
   it('should include "async" in modifiers when function declaration has async keyword', () => {
     const parsed = makeFixture(`async function fetchData() {}`);
     const symbols = extractSymbols(parsed);
@@ -235,7 +222,6 @@ describe('extractSymbols', () => {
     expect(fn?.modifiers).toContain('async');
   });
 
-  // default export
   it('should name the symbol "default" and set isExported true when export default class has no class name', () => {
     const parsed = makeFixture(`export default class {}`);
     const symbols = extractSymbols(parsed);
@@ -244,7 +230,6 @@ describe('extractSymbols', () => {
     expect(def?.isExported).toBe(true);
   });
 
-  // ID
   it('should return same symbol count when called repeatedly with the same ParsedFile', () => {
     const parsed = makeFixture(`function a() {} function b() {}`);
     const r1 = extractSymbols(parsed);
@@ -252,7 +237,6 @@ describe('extractSymbols', () => {
     expect(r1.length).toBe(r2.length);
   });
 
-  // JSDoc comment — G3/G4/G5/G6
   it('should populate jsDoc.description when a JSDoc block comment precedes the function', () => {
     mockParseJsDoc.mockReturnValue({ description: 'Greets the user.', tags: [] });
     const parsed = makeFixture(`/** Greets the user. */\nfunction greet() {}`);
@@ -294,7 +278,6 @@ describe('extractSymbols', () => {
     expect(fn?.jsDoc).toBeUndefined();
   });
 
-  // PropertyDefinition class field — G7
   it('should include a member with kind "property" when class body contains a PropertyDefinition field', () => {
     const parsed = makeFixture(`class C { name: string = ''; }`);
     const symbols = extractSymbols(parsed);
@@ -304,7 +287,6 @@ describe('extractSymbols', () => {
     expect(prop!.kind).toBe('property');
   });
 
-  // Identifier decorator (no parens) — G8
   it('should extract decorator without arguments when decorator is a bare Identifier without parentheses', () => {
     const parsed = makeFixture(`
       @Inject
@@ -317,7 +299,6 @@ describe('extractSymbols', () => {
     expect(dec?.arguments).toBeUndefined();
   });
 
-  // T-2: interface TSPropertySignature member
   it('should include a member with kind "property" and populated returnType when interface has a TSPropertySignature', () => {
     const parsed = makeFixture(`interface Shape { name: string; }`);
     const symbols = extractSymbols(parsed);
@@ -336,7 +317,6 @@ describe('extractSymbols', () => {
     expect(member?.modifiers).toContain('readonly');
   });
 
-  // I-2: ObjectPattern destructuring
   it('should extract one symbol per identifier when VariableDeclarator id is an ObjectPattern', () => {
     const parsed = makeFixture(`const { a, b } = obj;`);
     const symbols = extractSymbols(parsed);
@@ -366,7 +346,6 @@ describe('extractSymbols', () => {
     expect(symbols.some((s) => s.name === 'd')).toBe(true);
   });
 
-  // I-3: typeParameters
   it('should populate typeParameters with one entry when function has a single type parameter', () => {
     const parsed = makeFixture(`function fn<T>() {}`);
     const symbols = extractSymbols(parsed);
@@ -395,7 +374,6 @@ describe('extractSymbols', () => {
     expect(iface?.typeParameters).toEqual(['T']);
   });
 
-  // I-4: RestElement parameter
   it('should prefix parameter name with "..." when parameter is a RestElement', () => {
     const parsed = makeFixture(`function fn(...args: string[]) {}`);
     const symbols = extractSymbols(parsed);
@@ -418,7 +396,6 @@ describe('extractSymbols', () => {
     expect(fn?.parameters?.[0]!.name).toBe('...a');
   });
 
-  // I-5: AssignmentPattern parameter
   it('should set isOptional true and populate defaultValue when parameter has an assignment default', () => {
     const parsed = makeFixture(`function fn(x = 'hello') {}`);
     const symbols = extractSymbols(parsed);
@@ -454,7 +431,6 @@ describe('extractSymbols', () => {
     expect(param?.defaultValue).toBeDefined();
   });
 
-  // I-6: multiple VariableDeclarators
   it('should extract one symbol per declarator when VariableDeclaration has multiple declarators', () => {
     const parsed = makeFixture(`const a = 1, b = 2;`);
     const symbols = extractSymbols(parsed);
@@ -475,7 +451,6 @@ describe('extractSymbols', () => {
     expect(symbols.find((s) => s.name === 'a')).toBeDefined();
   });
 
-  // ArrayPattern destructuring
   it('should extract one variable symbol per Identifier element when VariableDeclarator id is an ArrayPattern', () => {
     const parsed = makeFixture(`const [a, b] = arr;`);
     const symbols = extractSymbols(parsed);
@@ -518,7 +493,6 @@ describe('extractSymbols', () => {
     expect(symbols[0]!.name).toBe('a');
   });
 
-  // findJsDocComment intervening node
   it('should leave jsDoc undefined when another AST statement intervenes between the JSDoc comment and the symbol', () => {
     const parsed = makeFixture(`/** doc */\nconst x = 1;\nfunction fn() {}`);
     const symbols = extractSymbols(parsed);
@@ -526,7 +500,6 @@ describe('extractSymbols', () => {
     expect(fn?.jsDoc).toBeUndefined();
   });
 
-  // const modifier
   it('should include "const" in modifiers when enum declaration has const keyword', () => {
     const parsed = makeFixture(`const enum Direction { Up, Down }`);
     const symbols = extractSymbols(parsed);
@@ -541,7 +514,6 @@ describe('extractSymbols', () => {
     expect(en?.modifiers).not.toContain('const');
   });
 
-  // ArrayPattern + ObjectPattern mixed
   it('should extract symbols from both ArrayPattern and ObjectPattern when both appear in the same scope', () => {
     const parsed = makeFixture(`const [a] = arr;\nconst { b } = obj;`);
     const symbols = extractSymbols(parsed);

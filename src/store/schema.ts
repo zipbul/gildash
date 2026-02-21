@@ -10,8 +10,6 @@ import {
   check,
 } from 'drizzle-orm/sqlite-core';
 
-// ── Core tables ────────────────────────────────────────────────────────────
-
 export const files = sqliteTable(
   'files',
   {
@@ -94,12 +92,6 @@ export const watcherOwner = sqliteTable(
   (table) => [check('watcher_owner_singleton', sql`${table.id} = 1`)],
 );
 
-// ── FTS5 (drizzle cannot define virtual tables — raw SQL required) ─────────
-
-/**
- * Raw SQL statements for FTS5 virtual table and synchronisation triggers.
- * These are applied after drizzle migrations since drizzle has no virtual table support.
- */
 export const FTS_SETUP_SQL: readonly string[] = [
   `CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
      name,

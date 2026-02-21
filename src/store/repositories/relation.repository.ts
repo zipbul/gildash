@@ -15,9 +15,6 @@ export interface RelationRecord {
 export class RelationRepository {
   constructor(private readonly db: DbConnection) {}
 
-  /**
-   * Replaces all outgoing relations for `(project, srcFilePath)`.
-   */
   replaceFileRelations(
     project: string,
     srcFilePath: string,
@@ -43,10 +40,6 @@ export class RelationRepository {
     }
   }
 
-  /**
-   * Returns all outgoing relations from `srcFilePath`.
-   * Optionally filters by `srcSymbolName` (null = file-level).
-   */
   getOutgoing(project: string, srcFilePath: string, srcSymbolName?: string): RelationRecord[] {
     if (srcSymbolName !== undefined) {
       return this.db.drizzleDb
@@ -142,13 +135,6 @@ export class RelationRepository {
       .run();
   }
 
-  /**
-   * Retargets all relations pointing at `(oldFile, oldSymbol)` to `(newFile, newSymbol)`.
-   */
-  /**
-   * Flexible search across relations with optional column filters.
-   * Used by the search module's relationSearch function.
-   */
   searchRelations(opts: {
     srcFilePath?: string;
     srcSymbolName?: string;

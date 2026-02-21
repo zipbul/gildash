@@ -4,8 +4,6 @@ import { subscribe as parcelSubscribe } from "@parcel/watcher";
 import { ProjectWatcher } from "./project-watcher";
 import { WatcherError } from "../errors";
 
-// Derive SubscribeOptions from the subscribe function signature since
-// @parcel/watcher does not directly export this type.
 type SubscribeOptions = NonNullable<Parameters<typeof parcelSubscribe>[2]>;
 
 function createFakeSubscription(): AsyncSubscription {
@@ -13,7 +11,6 @@ function createFakeSubscription(): AsyncSubscription {
     unsubscribe: async () => {},
   };
 }
-
 
 describe("ProjectWatcher", () => {
   let errorSpy: Mock<typeof console.error> | undefined;

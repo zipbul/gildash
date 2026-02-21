@@ -3,8 +3,6 @@ import { extractRelations } from '../extractor/relation-extractor';
 import { toAbsolutePath, toRelativePath } from '../common/path-utils';
 import type { TsconfigPaths } from '../common/tsconfig-resolver';
 
-// ── Types ─────────────────────────────────────────────────────────────────
-
 export interface RelationDbRow {
   project: string;
   type: string;
@@ -24,26 +22,14 @@ interface RelationRepoPart {
 }
 
 export interface IndexFileRelationsOptions {
-  /** The parsed AST root (oxc-parser Program). */
   ast: Program;
   project: string;
-  /** Relative path of the file being indexed. */
   filePath: string;
   relationRepo: RelationRepoPart;
   projectRoot: string;
-  /** Optional tsconfig path mappings to pass to the extractor. */
   tsconfigPaths?: TsconfigPaths;
 }
 
-// ── Implementation ─────────────────────────────────────────────────────────
-
-/**
- * Extracts code relations for a single file and writes them to the store.
- *
- * - Only relations whose destination is within the project root (relative path
- *   does NOT start with `..`) are stored.
- * - All absolute paths are normalised to project-root-relative paths.
- */
 export function indexFileRelations(opts: IndexFileRelationsOptions): number {
   const { ast, project, filePath, relationRepo, projectRoot, tsconfigPaths } = opts;
 
@@ -55,7 +41,6 @@ export function indexFileRelations(opts: IndexFileRelationsOptions): number {
   for (const rel of rawRelations) {
     const relDst = toRelativePath(projectRoot, rel.dstFilePath);
 
-    // Filter out-of-project destinations (path escapes the root).
     if (relDst.startsWith('..')) continue;
 
     const relSrc = toRelativePath(projectRoot, rel.srcFilePath);

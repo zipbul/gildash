@@ -4,6 +4,21 @@ export interface IDependencyGraphRepo {
   getByType(project: string, type: string): RelationRecord[];
 }
 
+/**
+ * Directed import graph for dependency analysis.
+ *
+ * Build the graph once with {@link DependencyGraph.build}, then query
+ * dependencies, dependents, cycles, and change-impact.
+ *
+ * @example
+ * ```ts
+ * const graph = new DependencyGraph({ relationRepo, project: 'my-app' });
+ * graph.build();
+ * graph.getDependencies('/src/a.ts');  // files that a.ts imports
+ * graph.getDependents('/src/a.ts');    // files that import a.ts
+ * graph.hasCycle();                     // true if a circular import exists
+ * ```
+ */
 export class DependencyGraph {
   private adjacencyList = new Map<string, Set<string>>();
   private reverseAdjacencyList = new Map<string, Set<string>>();
@@ -15,6 +30,11 @@ export class DependencyGraph {
     },
   ) {}
 
+  /**
+   * Populate the graph by reading all `imports` relations from the store.
+   *
+   * Must be called before any query method.
+   */
   build(): void {
     this.adjacencyList = new Map();
     this.reverseAdjacencyList = new Map();
@@ -39,14 +59,30 @@ export class DependencyGraph {
     }
   }
 
+  /**
+   * Return the files that `filePath` directly imports.
+   *
+   * @param filePath - Absolute file path.
+   */
   getDependencies(filePath: string): string[] {
     return Array.from(this.adjacencyList.get(filePath) ?? []);
   }
 
+  /**
+   * Return the files that directly import `filePath`.
+   *
+   * @param filePath - Absolute file path.
+   */
   getDependents(filePath: string): string[] {
     return Array.from(this.reverseAdjacencyList.get(filePath) ?? []);
   }
 
+  /**
+   * Return all files that transitively depend on `filePath`
+   * (breadth-first reverse walk).
+   *
+   * @param filePath - Absolute file path.
+   */
   getTransitiveDependents(filePath: string): string[] {
     const visited = new Set<string>();
     const queue: string[] = [filePath];
@@ -64,6 +100,13 @@ export class DependencyGraph {
     return Array.from(visited);
   }
 
+  /**
+   * Detect whether the import graph contains at least one cycle.
+   *
+   * Uses iterative DFS with a path-tracking set.
+   *
+   * @returns `true` if a circular dependency exists.
+   */
   hasCycle(): boolean {
     const visited = new Set<string>();
     const inPath = new Set<string>();
@@ -107,6 +150,15 @@ export class DependencyGraph {
     return false;
   }
 
+  /**
+   * Compute all files transitively affected by a set of changed files.
+   *
+   * Combines {@link getTransitiveDependents} for every changed file
+   * and de-duplicates the result.
+   *
+   * @param changedFiles - Absolute paths of files that changed.
+   * @returns Paths of all transitively-dependent files.
+   */
   getAffectedByChange(changedFiles: string[]): string[] {
     const allAffected = new Set<string>();
 
