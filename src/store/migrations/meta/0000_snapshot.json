@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "86aada31-dae2-442b-b6df-bbd6073dd764",
+  "id": "dde10964-60b8-4981-af9f-7d4664d0d20a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "files": {
@@ -158,6 +158,21 @@
           "columnsFrom": [
             "project",
             "src_file_path"
+          ],
+          "columnsTo": [
+            "project",
+            "file_path"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "relations_project_dst_file_path_files_project_file_path_fk": {
+          "name": "relations_project_dst_file_path_files_project_file_path_fk",
+          "tableFrom": "relations",
+          "tableTo": "files",
+          "columnsFrom": [
+            "project",
+            "dst_file_path"
           ],
           "columnsTo": [
             "project",

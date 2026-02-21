@@ -17,7 +17,8 @@ CREATE TABLE `relations` (
 	`dst_file_path` text NOT NULL,
 	`dst_symbol_name` text,
 	`meta_json` text,
-	FOREIGN KEY (`project`,`src_file_path`) REFERENCES `files`(`project`,`file_path`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`project`,`src_file_path`) REFERENCES `files`(`project`,`file_path`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`project`,`dst_file_path`) REFERENCES `files`(`project`,`file_path`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE INDEX `idx_relations_src` ON `relations` (`project`,`src_file_path`);--> statement-breakpoint
