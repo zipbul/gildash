@@ -1277,4 +1277,32 @@ describe('Gildash', () => {
     }
     await ledger.close();
   });
+
+  it('should execute close().catch() callback when close() rejects during healthcheck max-retries shutdown', async () => {
+    let callCount = 0;
+    const acquireMock = mock(async () => {
+      callCount++;
+      if (callCount === 1) return 'reader' as const;
+      throw new Error('db unavailable');
+    });
+    const opts = makeOptions({ role: 'reader' });
+    opts.acquireWatcherRoleFn = acquireMock as any;
+
+    const ledger = await openOrThrow(opts);
+
+    const originalClose = ledger.close.bind(ledger);
+    (ledger as any).close = mock(async () => {
+      await originalClose();
+      throw new Error('close rejected');
+    });
+
+    for (let i = 0; i < 10; i++) {
+      jest.advanceTimersByTime(60_000);
+      for (let j = 0; j < 10; j++) await Promise.resolve();
+    }
+
+    for (let j = 0; j < 20; j++) await Promise.resolve();
+
+    expect((ledger as any).closed).toBe(true);
+  });
 });
