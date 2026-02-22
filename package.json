@@ -32,7 +32,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --sourcemap=linked && tsc -p tsconfig.build.json && cp -r src/store/migrations dist/migrations",
+    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --sourcemap=linked --production && tsc -p tsconfig.build.json && cp -r src/store/migrations dist/migrations",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "coverage": "bun test --coverage",
