@@ -49,12 +49,27 @@ describe('DependencyGraph', () => {
     expect(graph.getDependents('src/a.ts')).toEqual([]);
   });
 
-  it('should call getByType for both imports and type-references when build() is called', async () => {
+  it('should call getByType for imports, type-references and re-exports when build() is called', async () => {
     await graph.build();
-    expect(mockGetByType).toHaveBeenCalledTimes(2);
+    expect(mockGetByType).toHaveBeenCalledTimes(3);
     const calledTypes = mockGetByType.mock.calls.map(([, t]: [string, string]) => t);
     expect(calledTypes).toContain('imports');
     expect(calledTypes).toContain('type-references');
+    expect(calledTypes).toContain('re-exports');
+  });
+
+  // [HP] re-exports type included in graph
+  it('should include re-exports relation in getDependencies when build() loads re-exports type', async () => {
+    mockGetByType = mock((project: string, type: string) => {
+      if (type === 're-exports') {
+        return [{ project: 'test-project', type: 're-exports', srcFilePath: 'src/barrel.ts', dstFilePath: 'src/impl.ts', srcSymbolName: null, dstSymbolName: null, metaJson: null }];
+      }
+      return [];
+    });
+    mockRepo = { getByType: mockGetByType } as IDependencyGraphRepo;
+    graph = new DependencyGraph({ relationRepo: mockRepo, project: 'test-project' });
+    await graph.build();
+    expect(graph.getDependencies('src/barrel.ts')).toContain('src/impl.ts');
   });
 
   it('should include type-references relation in getDependencies when build() loads it', async () => {

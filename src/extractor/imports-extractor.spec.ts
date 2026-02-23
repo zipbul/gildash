@@ -159,7 +159,7 @@ describe('extractImports', () => {
   });
 
   // 8. [HP] ExportAllDeclaration regression
-  it('should produce an imports relation with isReExport true when declaration is export star from', () => {
+  it('should produce a re-exports relation with isReExport true when declaration is export star from', () => {
     const ast = fakeAst([
       { type: 'ExportAllDeclaration', source: { value: './barrel' }, exportKind: 'value' },
     ]);
@@ -167,10 +167,11 @@ describe('extractImports', () => {
     const rel = relations.find((r) => r.metaJson?.includes('"isReExport":true'));
 
     expect(rel).toBeDefined();
+    expect(rel!.type).toBe('re-exports');
   });
 
   // 9. [HP] ExportNamedDeclaration regression
-  it('should produce an imports relation with isReExport true when declaration is named re-export', () => {
+  it('should produce a re-exports relation with isReExport true when declaration is named re-export', () => {
     const ast = fakeAst([
       { type: 'ExportNamedDeclaration', source: { value: './local' } },
     ]);
@@ -178,7 +179,7 @@ describe('extractImports', () => {
     const rel = relations.find((r) => r.metaJson?.includes('"isReExport":true'));
 
     expect(rel).toBeDefined();
-    expect(rel!.type).toBe('imports');
+    expect(rel!.type).toBe('re-exports');
   });
 
   // 10. [HP] dynamic import regression

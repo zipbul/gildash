@@ -1,4 +1,4 @@
 #!/usr/bin/env sh
 set -eu
 
-#bun test
+bun test

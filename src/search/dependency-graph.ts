@@ -42,6 +42,7 @@ export class DependencyGraph {
     const relations = [
       ...this.options.relationRepo.getByType(this.options.project, 'imports'),
       ...this.options.relationRepo.getByType(this.options.project, 'type-references'),
+      ...this.options.relationRepo.getByType(this.options.project, 're-exports'),
     ];
 
     for (const rel of relations) {

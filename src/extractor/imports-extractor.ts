@@ -85,7 +85,7 @@ export function extractImports(
       const meta: Record<string, unknown> = { isReExport: true };
       if (isType) meta.isType = true;
       relations.push({
-        type: isType ? 'type-references' : 'imports',
+        type: isType ? 'type-references' : 're-exports',
         srcFilePath: filePath,
         srcSymbolName: null,
         dstFilePath: resolved,
@@ -112,7 +112,7 @@ export function extractImports(
       if (isType) meta.isType = true;
 
       relations.push({
-        type: isType ? 'type-references' : 'imports',
+        type: isType ? 'type-references' : 're-exports',
         srcFilePath: filePath,
         srcSymbolName: null,
         dstFilePath: resolved,
