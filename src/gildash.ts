@@ -297,6 +297,10 @@ export class Gildash {
   private tsconfigPaths: TsconfigPaths | null = null;
   private boundaries: ProjectBoundary[] = [];
   private readonly onIndexedCallbacks = new Set<(result: IndexResult) => void>();
+  /** Cached DependencyGraph — invalidated on each index run. */
+  private graphCache: DependencyGraph | null = null;
+  /** Project key of the cached graph (`project ?? '__cross__'`). */
+  private graphCacheKey: string | null = null;
 
   private constructor(opts: {
     projectRoot: string;
@@ -487,6 +491,7 @@ export class Gildash {
           });
 
       instance.coordinator = c;
+      c.onIndexed(() => instance.invalidateGraphCache());
 
       if (isWatchMode) {
         const w = watcherFactory
@@ -543,6 +548,7 @@ export class Gildash {
               for (const cb of instance.onIndexedCallbacks) {
                 promotedCoordinator.onIndexed(cb);
               }
+              promotedCoordinator.onIndexed(() => instance.invalidateGraphCache());
               await promotedWatcher.start((event) => promotedCoordinator?.handleWatcherEvent?.(event)).then((startResult) => {
                 if (isErr(startResult)) throw startResult.data;
               });
@@ -794,6 +800,33 @@ export class Gildash {
     );
   }
 
+  /** Invalidate the cached DependencyGraph (called after every index run). */
+  private invalidateGraphCache(): void {
+    this.graphCache = null;
+    this.graphCacheKey = null;
+  }
+
+  /**
+   * Return a cached or freshly-built {@link DependencyGraph} for the given project.
+   *
+   * Builds once per `project ?? '__cross__'` key; subsequent calls with the same key
+   * return the cached instance. Cache is invalidated by {@link invalidateGraphCache}.
+   */
+  private getOrBuildGraph(project?: string): DependencyGraph {
+    const key = project ?? '__cross__';
+    if (this.graphCache && this.graphCacheKey === key) {
+      return this.graphCache;
+    }
+    const g = new DependencyGraph({
+      relationRepo: this.relationRepo,
+      project: project ?? this.defaultProject,
+    });
+    g.build();
+    this.graphCache = g;
+    this.graphCacheKey = key;
+    return g;
+  }
+
   /**
    * Trigger a full re-index of all tracked files.
    *
@@ -820,7 +853,9 @@ export class Gildash {
       return err(gildashError('closed', 'Gildash: reindex() is not available for readers'));
     }
     try {
-      return await this.coordinator.fullIndex();
+      const result = await this.coordinator.fullIndex();
+      this.invalidateGraphCache();
+      return result;
     } catch (e) {
       return err(gildashError('index', 'Gildash: reindex failed', e));
     }
@@ -1098,11 +1133,7 @@ export class Gildash {
   async getAffected(changedFiles: string[], project?: string): Promise<Result<string[], GildashError>> {
     if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
     try {
-      const g = new DependencyGraph({
-        relationRepo: this.relationRepo,
-        project: project ?? this.defaultProject,
-      });
-      await g.build();
+      const g = this.getOrBuildGraph(project);
       return g.getAffectedByChange(changedFiles);
     } catch (e) {
       return err(gildashError('search', 'Gildash: getAffected failed', e));
@@ -1131,11 +1162,7 @@ export class Gildash {
   async hasCycle(project?: string): Promise<Result<boolean, GildashError>> {
     if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
     try {
-      const g = new DependencyGraph({
-        relationRepo: this.relationRepo,
-        project: project ?? this.defaultProject,
-      });
-      await g.build();
+      const g = this.getOrBuildGraph(project);
       return g.hasCycle();
     } catch (e) {
       return err(gildashError('search', 'Gildash: hasCycle failed', e));
@@ -1156,11 +1183,7 @@ export class Gildash {
   async getImportGraph(project?: string): Promise<Result<Map<string, string[]>, GildashError>> {
     if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
     try {
-      const g = new DependencyGraph({
-        relationRepo: this.relationRepo,
-        project: project ?? this.defaultProject,
-      });
-      await g.build();
+      const g = this.getOrBuildGraph(project);
       return g.getAdjacencyList();
     } catch (e) {
       return err(gildashError('search', 'Gildash: getImportGraph failed', e));
@@ -1178,11 +1201,7 @@ export class Gildash {
   async getTransitiveDependencies(filePath: string, project?: string): Promise<Result<string[], GildashError>> {
     if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
     try {
-      const g = new DependencyGraph({
-        relationRepo: this.relationRepo,
-        project: project ?? this.defaultProject,
-      });
-      await g.build();
+      const g = this.getOrBuildGraph(project);
       return g.getTransitiveDependencies(filePath);
     } catch (e) {
       return err(gildashError('search', 'Gildash: getTransitiveDependencies failed', e));
@@ -1202,11 +1221,7 @@ export class Gildash {
   async getCyclePaths(project?: string): Promise<Result<string[][], GildashError>> {
     if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
     try {
-      const g = new DependencyGraph({
-        relationRepo: this.relationRepo,
-        project: project ?? this.defaultProject,
-      });
-      await g.build();
+      const g = this.getOrBuildGraph(project);
       return g.getCyclePaths();
     } catch (e) {
       return err(gildashError('search', 'Gildash: getCyclePaths failed', e));
@@ -1379,12 +1394,7 @@ export class Gildash {
   ): Promise<Result<FanMetrics, GildashError>> {
     if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
     try {
-      const effectiveProject = project ?? this.defaultProject;
-      const g = new DependencyGraph({
-        relationRepo: this.relationRepo,
-        project: effectiveProject,
-      });
-      await g.build();
+      const g = this.getOrBuildGraph(project);
       return {
         filePath,
         fanIn: g.getDependents(filePath).length,

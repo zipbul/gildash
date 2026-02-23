@@ -3715,4 +3715,92 @@ describe('Gildash', () => {
       await ledger.close();
     });
   });
+
+  // ─── LEG-2: DependencyGraph 내부 캐싱 ───
+
+  describe('Gildash DependencyGraph cache (LEG-2)', () => {
+    function makeIndexResultForLeg() {
+      return {
+        indexedFiles: 0, removedFiles: 0, totalSymbols: 0, totalRelations: 0, durationMs: 10,
+        changedFiles: [], deletedFiles: [], failedFiles: [],
+        changedSymbols: { added: [], modified: [], removed: [] },
+      };
+    }
+
+    // 1. [HP] 연속 hasCycle() 호출 → graph 1번만 빌드
+    it('should build DependencyGraph only once for consecutive calls with same project', async () => {
+      const relationRepo = makeRelationRepoMock();
+      relationRepo.getByType.mockReturnValue([]);
+      const opts = makeOptions({ relationRepo });
+      const ledger = await openOrThrow(opts);
+
+      await ledger.hasCycle();
+      const afterFirst = relationRepo.getByType.mock.calls.length; // 3 (imports, type-ref, re-exports)
+
+      await ledger.hasCycle(); // cache hit → no rebuild
+
+      expect(relationRepo.getByType.mock.calls.length).toBe(afterFirst); // still 3
+      await ledger.close();
+    });
+
+    // 2. [HP] 다른 project → 캐시 미스, 새 빌드
+    it('should rebuild DependencyGraph when project key differs from cached key', async () => {
+      const relationRepo = makeRelationRepoMock();
+      relationRepo.getByType.mockReturnValue([]);
+      const opts = makeOptions({ relationRepo });
+      const ledger = await openOrThrow(opts);
+
+      await ledger.hasCycle();
+      const afterFirst = relationRepo.getByType.mock.calls.length; // 3
+
+      await ledger.hasCycle('other-project'); // different key → rebuild
+
+      expect(relationRepo.getByType.mock.calls.length).toBeGreaterThan(afterFirst); // > 3
+      await ledger.close();
+    });
+
+    // 3. [HP] reindex() 후 → 캐시 무효화됨
+    it('should invalidate cache after reindex() completes', async () => {
+      const relationRepo = makeRelationRepoMock();
+      relationRepo.getByType.mockReturnValue([]);
+      const opts = makeOptions({ relationRepo });
+      const ledger = await openOrThrow(opts);
+
+      await ledger.hasCycle(); // builds and caches
+      const afterFirst = relationRepo.getByType.mock.calls.length;
+
+      await ledger.reindex(); // should invalidate
+
+      await ledger.hasCycle(); // should rebuild
+
+      expect(relationRepo.getByType.mock.calls.length).toBeGreaterThan(afterFirst);
+      await ledger.close();
+    });
+
+    // 4. [HP] coordinator onIndexed 콜백 발화 → 캐시 무효화
+    it('should invalidate cache when coordinator fires onIndexed callback', async () => {
+      const registeredCallbacks: Array<(r: any) => void> = [];
+      const fakeCoordinator = {
+        fullIndex: mock(async () => makeIndexResultForLeg()),
+        onIndexed: mock((cb: any) => { registeredCallbacks.push(cb); }),
+        shutdown: mock(async () => {}),
+      };
+      const coordinatorFactory = mock(() => fakeCoordinator as any);
+      const relationRepo = makeRelationRepoMock();
+      relationRepo.getByType.mockReturnValue([]);
+      const opts = { ...makeOptions({ relationRepo }), coordinatorFactory } as any;
+      const ledger = await openOrThrow(opts);
+
+      await ledger.hasCycle(); // builds and caches
+      const afterFirst = relationRepo.getByType.mock.calls.length;
+
+      // Simulate coordinator firing all registered onIndexed callbacks (incl. cache-clearing one)
+      for (const cb of registeredCallbacks) cb(makeIndexResultForLeg());
+
+      await ledger.hasCycle(); // should rebuild
+
+      expect(relationRepo.getByType.mock.calls.length).toBeGreaterThan(afterFirst);
+      await ledger.close();
+    });
+  });
 });
