@@ -74,7 +74,7 @@ function makeRelationRepoMock() {
 function makeFileRepoMock() {
   return {
     upsertFile: mock(() => {}),
-    getAllFiles: mock(() => []),
+    getAllFiles: mock((): FileRecord[] => []),
     getFilesMap: mock(() => new Map()),
     deleteFile: mock(() => {}),
     getFile: mock((_project: string, _filePath: string): FileRecord | null => null),
@@ -3554,7 +3554,7 @@ describe('Gildash', () => {
     it('should use fileRepo.getAllFiles when filePaths is not specified', async () => {
       const fileRepo = makeFileRepoMock();
       fileRepo.getAllFiles.mockReturnValue([
-        { filePath: '/project/src/a.ts', project: 'test-project', contentHash: 'h1', mtime: 0, size: 100, lineCount: 10 },
+        { filePath: '/project/src/a.ts', project: 'test-project', contentHash: 'h1', mtimeMs: 0, size: 100, lineCount: 10, updatedAt: '' },
       ]);
       const opts = makeOptions({ fileRepo });
       (opts as any).patternSearchFn.mockResolvedValue([]);

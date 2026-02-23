@@ -1317,7 +1317,7 @@ export class Gildash {
       const results = this.symbolSearchFn({
         symbolRepo: this.symbolRepo,
         project: effectiveProject,
-        query: { exactName: symbolName, filePath, limit: 1 },
+        query: { text: symbolName, exact: true, filePath, limit: 1 },
       });
       if (results.length === 0) {
         return err(gildashError('search', `Gildash: symbol '${symbolName}' not found in '${filePath}'`));

@@ -52,7 +52,7 @@ describe('DependencyGraph', () => {
   it('should call getByType for imports, type-references and re-exports when build() is called', async () => {
     await graph.build();
     expect(mockGetByType).toHaveBeenCalledTimes(3);
-    const calledTypes = mockGetByType.mock.calls.map(([, t]: [string, string]) => t);
+    const calledTypes = mockGetByType.mock.calls.map(([, t]) => t);
     expect(calledTypes).toContain('imports');
     expect(calledTypes).toContain('type-references');
     expect(calledTypes).toContain('re-exports');

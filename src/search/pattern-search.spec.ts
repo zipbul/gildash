@@ -101,7 +101,7 @@ describe('patternSearch', () => {
     const result = await patternSearch({ pattern: 'foo()', filePaths: ['/src/a.ts', '/src/b.ts'] });
 
     expect(result.length).toBe(2);
-    expect(result[0].filePath).toBe('/src/a.ts');
-    expect(result[1].filePath).toBe('/src/b.ts');
+    expect(result[0]!.filePath).toBe('/src/a.ts');
+    expect(result[1]!.filePath).toBe('/src/b.ts');
   });
 });

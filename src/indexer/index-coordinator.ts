@@ -352,13 +352,11 @@ export class IndexCoordinator {
             fileRepo.deleteFile(f.project, f.filePath);
           }
         }
-        const parseFn = this.opts.parseSourceFn ?? parseSource;
+
+        // Pass 1: Insert all file records first so that FK constraints on
+        // relations.dstFilePath are satisfiable regardless of processing order.
         for (const fd of preread) {
           const project = resolveFileProject(fd.filePath, boundaries);
-          const parseResult = parseFn(toAbsolutePath(projectRoot, fd.filePath), fd.text);
-          if (isErr(parseResult)) throw parseResult.data;
-          const parsed = parseResult;
-          parsedCacheEntries.push({ filePath: fd.filePath, parsed });
           fileRepo.upsertFile({
             project,
             filePath: fd.filePath,
@@ -368,6 +366,16 @@ export class IndexCoordinator {
             updatedAt: new Date().toISOString(),
             lineCount: fd.text.split('\n').length,
           });
+        }
+
+        // Pass 2: Parse sources and index symbols + relations.
+        const parseFn = this.opts.parseSourceFn ?? parseSource;
+        for (const fd of preread) {
+          const project = resolveFileProject(fd.filePath, boundaries);
+          const parseResult = parseFn(toAbsolutePath(projectRoot, fd.filePath), fd.text);
+          if (isErr(parseResult)) throw parseResult.data;
+          const parsed = parseResult;
+          parsedCacheEntries.push({ filePath: fd.filePath, parsed });
           indexFileSymbols({ parsed, project, filePath: fd.filePath, contentHash: fd.contentHash, symbolRepo });
           totalRelations += indexFileRelations({
             ast: parsed.program,
