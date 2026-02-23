@@ -1534,4 +1534,532 @@ describe('Gildash', () => {
       await ledger.close();
     });
   });
+
+  // ─── FR-17: searchAllSymbols / searchAllRelations ───
+
+  describe('Gildash.searchAllSymbols', () => {
+    it('should call symbolSearchFn with project:undefined when searchAllSymbols is called', async () => {
+      const symbolSearchFn = mock((_opts: any) => []);
+      const opts = { ...makeOptions(), symbolSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      (ledger as any).searchAllSymbols({ text: 'Foo' });
+
+      expect(symbolSearchFn).toHaveBeenCalledWith(
+        expect.objectContaining({ project: undefined }),
+      );
+      await ledger.close();
+    });
+
+    it('should return symbolSearchFn result when searchAllSymbols succeeds', async () => {
+      const sym = { id: 1, name: 'Foo', filePath: 'a.ts', kind: 'function', span: { start: { line: 1, column: 0 }, end: { line: 3, column: 1 } }, isExported: true, signature: null, fingerprint: 'fp1', detail: {} };
+      const symbolSearchFn = mock((_opts: any) => [sym]);
+      const opts = { ...makeOptions(), symbolSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).searchAllSymbols({});
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([sym]);
+      await ledger.close();
+    });
+
+    it('should pass empty query to symbolSearchFn when searchAllSymbols called with empty query', async () => {
+      const symbolSearchFn = mock((_opts: any) => []);
+      const opts = { ...makeOptions(), symbolSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      (ledger as any).searchAllSymbols({});
+
+      const callOpts = symbolSearchFn.mock.calls[0]![0] as any;
+      expect(callOpts.project).toBeUndefined();
+      expect(callOpts.query).toEqual({});
+      await ledger.close();
+    });
+
+    it('should return Err with closed type when searchAllSymbols is called after close', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      await ledger.close();
+
+      const result = (ledger as any).searchAllSymbols({});
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('closed');
+    });
+
+    it('should return Err with search type when symbolSearchFn throws inside searchAllSymbols', async () => {
+      const symbolSearchFn = mock((_opts: any) => { throw new Error('search fail'); });
+      const opts = { ...makeOptions(), symbolSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).searchAllSymbols({});
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('search');
+      await ledger.close();
+    });
+
+    it('should return identical results when searchAllSymbols called twice with same query', async () => {
+      const symbolSearchFn = mock((_opts: any) => [{ id: 1, name: 'A' }]);
+      const opts = { ...makeOptions(), symbolSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      const r1 = (ledger as any).searchAllSymbols({});
+      const r2 = (ledger as any).searchAllSymbols({});
+
+      expect(r1).toEqual(r2);
+      await ledger.close();
+    });
+
+    it('should pass query.project through to effectiveProject in symbolSearchFn when query.project is set in searchAllSymbols', async () => {
+      const symbolSearchFn = mock((_opts: any) => []);
+      const opts = { ...makeOptions(), symbolSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      (ledger as any).searchAllSymbols({ project: 'specific' });
+
+      const callOpts = symbolSearchFn.mock.calls[0]![0] as any;
+      expect(callOpts.project).toBeUndefined();
+      expect(callOpts.query.project).toBe('specific');
+      await ledger.close();
+    });
+
+    it('should return empty array when symbolSearchFn returns empty array in searchAllSymbols', async () => {
+      const symbolSearchFn = mock((_opts: any) => []);
+      const opts = { ...makeOptions(), symbolSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).searchAllSymbols({});
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([]);
+      await ledger.close();
+    });
+  });
+
+  describe('Gildash.searchAllRelations', () => {
+    it('should call relationSearchFn with project:undefined when searchAllRelations is called', async () => {
+      const relationSearchFn = mock((_opts: any) => []);
+      const opts = { ...makeOptions(), relationSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      (ledger as any).searchAllRelations({ type: 'imports' });
+
+      expect(relationSearchFn).toHaveBeenCalledWith(
+        expect.objectContaining({ project: undefined }),
+      );
+      await ledger.close();
+    });
+
+    it('should return relationSearchFn result when searchAllRelations succeeds', async () => {
+      const rel = { type: 'imports', srcFilePath: 'a.ts', srcSymbolName: null, dstFilePath: 'b.ts', dstSymbolName: null };
+      const relationSearchFn = mock((_opts: any) => [rel]);
+      const opts = { ...makeOptions(), relationSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).searchAllRelations({});
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([rel]);
+      await ledger.close();
+    });
+
+    it('should return Err with closed type when searchAllRelations is called after close', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      await ledger.close();
+
+      const result = (ledger as any).searchAllRelations({});
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('closed');
+    });
+
+    it('should return Err with search type when relationSearchFn throws inside searchAllRelations', async () => {
+      const relationSearchFn = mock((_opts: any) => { throw new Error('fail'); });
+      const opts = { ...makeOptions(), relationSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).searchAllRelations({});
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('search');
+      await ledger.close();
+    });
+  });
+
+  // ─── FR-05: listIndexedFiles ───
+
+  describe('Gildash.listIndexedFiles', () => {
+    it('should call fileRepo.getAllFiles with defaultProject when listIndexedFiles is called without project', async () => {
+      const fileRepo = makeFileRepoMock();
+      const opts = makeOptions({ fileRepo });
+      const ledger = await openOrThrow(opts);
+
+      (ledger as any).listIndexedFiles();
+
+      expect(fileRepo.getAllFiles).toHaveBeenCalledWith('test-project');
+      await ledger.close();
+    });
+
+    it('should call fileRepo.getAllFiles with given project when listIndexedFiles is called with project', async () => {
+      const fileRepo = makeFileRepoMock();
+      const opts = makeOptions({ fileRepo });
+      const ledger = await openOrThrow(opts);
+
+      (ledger as any).listIndexedFiles('other-project');
+
+      expect(fileRepo.getAllFiles).toHaveBeenCalledWith('other-project');
+      await ledger.close();
+    });
+
+    it('should return file records when fileRepo.getAllFiles returns records', async () => {
+      const files = [
+        { project: 'test-project', filePath: 'a.ts', mtimeMs: 1000, size: 100, contentHash: 'abc', updatedAt: '2024-01-01', lineCount: 10 },
+        { project: 'test-project', filePath: 'b.ts', mtimeMs: 2000, size: 200, contentHash: 'def', updatedAt: '2024-01-01', lineCount: 20 },
+      ];
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getAllFiles = mock(() => files) as any;
+      const opts = makeOptions({ fileRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).listIndexedFiles();
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual(files);
+      await ledger.close();
+    });
+
+    it('should return Err with closed type when listIndexedFiles is called after close', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      await ledger.close();
+
+      const result = (ledger as any).listIndexedFiles();
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('closed');
+    });
+
+    it('should return Err with store type when fileRepo.getAllFiles throws inside listIndexedFiles', async () => {
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getAllFiles = mock(() => { throw new Error('db error'); }) as any;
+      const opts = makeOptions({ fileRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).listIndexedFiles();
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('store');
+      await ledger.close();
+    });
+
+    it('should return empty array when no files are indexed', async () => {
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getAllFiles = mock(() => []) as any;
+      const opts = makeOptions({ fileRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).listIndexedFiles();
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should return same result on two consecutive listIndexedFiles calls when data is unchanged', async () => {
+      const files = [{ project: 'test-project', filePath: 'a.ts', mtimeMs: 1000, size: 100, contentHash: 'abc', updatedAt: '2024-01-01' }];
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getAllFiles = mock(() => files) as any;
+      const opts = makeOptions({ fileRepo });
+      const ledger = await openOrThrow(opts);
+
+      const r1 = (ledger as any).listIndexedFiles();
+      const r2 = (ledger as any).listIndexedFiles();
+
+      expect(r1).toEqual(r2);
+      await ledger.close();
+    });
+  });
+
+  // ─── FR-20: getInternalRelations ───
+
+  describe('Gildash.getInternalRelations', () => {
+    it('should call relationSearchFn with both srcFilePath and dstFilePath set to filePath when getInternalRelations is called', async () => {
+      const relationSearchFn = mock((_opts: any) => []);
+      const opts = { ...makeOptions(), relationSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      (ledger as any).getInternalRelations('src/a.ts');
+
+      const callOpts = relationSearchFn.mock.calls[0]![0] as any;
+      expect(callOpts.query.srcFilePath).toBe('src/a.ts');
+      expect(callOpts.query.dstFilePath).toBe('src/a.ts');
+      await ledger.close();
+    });
+
+    it('should pass project param to relationSearchFn when getInternalRelations is called with project', async () => {
+      const relationSearchFn = mock((_opts: any) => []);
+      const opts = { ...makeOptions(), relationSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      (ledger as any).getInternalRelations('src/a.ts', 'my-project');
+
+      const callOpts = relationSearchFn.mock.calls[0]![0] as any;
+      expect(callOpts.project).toBe('my-project');
+      await ledger.close();
+    });
+
+    it('should return intra-file relations when relationSearchFn returns relations', async () => {
+      const rel = { type: 'calls', srcFilePath: 'src/a.ts', srcSymbolName: 'fnA', dstFilePath: 'src/a.ts', dstSymbolName: 'fnB' };
+      const relationSearchFn = mock((_opts: any) => [rel]);
+      const opts = { ...makeOptions(), relationSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).getInternalRelations('src/a.ts');
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([rel]);
+      await ledger.close();
+    });
+
+    it('should return Err with closed type when getInternalRelations is called after close', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      await ledger.close();
+
+      const result = (ledger as any).getInternalRelations('src/a.ts');
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('closed');
+    });
+
+    it('should return Err with search type when relationSearchFn throws inside getInternalRelations', async () => {
+      const relationSearchFn = mock((_opts: any) => { throw new Error('fail'); });
+      const opts = { ...makeOptions(), relationSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).getInternalRelations('src/a.ts');
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('search');
+      await ledger.close();
+    });
+
+    it('should return empty array when no intra-file relations exist', async () => {
+      const relationSearchFn = mock((_opts: any) => []);
+      const opts = { ...makeOptions(), relationSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).getInternalRelations('src/isolated.ts');
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should return identical results when getInternalRelations is called twice for same file', async () => {
+      const rel = { type: 'calls', srcFilePath: 'a.ts', srcSymbolName: null, dstFilePath: 'a.ts', dstSymbolName: null };
+      const relationSearchFn = mock((_opts: any) => [rel]);
+      const opts = { ...makeOptions(), relationSearchFn } as any;
+      const ledger = await openOrThrow(opts);
+
+      const r1 = (ledger as any).getInternalRelations('a.ts');
+      const r2 = (ledger as any).getInternalRelations('a.ts');
+
+      expect(r1).toEqual(r2);
+      await ledger.close();
+    });
+  });
+
+  // ─── FR-18: diffSymbols ───
+
+  describe('Gildash.diffSymbols', () => {
+    function makeSym(overrides: Partial<{ name: string; filePath: string; fingerprint: string | null; kind: string }> = {}) {
+      return {
+        id: 1, name: 'myFn', filePath: 'src/a.ts', kind: 'function',
+        span: { start: { line: 1, column: 0 }, end: { line: 5, column: 1 } },
+        isExported: true, signature: null, fingerprint: 'fp-default', detail: {},
+        ...overrides,
+      };
+    }
+
+    it('should return added=[sym] when before=[] and after=[sym]', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      const sym = makeSym();
+
+      const diff = (ledger as any).diffSymbols([], [sym]);
+
+      expect(diff.added).toEqual([sym]);
+      expect(diff.removed).toEqual([]);
+      expect(diff.modified).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should return removed=[sym] when before=[sym] and after=[]', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      const sym = makeSym();
+
+      const diff = (ledger as any).diffSymbols([sym], []);
+
+      expect(diff.added).toEqual([]);
+      expect(diff.removed).toEqual([sym]);
+      expect(diff.modified).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should return all empty when before and after contain the same symbol with same fingerprint', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      const sym = makeSym({ fingerprint: 'fp1' });
+
+      const diff = (ledger as any).diffSymbols([sym], [sym]);
+
+      expect(diff.added).toEqual([]);
+      expect(diff.removed).toEqual([]);
+      expect(diff.modified).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should return modified=[{before,after}] when same name+filePath but different fingerprint', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      const before = makeSym({ fingerprint: 'fp1' });
+      const after = makeSym({ fingerprint: 'fp2' });
+
+      const diff = (ledger as any).diffSymbols([before], [after]);
+
+      expect(diff.modified).toHaveLength(1);
+      expect(diff.modified[0]).toEqual({ before, after });
+      expect(diff.added).toEqual([]);
+      expect(diff.removed).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should correctly classify added, removed and unchanged when mix of changes', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      const unchanged = makeSym({ name: 'unchanged', fingerprint: 'fp1' });
+      const removed = makeSym({ name: 'removed', fingerprint: 'fp2' });
+      const added = makeSym({ name: 'added', fingerprint: 'fp3' });
+
+      const diff = (ledger as any).diffSymbols([unchanged, removed], [unchanged, added]);
+
+      expect(diff.added).toEqual([added]);
+      expect(diff.removed).toEqual([removed]);
+      expect(diff.modified).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should return all empty when before=[] and after=[]', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+
+      const diff = (ledger as any).diffSymbols([], []);
+
+      expect(diff.added).toEqual([]);
+      expect(diff.removed).toEqual([]);
+      expect(diff.modified).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should treat sym with null fingerprint in both before and after as unchanged', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      const sym = makeSym({ fingerprint: null });
+
+      const diff = (ledger as any).diffSymbols([sym], [sym]);
+
+      expect(diff.modified).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should treat same name in different filePaths as add+remove not modified', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      const before = makeSym({ name: 'fn', filePath: 'a.ts' });
+      const after = makeSym({ name: 'fn', filePath: 'b.ts' });
+
+      const diff = (ledger as any).diffSymbols([before], [after]);
+
+      expect(diff.added).toEqual([after]);
+      expect(diff.removed).toEqual([before]);
+      expect(diff.modified).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should handle undefined fingerprint in both before and after as unchanged', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      const sym = makeSym({ fingerprint: undefined as any });
+
+      const diff = (ledger as any).diffSymbols([sym], [sym]);
+
+      expect(diff.modified).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should correctly report all three categories simultaneously', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      const addedSym = makeSym({ name: 'newFn', fingerprint: 'fp-new' });
+      const removedSym = makeSym({ name: 'oldFn', fingerprint: 'fp-old' });
+      const beforeMod = makeSym({ name: 'changedFn', fingerprint: 'fp-before' });
+      const afterMod = makeSym({ name: 'changedFn', fingerprint: 'fp-after' });
+      const unchanged = makeSym({ name: 'stableFn', fingerprint: 'fp-stable' });
+
+      const diff = (ledger as any).diffSymbols(
+        [removedSym, beforeMod, unchanged],
+        [addedSym, afterMod, unchanged],
+      );
+
+      expect(diff.added).toEqual([addedSym]);
+      expect(diff.removed).toEqual([removedSym]);
+      expect(diff.modified).toHaveLength(1);
+      expect(diff.modified[0]).toEqual({ before: beforeMod, after: afterMod });
+      await ledger.close();
+    });
+
+    it('should return same diff result when diffSymbols called twice with same inputs', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      const before = [makeSym({ fingerprint: 'fp1' })];
+      const after = [makeSym({ fingerprint: 'fp2' })];
+
+      const d1 = (ledger as any).diffSymbols(before, after);
+      const d2 = (ledger as any).diffSymbols(before, after);
+
+      expect(d1).toEqual(d2);
+      await ledger.close();
+    });
+
+    it('should return modified when before.fingerprint=null and after.fingerprint="fp1" for same sym', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      const before = makeSym({ fingerprint: null });
+      const after = makeSym({ fingerprint: 'fp1' });
+
+      const diff = (ledger as any).diffSymbols([before], [after]);
+
+      expect(diff.modified).toHaveLength(1);
+      await ledger.close();
+    });
+
+    it('should include multiple modified entries when multiple symbols change fingerprint', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      const b1 = makeSym({ name: 'fnA', fingerprint: 'fp-a-before' });
+      const b2 = makeSym({ name: 'fnB', fingerprint: 'fp-b-before' });
+      const a1 = makeSym({ name: 'fnA', fingerprint: 'fp-a-after' });
+      const a2 = makeSym({ name: 'fnB', fingerprint: 'fp-b-after' });
+
+      const diff = (ledger as any).diffSymbols([b1, b2], [a1, a2]);
+
+      expect(diff.modified).toHaveLength(2);
+      await ledger.close();
+    });
+  });
 });

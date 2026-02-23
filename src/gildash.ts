@@ -47,6 +47,18 @@ export interface Logger {
 }
 
 /**
+ * Result of a {@link Gildash.diffSymbols} call.
+ */
+export interface SymbolDiff {
+  /** Symbols present in `after` but not in `before`. */
+  added: SymbolSearchResult[];
+  /** Symbols present in `before` but not in `after`. */
+  removed: SymbolSearchResult[];
+  /** Symbols present in both but with a different `fingerprint`. */
+  modified: Array<{ before: SymbolSearchResult; after: SymbolSearchResult }>;
+}
+
+/**
  * Options for creating a {@link Gildash} instance via {@link Gildash.open}.
  *
  * @example
@@ -144,7 +156,7 @@ export class Gildash {
   private readonly db: Pick<DbConnection, 'open' | 'close' | 'transaction'> & WatcherOwnerStore;
   private readonly symbolRepo: SymbolRepository;
   private readonly relationRepo: RelationRepository;
-  private readonly fileRepo: Pick<FileRepository, 'getFile'>;
+  private readonly fileRepo: Pick<FileRepository, 'getFile' | 'getAllFiles'>;
   private readonly parseCache: Pick<ParseCache, 'set' | 'get' | 'invalidate'>;
   private coordinator: (Pick<IndexCoordinator, 'fullIndex' | 'shutdown' | 'onIndexed'> & {
     tsconfigPaths?: Promise<TsconfigPaths | null>;
@@ -173,7 +185,7 @@ export class Gildash {
     db: Pick<DbConnection, 'open' | 'close' | 'transaction'> & WatcherOwnerStore;
     symbolRepo: SymbolRepository;
     relationRepo: RelationRepository;
-    fileRepo: Pick<FileRepository, 'getFile'>;
+    fileRepo: Pick<FileRepository, 'getFile' | 'getAllFiles'>;
     parseCache: Pick<ParseCache, 'set' | 'get' | 'invalidate'>;
     coordinator: (Pick<IndexCoordinator, 'fullIndex' | 'shutdown' | 'onIndexed'> & {
       tsconfigPaths?: Promise<TsconfigPaths | null>;
@@ -737,6 +749,116 @@ export class Gildash {
     } catch (e) {
       return err(gildashError('search', 'Gildash: searchRelations failed', e));
     }
+  }
+
+  /**
+   * Search symbols across all projects (no project filter).
+   *
+   * @param query - Search filters (see {@link SymbolSearchQuery}). The `project` field is ignored.
+   * @returns An array of {@link SymbolSearchResult} entries, or `Err<GildashError>` with
+   *   `type='closed'` if the instance is closed,
+   *   `type='search'` if the query fails.
+   */
+  searchAllSymbols(query: Omit<SymbolSearchQuery, 'project'> & { project?: string }): Result<SymbolSearchResult[], GildashError> {
+    if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
+    try {
+      return this.symbolSearchFn({ symbolRepo: this.symbolRepo, project: undefined, query });
+    } catch (e) {
+      return err(gildashError('search', 'Gildash: searchAllSymbols failed', e));
+    }
+  }
+
+  /**
+   * Search relations across all projects (no project filter).
+   *
+   * @param query - Search filters (see {@link RelationSearchQuery}). The `project` field is ignored.
+   * @returns An array of {@link CodeRelation} entries, or `Err<GildashError>` with
+   *   `type='closed'` if the instance is closed,
+   *   `type='search'` if the query fails.
+   */
+  searchAllRelations(query: RelationSearchQuery): Result<CodeRelation[], GildashError> {
+    if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
+    try {
+      return this.relationSearchFn({ relationRepo: this.relationRepo, project: undefined, query });
+    } catch (e) {
+      return err(gildashError('search', 'Gildash: searchAllRelations failed', e));
+    }
+  }
+
+  /**
+   * List all files indexed for a given project.
+   *
+   * @param project - Project name. Defaults to the primary project.
+   * @returns An array of {@link FileRecord} entries, or `Err<GildashError>` with
+   *   `type='closed'` if the instance is closed,
+   *   `type='store'` if the repository query fails.
+   */
+  listIndexedFiles(project?: string): Result<FileRecord[], GildashError> {
+    if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
+    try {
+      return this.fileRepo.getAllFiles(project ?? this.defaultProject);
+    } catch (e) {
+      return err(gildashError('store', 'Gildash: listIndexedFiles failed', e));
+    }
+  }
+
+  /**
+   * Get all intra-file relations for a given file (relations where both source and destination
+   * are within the same file).
+   *
+   * @param filePath - Path of the file to query.
+   * @param project - Project name. Defaults to the primary project.
+   * @returns An array of {@link CodeRelation} entries, or `Err<GildashError>` with
+   *   `type='closed'` if the instance is closed,
+   *   `type='search'` if the query fails.
+   */
+  getInternalRelations(filePath: string, project?: string): Result<CodeRelation[], GildashError> {
+    if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
+    try {
+      return this.relationSearchFn({
+        relationRepo: this.relationRepo,
+        project: project ?? this.defaultProject,
+        query: { srcFilePath: filePath, dstFilePath: filePath, limit: 10_000 },
+      });
+    } catch (e) {
+      return err(gildashError('search', 'Gildash: getInternalRelations failed', e));
+    }
+  }
+
+  /**
+   * Compare two snapshots of symbol search results and return a structured diff.
+   *
+   * Symbols are keyed by `name::filePath`. A symbol is:
+   * - **added** if it appears only in `after`
+   * - **removed** if it appears only in `before`
+   * - **modified** if it appears in both but with a different `fingerprint`
+   * - **unchanged** otherwise
+   *
+   * @param before - Snapshot of symbols before the change.
+   * @param after - Snapshot of symbols after the change.
+   * @returns A {@link SymbolDiff} object.
+   */
+  diffSymbols(
+    before: SymbolSearchResult[],
+    after: SymbolSearchResult[],
+  ): SymbolDiff {
+    const beforeMap = new Map<string, SymbolSearchResult>(before.map(s => [`${s.name}::${s.filePath}`, s]));
+    const afterMap = new Map<string, SymbolSearchResult>(after.map(s => [`${s.name}::${s.filePath}`, s]));
+    const added: SymbolSearchResult[] = [];
+    const removed: SymbolSearchResult[] = [];
+    const modified: Array<{ before: SymbolSearchResult; after: SymbolSearchResult }> = [];
+    for (const [key, afterSym] of afterMap) {
+      const beforeSym = beforeMap.get(key);
+      if (!beforeSym) {
+        added.push(afterSym);
+      } else if (beforeSym.fingerprint !== afterSym.fingerprint) {
+        modified.push({ before: beforeSym, after: afterSym });
+      }
+    }
+    for (const [key, beforeSym] of beforeMap) {
+      if (!afterMap.has(key)) removed.push(beforeSym);
+    }
+    return { added, removed, modified };
   }
 
   /**
