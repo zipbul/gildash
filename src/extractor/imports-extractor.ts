@@ -98,13 +98,23 @@ export function extractImports(
       if (candidates.length === 0) continue;
       const resolved = candidates[0]!;
 
+      const isType = node.exportKind === 'type';
+      const specifierNodes = (node.specifiers as Array<Record<string, unknown>> | undefined) ?? [];
+      const specifiers = specifierNodes.map((s) => ({
+        local: (s.local as { name: string }).name,
+        exported: (s.exported as { name: string }).name,
+      }));
+
+      const meta: Record<string, unknown> = { isReExport: true, specifiers };
+      if (isType) meta.isType = true;
+
       relations.push({
         type: 'imports',
         srcFilePath: filePath,
         srcSymbolName: null,
         dstFilePath: resolved,
         dstSymbolName: null,
-        metaJson: JSON.stringify({ isReExport: true }),
+        metaJson: JSON.stringify(meta),
       });
     }
   }

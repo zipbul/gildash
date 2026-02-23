@@ -321,4 +321,205 @@ describe('extractImports', () => {
 
     expect(r1).toEqual(r2);
   });
+
+  // --- IMP-B: re-export named specifier ---
+
+  // 19. [HP] export { A } → specifiers [{local:'A', exported:'A'}]
+  it('should include specifiers array in metaJson with local and exported names when re-export has a single named specifier', () => {
+    const ast = fakeAst([
+      {
+        type: 'ExportNamedDeclaration',
+        source: { value: './foo' },
+        exportKind: 'value',
+        specifiers: [
+          { type: 'ExportSpecifier', local: { name: 'A' }, exported: { name: 'A' } },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isReExport).toBe(true);
+    expect(meta.specifiers).toEqual([{ local: 'A', exported: 'A' }]);
+  });
+
+  // 20. [HP] export { A as B } → specifiers [{local:'A', exported:'B'}]
+  it('should record original local name and alias exported name in specifiers when re-export uses alias', () => {
+    const ast = fakeAst([
+      {
+        type: 'ExportNamedDeclaration',
+        source: { value: './foo' },
+        exportKind: 'value',
+        specifiers: [
+          { type: 'ExportSpecifier', local: { name: 'A' }, exported: { name: 'B' } },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.specifiers).toEqual([{ local: 'A', exported: 'B' }]);
+  });
+
+  // 21. [HP] export { A, B, C } → specifiers 3개
+  it('should include all three specifiers in metaJson when re-export has multiple named specifiers', () => {
+    const ast = fakeAst([
+      {
+        type: 'ExportNamedDeclaration',
+        source: { value: './foo' },
+        exportKind: 'value',
+        specifiers: [
+          { type: 'ExportSpecifier', local: { name: 'A' }, exported: { name: 'A' } },
+          { type: 'ExportSpecifier', local: { name: 'B' }, exported: { name: 'B' } },
+          { type: 'ExportSpecifier', local: { name: 'C' }, exported: { name: 'C' } },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.specifiers).toHaveLength(3);
+  });
+
+  // 22. [HP] single relation maintained for ExportNamedDeclaration
+  it('should produce exactly one relation per ExportNamedDeclaration regardless of specifier count', () => {
+    const ast = fakeAst([
+      {
+        type: 'ExportNamedDeclaration',
+        source: { value: './foo' },
+        exportKind: 'value',
+        specifiers: [
+          { type: 'ExportSpecifier', local: { name: 'X' }, exported: { name: 'X' } },
+          { type: 'ExportSpecifier', local: { name: 'Y' }, exported: { name: 'Y' } },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(JSON.parse(relations[0]!.metaJson!).isReExport).toBe(true);
+  });
+
+  // 23. [HP] ExportAllDeclaration regression — no specifiers in meta
+  it('should not include specifiers key in metaJson when declaration is export star from', () => {
+    const ast = fakeAst([
+      { type: 'ExportAllDeclaration', source: { value: './barrel' }, exportKind: 'value' },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isReExport).toBe(true);
+    expect(meta.specifiers).toBeUndefined();
+  });
+
+  // 24. [NE] ExportNamedDeclaration without source → 0 relations
+  it('should produce no relation when ExportNamedDeclaration has no source', () => {
+    const ast = fakeAst([
+      { type: 'ExportNamedDeclaration', source: undefined, exportKind: 'value', specifiers: [] },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(0);
+  });
+
+  // 25. [NE] candidates empty
+  it('should produce no relation when re-export source path cannot be resolved', () => {
+    mockResolveImport.mockReturnValue([]);
+
+    const ast = fakeAst([
+      {
+        type: 'ExportNamedDeclaration',
+        source: { value: 'external-pkg' },
+        exportKind: 'value',
+        specifiers: [
+          { type: 'ExportSpecifier', local: { name: 'A' }, exported: { name: 'A' } },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(0);
+  });
+
+  // 26. [CO] export type { T as U } → isType + alias specifier
+  it('should include isType true and alias specifier when type re-export uses alias', () => {
+    const ast = fakeAst([
+      {
+        type: 'ExportNamedDeclaration',
+        source: { value: './types' },
+        exportKind: 'type',
+        specifiers: [
+          { type: 'ExportSpecifier', local: { name: 'T' }, exported: { name: 'U' } },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isType).toBe(true);
+    expect(meta.isReExport).toBe(true);
+    expect(meta.specifiers).toEqual([{ local: 'T', exported: 'U' }]);
+  });
+
+  // 27. [ED] export type { T } → isType + single specifier
+  it('should include isType true and single specifier when type-only re-export has one specifier', () => {
+    const ast = fakeAst([
+      {
+        type: 'ExportNamedDeclaration',
+        source: { value: './types' },
+        exportKind: 'type',
+        specifiers: [
+          { type: 'ExportSpecifier', local: { name: 'MyType' }, exported: { name: 'MyType' } },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isType).toBe(true);
+    expect(meta.specifiers).toEqual([{ local: 'MyType', exported: 'MyType' }]);
+  });
+
+  // 28. [OR] {A,B,C} order preserved in specifiers
+  it('should preserve specifier order in metaJson specifiers array when re-export has multiple specifiers', () => {
+    const ast = fakeAst([
+      {
+        type: 'ExportNamedDeclaration',
+        source: { value: './ordered' },
+        exportKind: 'value',
+        specifiers: [
+          { type: 'ExportSpecifier', local: { name: 'First' }, exported: { name: 'First' } },
+          { type: 'ExportSpecifier', local: { name: 'Second' }, exported: { name: 'Second' } },
+          { type: 'ExportSpecifier', local: { name: 'Third' }, exported: { name: 'Third' } },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.specifiers[0].local).toBe('First');
+    expect(meta.specifiers[1].local).toBe('Second');
+    expect(meta.specifiers[2].local).toBe('Third');
+  });
+
+  // 29. [ID] same re-export AST called twice → identical
+  it('should return identical results when called twice with the same re-export AST', () => {
+    const ast = fakeAst([
+      {
+        type: 'ExportNamedDeclaration',
+        source: { value: './stable' },
+        exportKind: 'value',
+        specifiers: [
+          { type: 'ExportSpecifier', local: { name: 'Stable' }, exported: { name: 'Stable' } },
+        ],
+      },
+    ]);
+    const r1 = extractImports(ast, FILE, undefined, mockResolveImport);
+    const r2 = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(r1).toEqual(r2);
+  });
 });
