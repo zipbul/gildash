@@ -38,7 +38,8 @@
     "test:coverage": "bun test --coverage",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "changeset publish"
+    "release": "changeset publish",
+    "prepare": "husky"
   },
   "dependencies": {
     "@parcel/watcher": "^2.5.6",
