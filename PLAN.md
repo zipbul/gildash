@@ -35,7 +35,7 @@ gildash의 정체성을 **"TypeScript code intelligence engine"** 으로 확장�
 | FR-09 | `getFullSymbol(symbolName, filePath)` | 신규 API | IMP-C | 2 |
 | FR-10 | `getFileStats(filePath)` | 신규 API | IMP-D | 2 |
 | FR-11 | `getModuleInterface(filePath)` | 신규 API (분석) | — | 1 |
-| FR-12 | `getFanMetrics(filePath)` | 신규 API (분석) | FR-03 | 2 |
+| FR-12 | `getFanMetrics(filePath)` | 신규 API (분석) | — | 2 |
 | FR-13 | `getTransitiveDependencies(filePath)` | 신규 API | — | 1 |
 | FR-14 | `resolveSymbol(symbolName, filePath)` | 신규 API (분석) | IMP-A, IMP-B | 2 |
 | FR-15 | `findPattern(pattern, opts?)` | 신규 API (매칭) | ast-grep 도입 | 3 |
@@ -67,10 +67,9 @@ IMP-D (lineCount) ──→ FR-10 (getFileStats)
 IMP-E (type-references) ──→ FR-06 (relation 확장)
 META (CodeRelation.meta) ──→ FR-06에서 meta.specifiers 접근
 
-FR-03 (getImportGraph) ──→ FR-12 (getFanMetrics)
 Phase 0 안정화 ──→ FR-08 (changedSymbols — 심볼 단위 diff 로직 필요)
 
-FR-01~05, 11, 13, 17~21, LEG-1 ──→ 독립 (전제조건 없음)
+FR-01~05, 11, 12, 13, 17~21, LEG-1 ──→ 독립 (전제조건 없음)
 LEG-2 (graph 캐싱) ──→ FR-04 완료 후 적용 (getCyclePaths도 캐시 대상)
 ```
 
@@ -235,7 +234,7 @@ members: symbol.members?.map(m => {
 - 클래스 getter → kind='getter' (methodKind에서 추출)
 - 클래스 property (PropertyDefinition) → name, kind='property', type(returnType) 저장 확인
 - 인터페이스 멤버 (TSPropertySignature) → name, kind='property', type, isReadonly 저장 확인
-- 인터페이스 메서드 (TSMethodSignature) → name, kind='method', parameters 저장 확인
+- 인터페이스 메서드 (TSMethodSignature) → name, kind='method', type(returnType) 저장 확인
 - 멤버가 없는 심볼 → members: undefined 유지
 - static 멤버 → isStatic: true, private 멤버 → visibility: 'private'
 
@@ -442,6 +441,7 @@ close(opts?: { cleanup?: boolean }): Promise<Result<void, GildashError>>
 ```
 - `cleanup: false` (기본값) → DB 유지 → 다음 scan 시 incremental indexing 가능
 - `cleanup: true` → DB 파일(.db, -wal, -shm) 삭제 → 디스크 오염 없음
+  - DB 경로: `join(this.projectRoot, '.zipbul', 'gildash.db')` — `Gildash.projectRoot`에서 직접 계산 (connection.ts 변경 불필요)
 
 `reindex()`는 여전히 수동 호출 가능.
 
@@ -676,22 +676,37 @@ getTransitiveDependencies(filePath: string): string[]
 **목적**: 프로젝트 경계를 넘어 전체 인덱스를 대상으로 심볼/관계 검색.
 
 **변경 파일**:
-- `src/gildash.ts` — public method 추가 (`searchSymbols`, `searchRelations`에 project=undefined 전달)
+- `src/gildash.ts` — `searchAllSymbols()`, `searchAllRelations()` 전용 메서드 추가
 - `src/gildash.spec.ts`
 
 **참고**: repository 레이어는 이미 `project === undefined` 시 WHERE 조건 생략을 지원 중.
 `symbol.repository.ts`의 `searchByQuery()`와 `relation.repository.ts`의 `searchRelations()` 모두
 `opts.project !== undefined ? eq(project) : undefined` 패턴으로 구현되어 있음.
-Gildash 래퍼에서 `project` 파라미터를 적절히 전달하는 것만 필요.
 
 **구현**:
-기존 `SymbolSearchQuery.project`와 `RelationSearchOptions.project`가 `undefined`일 때
-WHERE 조건에서 project 필터를 제거하여 전체 대상 검색.
+기존 `searchSymbols`/`searchRelations`는 `project: this.defaultProject`를 fallback으로 사용하므로,
+cross-project 검색 전용 메서드를 추가하여 `symbolSearchFn({ ..., project: undefined, query })`로 호출.
+이렇게 하면 `effectiveProject = query.project ?? project`에서 `project = undefined` → 
+`searchByQuery(opts.project = undefined)` → WHERE 조건 생략 → 전체 프로젝트 검색.
+
+```typescript
+// cross-project 전용 메서드
+searchAllSymbols(query: Omit<SymbolSearchQuery, 'project'>): Result<SymbolSearchResult[], GildashError> {
+  return this.symbolSearchFn({ symbolRepo: this.symbolRepo, project: undefined, query });
+}
+
+searchAllRelations(query: Omit<RelationSearchQuery, 'project'>): Result<CodeRelation[], GildashError> {
+  return this.relationSearchFn({ relationRepo: this.relationRepo, project: undefined, query });
+}
+```
+
+기존 `searchSymbols`/`searchRelations`는 시그니처 변경 없음 (하위 호환 유지).
 
 **테스트**:
 - project 지정 → 해당 프로젝트만
-- project 생략 → 전체 프로젝트
+- `searchAllSymbols` → 전체 프로젝트 대상 검색
 - 여러 프로젝트에 동일 이름 심볼 → 모두 반환
+- 기존 searchSymbols(project 미지정) → defaultProject 동작 유지 (하위 호환)
 
 ---
 
@@ -731,6 +746,7 @@ fingerprint 기반 비교로 변경 감지. 이름+파일 기준으로 매칭 �
 **목적**: FTS 기반 검색 외에 정규식으로 심볼 이름 검색.
 
 **변경 파일**:
+- `src/store/connection.ts` — raw `Database` 인스턴스 접근용 getter + REGEXP 함수 등록
 - `src/search/symbol-search.ts` — `SymbolSearchQuery`에 `regex` 옵션
 - `src/store/repositories/symbol.repository.ts` — regex 조건 처리
 - 관련 spec 파일들
@@ -738,7 +754,7 @@ fingerprint 기반 비교로 변경 감지. 이름+파일 기준으로 매칭 �
 **구현**:
 `SymbolSearchQuery`에 `regex?: string` 추가.
 Bun의 `bun:sqlite`는 `Database.prototype.function(name, fn)` 메서드로 커스텀 함수 등록 지원.
-`DbConnection`에 raw `Database` 인스턴스 접근을 추가하여 REGEXP 함수 등록.
+`DbConnection`에 raw `Database` 인스턴스 접근(getter)을 추가하여 REGEXP 함수 등록.
 
 ```typescript
 // connection.ts — open() 후 REGEXP 등록
