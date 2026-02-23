@@ -986,6 +986,77 @@ export class Gildash {
   }
 
   /**
+   * Return the full import graph for a project as an adjacency list.
+   *
+   * Builds a {@link DependencyGraph} and exposes its internal adjacency list.
+   * Each file appears as a key; its value lists the files it directly imports.
+   * Files that are imported but do not themselves import appear as keys with empty arrays.
+   *
+   * @param project - Project name. Defaults to the primary project.
+   * @returns A `Map<filePath, importedFilePaths[]>`, or `Err<GildashError>` with
+   *   `type='closed'` / `type='search'`.
+   */
+  async getImportGraph(project?: string): Promise<Result<Map<string, string[]>, GildashError>> {
+    if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
+    try {
+      const g = new DependencyGraph({
+        relationRepo: this.relationRepo,
+        project: project ?? this.defaultProject,
+      });
+      await g.build();
+      return g.getAdjacencyList();
+    } catch (e) {
+      return err(gildashError('search', 'Gildash: getImportGraph failed', e));
+    }
+  }
+
+  /**
+   * Return all files that `filePath` transitively imports (forward BFS).
+   *
+   * @param filePath - Absolute path of the starting file.
+   * @param project - Project name. Defaults to the primary project.
+   * @returns An array of file paths that `filePath` directly or indirectly imports,
+   *   or `Err<GildashError>` with `type='closed'` / `type='search'`.
+   */
+  async getTransitiveDependencies(filePath: string, project?: string): Promise<Result<string[], GildashError>> {
+    if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
+    try {
+      const g = new DependencyGraph({
+        relationRepo: this.relationRepo,
+        project: project ?? this.defaultProject,
+      });
+      await g.build();
+      return g.getTransitiveDependencies(filePath);
+    } catch (e) {
+      return err(gildashError('search', 'Gildash: getTransitiveDependencies failed', e));
+    }
+  }
+
+  /**
+   * Return all cycle paths in the import graph.
+   *
+   * Uses DFS with canonical form deduplication.
+   *
+   * @param project - Project name. Defaults to the primary project.
+   * @returns An array of cycle paths (`string[][]`), each starting at the lexicographically
+   *   smallest node in the cycle. Returns `[]` if no cycles exist.
+   *   Returns `Err<GildashError>` with `type='closed'` / `type='search'`.
+   */
+  async getCyclePaths(project?: string): Promise<Result<string[][], GildashError>> {
+    if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
+    try {
+      const g = new DependencyGraph({
+        relationRepo: this.relationRepo,
+        project: project ?? this.defaultProject,
+      });
+      await g.build();
+      return g.getCyclePaths();
+    } catch (e) {
+      return err(gildashError('search', 'Gildash: getCyclePaths failed', e));
+    }
+  }
+
+  /**
    * Retrieve a previously-parsed AST from the internal LRU cache.
    *
    * Returns `undefined` if the file has not been parsed or was evicted from the cache.

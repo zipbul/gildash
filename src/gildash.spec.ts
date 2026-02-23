@@ -2062,4 +2062,172 @@ describe('Gildash', () => {
       await ledger.close();
     });
   });
+
+  // ─── FR-03: getImportGraph ───
+
+  describe('Gildash.getImportGraph', () => {
+    it('should return a Map with import edges when getImportGraph is called after indexing', async () => {
+      const relationRepo = makeRelationRepoMock();
+      relationRepo.getByType.mockReturnValue([
+        { srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts', type: 'imports', project: 'test-project', srcSymbolName: null, dstSymbolName: null, metaJson: null },
+      ]);
+      const opts = makeOptions({ relationRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = await ledger.getImportGraph();
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toBeInstanceOf(Map);
+      expect((result as Map<string, string[]>).get('src/a.ts')).toContain('src/b.ts');
+      await ledger.close();
+    });
+
+    it('should return empty Map when no import relations exist in getImportGraph', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+
+      const result = await ledger.getImportGraph();
+
+      expect(isErr(result)).toBe(false);
+      expect((result as Map<string, string[]>).size).toBe(0);
+      await ledger.close();
+    });
+
+    it('should return Err with closed type when getImportGraph is called after close', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      await ledger.close();
+
+      const result = await ledger.getImportGraph();
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('closed');
+    });
+
+    it('should return Err with search type when relationRepo throws inside getImportGraph', async () => {
+      const relationRepo = makeRelationRepoMock();
+      relationRepo.getByType.mockImplementation(() => { throw new Error('db error'); });
+      const opts = makeOptions({ relationRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = await ledger.getImportGraph();
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('search');
+      await ledger.close();
+    });
+  });
+
+  // ─── FR-13: getTransitiveDependencies ───
+
+  describe('Gildash.getTransitiveDependencies', () => {
+    it('should return B and C when chain A→B→C exists and getTransitiveDependencies is called for A', async () => {
+      const relationRepo = makeRelationRepoMock();
+      relationRepo.getByType.mockReturnValue([
+        { srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts', type: 'imports', project: 'test-project', srcSymbolName: null, dstSymbolName: null, metaJson: null },
+        { srcFilePath: 'src/b.ts', dstFilePath: 'src/c.ts', type: 'imports', project: 'test-project', srcSymbolName: null, dstSymbolName: null, metaJson: null },
+      ]);
+      const opts = makeOptions({ relationRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = await ledger.getTransitiveDependencies('src/a.ts');
+
+      expect(isErr(result)).toBe(false);
+      expect(result as string[]).toContain('src/b.ts');
+      expect(result as string[]).toContain('src/c.ts');
+      await ledger.close();
+    });
+
+    it('should return empty array when file has no dependencies in getTransitiveDependencies', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+
+      const result = await ledger.getTransitiveDependencies('src/isolated.ts');
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should return Err with closed type when getTransitiveDependencies is called after close', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      await ledger.close();
+
+      const result = await ledger.getTransitiveDependencies('src/a.ts');
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('closed');
+    });
+
+    it('should not loop infinitely when cycle exists in getTransitiveDependencies', async () => {
+      const relationRepo = makeRelationRepoMock();
+      relationRepo.getByType.mockReturnValue([
+        { srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts', type: 'imports', project: 'test-project', srcSymbolName: null, dstSymbolName: null, metaJson: null },
+        { srcFilePath: 'src/b.ts', dstFilePath: 'src/a.ts', type: 'imports', project: 'test-project', srcSymbolName: null, dstSymbolName: null, metaJson: null },
+      ]);
+      const opts = makeOptions({ relationRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = await ledger.getTransitiveDependencies('src/a.ts');
+
+      expect(Array.isArray(result)).toBe(true);
+      await ledger.close();
+    });
+  });
+
+  // ─── FR-04: getCyclePaths ───
+
+  describe('Gildash.getCyclePaths', () => {
+    it('should return cycle paths when A→B→A cycle exists', async () => {
+      const relationRepo = makeRelationRepoMock();
+      relationRepo.getByType.mockReturnValue([
+        { srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts', type: 'imports', project: 'test-project', srcSymbolName: null, dstSymbolName: null, metaJson: null },
+        { srcFilePath: 'src/b.ts', dstFilePath: 'src/a.ts', type: 'imports', project: 'test-project', srcSymbolName: null, dstSymbolName: null, metaJson: null },
+      ]);
+      const opts = makeOptions({ relationRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = await ledger.getCyclePaths();
+
+      expect(isErr(result)).toBe(false);
+      expect((result as string[][]).length).toBeGreaterThan(0);
+      await ledger.close();
+    });
+
+    it('should return empty array when no cycles exist in getCyclePaths', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+
+      const result = await ledger.getCyclePaths();
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([]);
+      await ledger.close();
+    });
+
+    it('should return Err with closed type when getCyclePaths is called after close', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      await ledger.close();
+
+      const result = await ledger.getCyclePaths();
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('closed');
+    });
+
+    it('should return Err with search type when relationRepo throws inside getCyclePaths', async () => {
+      const relationRepo = makeRelationRepoMock();
+      relationRepo.getByType.mockImplementation(() => { throw new Error('db error'); });
+      const opts = makeOptions({ relationRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = await ledger.getCyclePaths();
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('search');
+      await ledger.close();
+    });
+  });
 });
