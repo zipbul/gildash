@@ -4,6 +4,8 @@ import { Gildash } from './gildash';
 import type { GildashError } from './errors';
 import type { ExtractedSymbol, CodeRelation } from './extractor/types';
 import type { RelationRecord } from './store/repositories/relation.repository';
+import type { FileRecord } from './store/repositories/file.repository';
+import type { ParsedFile } from './parser/types';
 
 function makeDbMock() {
   return {
@@ -75,14 +77,14 @@ function makeFileRepoMock() {
     getAllFiles: mock(() => []),
     getFilesMap: mock(() => new Map()),
     deleteFile: mock(() => {}),
-    getFile: mock(() => null),
+    getFile: mock((_project: string, _filePath: string): FileRecord | null => null),
   };
 }
 
 function makeParseCacheMock() {
   return {
     set: mock(() => {}),
-    get: mock(() => undefined),
+    get: mock((_filePath: string): ParsedFile | undefined => undefined),
     invalidate: mock(() => {}),
   };
 }
