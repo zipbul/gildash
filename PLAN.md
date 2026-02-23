@@ -7,51 +7,105 @@ gildash의 정체성을 **"TypeScript code intelligence engine"** 으로 확장�
 
 핵심 엔진(파싱 → 추출 → 저장 → 검색)은 유지하면서, 그 위에 분석·매칭 기능을 쌓는 방향이다.
 
+---
+
+## 🗓 현재 진행 상태 (2026-02-23)
+
+| 상태 | 범위 | 커밋 | 테스트 |
+|------|------|------|--------|
+| ✅ 완료 | Phase 0 전체 (IMP-A~E, META) | `33d049d`~`356ae28` | 860+ pass |
+| ✅ 완료 | Phase 1 Group A (FR-17, FR-05, FR-20, FR-18) | `fb3d930` | 899 pass |
+| ✅ 완료 | Phase 1 Group B (FR-03, FR-13, FR-04) | `d38235f` | 925 pass |
+| ✅ 완료 | Phase 1 Group C (FR-02, FR-11, FR-21) | `131c05d` | 943 pass |
+| 🔴 차단 | Phase 1 Group D (FR-01, FR-19, LEG-1) | 미커밋 | 962 pass / 2 fail |
+| ⬜ 미시작 | Phase 2 (FR-06~10, FR-12, FR-14) | — | — |
+| ⬜ 미시작 | Phase 3 (FR-15, FR-16) | — | — |
+| ⬜ 미시작 | Phase 4 (LEG-2) | — | — |
+
+### 🔴 차단 원인 — Phase 1 Group D
+
+**문제:** `bun:sqlite`의 `Database.function()` API가 Bun 1.3.9에 미존재 (`typeof db.function === 'undefined'`).
+
+`connection.ts`에 등록한 REGEXP UDF 코드가 실행되지 않아 regex 필터 통합 테스트 1개 실패.
+
+```ts
+// connection.ts에 추가한 코드 — 동작 안 함 (bun 1.3.9)
+this.client.function('regexp', (pattern: string, value: string): number => { ... });
+```
+
+**미커밋 파일 (8개):**
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `src/gildash.ts` | `watchMode?: boolean`, `unlinkFn`, `close({ cleanup })` |
+| `src/gildash.spec.ts` | FR-01 테스트 10개 추가 (watchMode / cleanup) |
+| `src/search/symbol-search.ts` | `SymbolSearchQuery.decorator/regex` 타입 추가 |
+| `src/search/symbol-search.spec.ts` | decorator/regex 패스스루 테스트 5개 추가 |
+| `src/store/repositories/symbol.repository.ts` | decorator/regex SQL 조건 추가 |
+| `src/store/repositories/symbol.repository.spec.ts` | decorator/regex unit 테스트 2개 추가 |
+| `src/store/connection.ts` | REGEXP 등록 시도 (현재 무효) |
+| `test/store.test.ts` | decorator/regex 통합 테스트 4개 추가 |
+
+### ▶ 재개 시 첫 번째 작업
+
+**REGEXP 등록 방법 교체** — `Database.function()` 대신 bun 1.3.9에서 실제로 동작하는 방법 확인.
+
+선택지:
+1. Bun 버전 업그레이드 (`bunx --bun bun upgrade`) → `Database.function()` 지원 버전 확인
+2. `Database.prototype.function` 미지원 시 SQL 레이어에서 REGEXP 흉내: 애플리케이션 레이어에서 `symbol.name.match(regex)` 필터링 (DB query 이후 JS 레벨 필터)
+3. `better-sqlite3`의 `db.function()` 방식 참고하여 Bun SQLite 네이티브 API 재검색
+
+현재 코드에서 `regexp(pattern, name) = 1` 형태로 SQL에 넣어두었으므로 UDF만 등록되면 즉시 동작.
+
+**FR-01 / cleanup 관련:** 나머지 1개 실패 (`Gildash integration > should open successfully with default repositoryFactory`) 도 확인 필요. unlinkFn 기본값 `Bun.file(fp).unlink()`가 원인일 수 있음.
+
+---
+
 ## 전체 작업 목록
 
 ### 인프라 전제조건 (Phase 0)
 
-| ID | 항목 | 유형 | 의존 FR |
-|----|------|------|---------|
-| IMP-A | import relation에 `dstSymbolName` 기록 | 데이터 정밀화 | FR-07, FR-14 |
-| IMP-B | re-export relation에 named specifier 기록 | 데이터 정밀화 | FR-06, FR-14 |
-| IMP-C | 심볼 members 전체 정보 저장 (타입, kind, visibility) | 데이터 정밀화 | FR-09 |
-| IMP-D | files 테이블에 `lineCount` 컬럼 추가 | 스키마 확장 | FR-10 |
-| IMP-E | `type-references` 별도 relation type 분리 | 데이터 정밀화 | FR-06 |
-| META | `CodeRelation.meta` 파싱 필드 추가 | 타입 확장 | — |
+| ID | 항목 | 유형 | 의존 FR | 상태 |
+|----|------|------|---------|------|
+| IMP-A | import relation에 `dstSymbolName` 기록 | 데이터 정밀화 | FR-07, FR-14 | ✅ 완료 |
+| IMP-B | re-export relation에 named specifier 기록 | 데이터 정밀화 | FR-06, FR-14 | ✅ 완료 |
+| IMP-C | 심볼 members 전체 정보 저장 (타입, kind, visibility) | 데이터 정밀화 | FR-09 | ✅ 완료 |
+| IMP-D | files 테이블에 `lineCount` 컬럼 추가 | 스키마 확장 | FR-10 | ✅ 완료 |
+| IMP-E | `type-references` 별도 relation type 분리 | 데이터 정밀화 | FR-06 | ✅ 완료 |
+| META | `CodeRelation.meta` 파싱 필드 추가 | 타입 확장 | — | ✅ 완료 |
 
 ### Feature Requests (FR-01 ~ FR-21)
 
-| FR | 기능 | 유형 | 전제조건 | Phase |
-|----|------|------|----------|-------|
-| FR-01 | scan-only 모드 (`watchMode: false`) + `close({ cleanup })` | 신규 옵션 | — | 1 |
-| FR-02 | `batchParse(filePaths)` | 신규 API | — | 1 |
-| FR-03 | `getImportGraph(project?)` | 신규 API | — | 1 |
-| FR-04 | `getCyclePaths(project?)` | 신규 API | — | 1 |
-| FR-05 | `listIndexedFiles(project?)` | 신규 API | — | 1 |
-| FR-06 | relation type 확장 (re-exports + type-references) | 데이터 확장 | IMP-B, IMP-E | 2 |
-| FR-07 | `getDeadExports(project?)` | 신규 API (분석) | IMP-A | 2 |
-| FR-08 | `onIndexed` changedSymbols 포함 | 이벤트 확장 | Phase 0 안정화 | 2 |
-| FR-09 | `getFullSymbol(symbolName, filePath)` | 신규 API | IMP-C | 2 |
-| FR-10 | `getFileStats(filePath)` | 신규 API | IMP-D | 2 |
-| FR-11 | `getModuleInterface(filePath)` | 신규 API (분석) | — | 1 |
-| FR-12 | `getFanMetrics(filePath)` | 신규 API (분석) | — | 2 |
-| FR-13 | `getTransitiveDependencies(filePath)` | 신규 API | — | 1 |
-| FR-14 | `resolveSymbol(symbolName, filePath)` | 신규 API (분석) | IMP-A, IMP-B | 2 |
-| FR-15 | `findPattern(pattern, opts?)` | 신규 API (매칭) | ast-grep 도입 | 3 |
-| FR-16 | `indexExternalPackages(packages)` | 신규 API | 아키텍처 설계 | 3 |
-| FR-17 | Cross-project search | 검색 확장 | — | 1 |
-| FR-18 | `diffSymbols(before, after)` | 신규 API | — | 1 |
-| FR-19 | `searchSymbols` regex 모드 | 검색 확장 | — | 1 |
-| FR-20 | `getInternalRelations(filePath)` | 신규 API | — | 1 |
-| FR-21 | `getHeritageChain(symbolName)` | 신규 API | — | 1 |
+| FR | 기능 | 유형 | 전제조건 | Phase | 상태 |
+|----|------|------|----------|-------|------|
+| FR-01 | scan-only 모드 (`watchMode: false`) + `close({ cleanup })` | 신규 옵션 | — | 1 | 🔴 차단 (REGEXP 이슈로 미커밋) |
+| FR-02 | `batchParse(filePaths)` | 신규 API | — | 1 | ✅ 완료 |
+| FR-03 | `getImportGraph(project?)` | 신규 API | — | 1 | ✅ 완료 |
+| FR-04 | `getCyclePaths(project?)` | 신규 API | — | 1 | ✅ 완료 |
+| FR-05 | `listIndexedFiles(project?)` | 신규 API | — | 1 | ✅ 완료 |
+| FR-06 | relation type 확장 (re-exports + type-references) | 데이터 확장 | IMP-B, IMP-E | 2 | ⬜ 미시작 |
+| FR-07 | `getDeadExports(project?)` | 신규 API (분석) | IMP-A | 2 | ⬜ 미시작 |
+| FR-08 | `onIndexed` changedSymbols 포함 | 이벤트 확장 | Phase 0 안정화 | 2 | ⬜ 미시작 |
+| FR-09 | `getFullSymbol(symbolName, filePath)` | 신규 API | IMP-C | 2 | ⬜ 미시작 |
+| FR-10 | `getFileStats(filePath)` | 신규 API | IMP-D | 2 | ⬜ 미시작 |
+| FR-11 | `getModuleInterface(filePath)` | 신규 API (분석) | — | 1 | ✅ 완료 |
+| FR-12 | `getFanMetrics(filePath)` | 신규 API (분석) | — | 2 | ⬜ 미시작 |
+| FR-13 | `getTransitiveDependencies(filePath)` | 신규 API | — | 1 | ✅ 완료 |
+| FR-14 | `resolveSymbol(symbolName, filePath)` | 신규 API (분석) | IMP-A, IMP-B | 2 | ⬜ 미시작 |
+| FR-15 | `findPattern(pattern, opts?)` | 신규 API (매칭) | ast-grep 도입 | 3 | ⬜ 미시작 |
+| FR-16 | `indexExternalPackages(packages)` | 신규 API | 아키텍처 설계 | 3 | ⬜ 미시작 |
+| FR-17 | Cross-project search | 검색 확장 | — | 1 | ✅ 완료 |
+| FR-18 | `diffSymbols(before, after)` | 신규 API | — | 1 | ✅ 완료 |
+| FR-19 | `searchSymbols` regex 모드 | 검색 확장 | — | 1 | 🔴 차단 (REGEXP 이슈로 미커밋) |
+| FR-20 | `getInternalRelations(filePath)` | 신규 API | — | 1 | ✅ 완료 |
+| FR-21 | `getHeritageChain(symbolName)` | 신규 API | — | 1 | ✅ 완료 |
 
 ### 기존 계획 항목 (유지)
 
-| ID | 항목 | 유형 | Phase |
-|----|------|------|-------|
-| LEG-1 | `SymbolSearchQuery.decorator` 필터 | 검색 확장 | 1 |
-| LEG-2 | DependencyGraph 내부 캐싱 | 성능 최적화 | 4 |
+| ID | 항목 | 유형 | Phase | 상태 |
+|----|------|------|-------|------|
+| LEG-1 | `SymbolSearchQuery.decorator` 필터 | 검색 확장 | 1 | 🔴 차단 (REGEXP 이슈로 미커밋) |
+| LEG-2 | DependencyGraph 내부 캐싱 | 성능 최적화 | 4 | ⬜ 미시작 |
 
 ## 의존관계
 

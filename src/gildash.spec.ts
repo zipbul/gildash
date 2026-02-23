@@ -103,6 +103,7 @@ function makeOptions(opts: {
   existsSync?: (p: string) => boolean;
   projectRoot?: string;
   readFileFn?: (filePath: string) => Promise<string>;
+  unlinkFn?: (filePath: string) => Promise<void>;
 } = {}) {
   const db = opts.db ?? makeDbMock();
   const watcher = opts.watcher ?? makeWatcherMock();
@@ -137,6 +138,7 @@ function makeOptions(opts: {
     symbolSearchFn: mock((opts: any) => []) as any,
     relationSearchFn: mock((opts: any) => []) as any,
     readFileFn: opts.readFileFn ?? mock(async (_fp: string) => '// default content'),
+    unlinkFn: opts.unlinkFn ?? mock(async (_fp: string) => {}),
     db: db,
     watcher: watcher,
     coordinator: coordinator,
@@ -2513,6 +2515,118 @@ describe('Gildash', () => {
       expect(isErr(result)).toBe(true);
       expect((result as any).data.type).toBe('search');
       await ledger.close();
+    });
+  });
+
+  // ── FR-01 watchMode: false ─────────────────────────────────────────────────
+
+  describe('watchMode: false (scan-only mode)', () => {
+    // [HP] watchMode:false → acquireWatcherRoleFn 미호출
+    it('should not call acquireWatcherRoleFn when watchMode is false', async () => {
+      const acquireMock = mock(async () => 'owner' as const);
+      const opts = { ...makeOptions(), acquireWatcherRoleFn: acquireMock, watchMode: false } as any;
+      const ledger = await openOrThrow(opts);
+
+      expect(acquireMock).not.toHaveBeenCalled();
+      await ledger.close();
+    });
+
+    // [HP] watchMode:false → watcherFactory 미호출
+    it('should not call watcherFactory when watchMode is false', async () => {
+      const watcherFactory = mock(() => makeWatcherMock());
+      const opts = { ...makeOptions(), watcherFactory, watchMode: false } as any;
+      const ledger = await openOrThrow(opts);
+
+      expect(watcherFactory).not.toHaveBeenCalled();
+      await ledger.close();
+    });
+
+    // [HP] watchMode:false → heartbeat timer 미생성 (timer = null)
+    it('should not start a heartbeat timer when watchMode is false', async () => {
+      const opts = { ...makeOptions(), watchMode: false } as any;
+      const ledger = await openOrThrow(opts);
+
+      expect((ledger as any).timer).toBeNull();
+      await ledger.close();
+    });
+
+    // [HP] watchMode:false → signal handler 미등록
+    it('should not register signal handlers when watchMode is false', async () => {
+      const opts = { ...makeOptions(), watchMode: false } as any;
+      const ledger = await openOrThrow(opts);
+
+      expect((ledger as any).signalHandlers).toHaveLength(0);
+      await ledger.close();
+    });
+
+    // [HP] watchMode:false → coordinatorFactory 호출됨 + fullIndex 실행됨
+    it('should call coordinatorFactory and run fullIndex when watchMode is false', async () => {
+      const coordinatorMock = makeCoordinatorMock();
+      const coordinatorFactory = mock(() => coordinatorMock);
+      const opts = { ...makeOptions(), coordinatorFactory, watchMode: false } as any;
+      const ledger = await openOrThrow(opts);
+
+      expect(coordinatorFactory).toHaveBeenCalled();
+      expect(coordinatorMock.fullIndex).toHaveBeenCalled();
+      await ledger.close();
+    });
+
+    // [HP] watchMode:undefined (기본값) → acquireWatcherRoleFn 호출됨
+    it('should call acquireWatcherRoleFn when watchMode is undefined (default behavior preserved)', async () => {
+      const acquireMock = mock(async () => 'owner' as const);
+      const opts = { ...makeOptions(), acquireWatcherRoleFn: acquireMock } as any;
+      const ledger = await openOrThrow(opts);
+
+      expect(acquireMock).toHaveBeenCalled();
+      await ledger.close();
+    });
+  });
+
+  // ── FR-01 close cleanup ────────────────────────────────────────────────────
+
+  describe('close({ cleanup })', () => {
+    // [HP] close({cleanup:true}) → unlinkFn이 .db/.db-wal/.db-shm 각각으로 호출됨
+    it('should call unlinkFn for db, wal, and shm files when cleanup is true', async () => {
+      const unlinkFn = mock(async (_p: string) => {});
+      const opts = { ...makeOptions(), unlinkFn } as any;
+      const ledger = await openOrThrow(opts);
+      await ledger.close({ cleanup: true });
+
+      expect(unlinkFn).toHaveBeenCalledTimes(3);
+      const paths = unlinkFn.mock.calls.map((c: any[]) => c[0] as string);
+      expect(paths.some((p: string) => p.endsWith('gildash.db'))).toBe(true);
+      expect(paths.some((p: string) => p.endsWith('gildash.db-wal'))).toBe(true);
+      expect(paths.some((p: string) => p.endsWith('gildash.db-shm'))).toBe(true);
+    });
+
+    // [HP] close({cleanup:false}) → unlinkFn 미호출
+    it('should not call unlinkFn when cleanup is false', async () => {
+      const unlinkFn = mock(async (_p: string) => {});
+      const opts = { ...makeOptions(), unlinkFn } as any;
+      const ledger = await openOrThrow(opts);
+      await ledger.close({ cleanup: false });
+
+      expect(unlinkFn).not.toHaveBeenCalled();
+    });
+
+    // [HP] close() opts 없음 → unlinkFn 미호출
+    it('should not call unlinkFn when close is called without opts', async () => {
+      const unlinkFn = mock(async (_p: string) => {});
+      const opts = { ...makeOptions(), unlinkFn } as any;
+      const ledger = await openOrThrow(opts);
+      await ledger.close();
+
+      expect(unlinkFn).not.toHaveBeenCalled();
+    });
+
+    // [ED] close({cleanup:true}) + unlinkFn throws → close 정상 완료
+    it('should complete close normally when unlinkFn throws with cleanup true', async () => {
+      const unlinkFn = mock(async (_p: string) => { throw new Error('unlink failed'); });
+      const opts = { ...makeOptions(), unlinkFn } as any;
+      const ledger = await openOrThrow(opts);
+      const result = await ledger.close({ cleanup: true });
+
+      expect(isErr(result)).toBe(false);
     });
   });
 });

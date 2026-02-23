@@ -113,6 +113,17 @@ export interface GildashOptions {
   parseCacheCapacity?: number;
   /** Logger for error output. Defaults to `console`. */
   logger?: Logger;
+  /**
+   * When `false`, disables the file watcher and runs in scan-only mode:
+   * ownership contention is skipped, heartbeat and signal handlers are not
+   * registered, and only the initial `fullIndex()` is performed.
+   *
+   * Set `cleanup: true` in {@link Gildash.close} to remove the database files
+   * after a one-shot scan.
+   *
+   * @default true
+   */
+  watchMode?: boolean;
 }
 
 interface GildashInternalOptions {
@@ -140,6 +151,7 @@ interface GildashInternalOptions {
   relationSearchFn?: typeof defaultRelationSearch;
   loadTsconfigPathsFn?: typeof loadTsconfigPaths;
   readFileFn?: (filePath: string) => Promise<string>;
+  unlinkFn?: (filePath: string) => Promise<void>;
 }
 
 /**
@@ -196,6 +208,7 @@ export class Gildash {
   private readonly symbolSearchFn: typeof defaultSymbolSearch;
   private readonly relationSearchFn: typeof defaultRelationSearch;
   private readonly readFileFn: (filePath: string) => Promise<string>;
+  private readonly unlinkFn: (filePath: string) => Promise<void>;
   private readonly logger: Logger;
   private readonly defaultProject: string;
   /** Current watcher role: `'owner'` (can reindex) or `'reader'` (read-only). */
@@ -226,6 +239,7 @@ export class Gildash {
     symbolSearchFn: typeof defaultSymbolSearch;
     relationSearchFn: typeof defaultRelationSearch;
     readFileFn: (filePath: string) => Promise<string>;
+    unlinkFn: (filePath: string) => Promise<void>;
     logger: Logger;
     defaultProject: string;
     role: 'owner' | 'reader';
@@ -245,6 +259,7 @@ export class Gildash {
     this.symbolSearchFn = opts.symbolSearchFn;
     this.relationSearchFn = opts.relationSearchFn;
     this.readFileFn = opts.readFileFn;
+    this.unlinkFn = opts.unlinkFn;
     this.logger = opts.logger;
     this.defaultProject = opts.defaultProject;
     this.role = opts.role;
@@ -293,6 +308,8 @@ export class Gildash {
       relationSearchFn = defaultRelationSearch,
       loadTsconfigPathsFn = loadTsconfigPaths,
       readFileFn = async (fp: string) => Bun.file(fp).text(),
+      unlinkFn = async (fp: string) => { await Bun.file(fp).unlink(); },
+      watchMode,
     } = options;
 
     if (!path.isAbsolute(projectRoot)) {
@@ -324,9 +341,15 @@ export class Gildash {
           };
         })();
 
-    const role = await Promise.resolve(
-      acquireWatcherRoleFn(db, process.pid, {}),
-    );
+    const isWatchMode = watchMode ?? true;
+    let role: 'owner' | 'reader';
+    if (isWatchMode) {
+      role = await Promise.resolve(
+        acquireWatcherRoleFn(db, process.pid, {}),
+      );
+    } else {
+      role = 'owner';
+    }
 
     let coordinator: (Pick<IndexCoordinator, 'fullIndex' | 'shutdown' | 'onIndexed'> & {
       tsconfigPaths?: Promise<TsconfigPaths | null>;
@@ -350,6 +373,7 @@ export class Gildash {
       symbolSearchFn: symbolSearchFn,
       relationSearchFn: relationSearchFn,
       readFileFn: readFileFn,
+      unlinkFn: unlinkFn,
       logger,
       defaultProject,
       role,
@@ -358,10 +382,6 @@ export class Gildash {
     instance.tsconfigPaths = await loadTsconfigPathsFn(projectRoot);
     instance.boundaries = boundaries;
     if (role === 'owner') {
-      const w = watcherFactory
-        ? watcherFactory()
-        : new ProjectWatcher({ projectRoot, ignorePatterns, extensions }, undefined, logger);
-
       const c = coordinatorFactory
         ? coordinatorFactory()
         : new IndexCoordinator({
@@ -378,16 +398,23 @@ export class Gildash {
           });
 
       instance.coordinator = c;
-      instance.watcher = w;
 
-      await w.start((event) => c.handleWatcherEvent?.(event)).then((startResult) => {
-        if (isErr(startResult)) throw startResult.data;
-      });
+      if (isWatchMode) {
+        const w = watcherFactory
+          ? watcherFactory()
+          : new ProjectWatcher({ projectRoot, ignorePatterns, extensions }, undefined, logger);
 
-      const timer = setInterval(() => {
-        updateHeartbeatFn(db, process.pid);
-      }, HEARTBEAT_INTERVAL_MS);
-      instance.timer = timer;
+        instance.watcher = w;
+
+        await w.start((event) => c.handleWatcherEvent?.(event)).then((startResult) => {
+          if (isErr(startResult)) throw startResult.data;
+        });
+
+        const timer = setInterval(() => {
+          updateHeartbeatFn(db, process.pid);
+        }, HEARTBEAT_INTERVAL_MS);
+        instance.timer = timer;
+      }
 
       await c.fullIndex();
     } else {
@@ -472,15 +499,17 @@ export class Gildash {
       instance.timer = timer;
     }
 
-    const signals: Array<NodeJS.Signals | 'beforeExit'> = ['SIGTERM', 'SIGINT', 'beforeExit'];
-    for (const sig of signals) {
-      const handler = () => { instance.close().catch(err => logger.error('[Gildash] close error during signal', sig, err)); };
-      if (sig === 'beforeExit') {
-        process.on('beforeExit', handler);
-      } else {
-        process.on(sig, handler);
+    if (isWatchMode) {
+      const signals: Array<NodeJS.Signals | 'beforeExit'> = ['SIGTERM', 'SIGINT', 'beforeExit'];
+      for (const sig of signals) {
+        const handler = () => { instance.close().catch(err => logger.error('[Gildash] close error during signal', sig, err)); };
+        if (sig === 'beforeExit') {
+          process.on('beforeExit', handler);
+        } else {
+          process.on(sig, handler);
+        }
+        instance.signalHandlers.push([sig, handler]);
       }
-      instance.signalHandlers.push([sig, handler]);
     }
 
     return instance;
@@ -510,7 +539,7 @@ export class Gildash {
    * }
    * ```
    */
-  async close(): Promise<Result<void, GildashError>> {
+  async close(opts?: { cleanup?: boolean }): Promise<Result<void, GildashError>> {
     if (this.closed) return;
     this.closed = true;
 
@@ -553,6 +582,14 @@ export class Gildash {
       this.db.close();
     } catch (err) {
       closeErrors.push(err instanceof Error ? err : new Error(String(err)));
+    }
+
+    if (opts?.cleanup) {
+      for (const ext of ['', '-wal', '-shm']) {
+        try {
+          await this.unlinkFn(path.join(this.projectRoot, '.zipbul', 'gildash.db' + ext));
+        } catch {}
+      }
     }
 
     if (closeErrors.length > 0) {
