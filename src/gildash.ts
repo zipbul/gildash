@@ -87,8 +87,7 @@ export interface HeritageNode {
  * Full symbol detail including members, documentation, and type information.
  * Returned by {@link Gildash.getFullSymbol}.
  */
-export interface FullSymbol extends SymbolSearchResult {
-  /** Class/interface members (methods, properties, constructors, accessors). */
+export interface FullSymbol extends SymbolSearchResult {  /** Class/interface members (methods, properties, constructors, accessors). */
   members?: Array<{
     name: string;
     kind: string;
@@ -109,6 +108,25 @@ export interface FullSymbol extends SymbolSearchResult {
   decorators?: Array<{ name: string; arguments?: string }>;
   /** Stringified type parameters (generic symbols). */
   typeParameters?: string;
+}
+
+/**
+ * File-level statistics for an indexed file.
+ * Returned by {@link Gildash.getFileStats}.
+ */
+export interface FileStats {
+  /** Absolute file path. */
+  filePath: string;
+  /** Number of lines in the file at the time of last indexing. */
+  lineCount: number;
+  /** Number of symbols indexed in the file. */
+  symbolCount: number;
+  /** Number of outgoing relations (imports, calls, etc.) from the file. */
+  relationCount: number;
+  /** File size in bytes at the time of last indexing. */
+  size: number;
+  /** Number of exported symbols in the file. */
+  exportedSymbolCount: number;
 }
 
 /**
@@ -1261,6 +1279,42 @@ export class Gildash {
       return full;
     } catch (e) {
       return err(gildashError('search', 'Gildash: getFullSymbol failed', e));
+    }
+  }
+
+  /**
+   * Retrieve statistics for an indexed file (line count, symbol count, etc.).
+   *
+   * @param filePath - Absolute path of the file to query.
+   * @param project  - Project scope override (defaults to `defaultProject`).
+   * @returns A {@link FileStats} on success, or `Err<GildashError>` with
+   *   `type='closed'` if the instance is closed,
+   *   `type='search'` if the file is not in the index,
+   *   `type='store'` if the query throws.
+   */
+  getFileStats(
+    filePath: string,
+    project?: string,
+  ): Result<FileStats, GildashError> {
+    if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
+    try {
+      const effectiveProject = project ?? this.defaultProject;
+      const fileRecord = this.fileRepo.getFile(effectiveProject, filePath);
+      if (!fileRecord) {
+        return err(gildashError('search', `Gildash: file '${filePath}' is not in the index`));
+      }
+      const symbols = this.symbolRepo.getFileSymbols(effectiveProject, filePath);
+      const relations = this.relationRepo.getOutgoing(effectiveProject, filePath);
+      return {
+        filePath: fileRecord.filePath,
+        lineCount: fileRecord.lineCount ?? 0,
+        size: fileRecord.size,
+        symbolCount: symbols.length,
+        exportedSymbolCount: symbols.filter((s) => s.isExported).length,
+        relationCount: relations.length,
+      };
+    } catch (e) {
+      return err(gildashError('store', 'Gildash: getFileStats failed', e));
     }
   }
 

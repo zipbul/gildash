@@ -3072,4 +3072,158 @@ describe('Gildash', () => {
       await ledger.close();
     });
   });
+
+  // FR-10: getFileStats
+  describe('Gildash.getFileStats', () => {
+    // 1. [HP] indexed file with symbols and relations → all fields correct
+    it('should return all file stats when getFileStats is called for an indexed file', async () => {
+      const fileRepo = makeFileRepoMock();
+      const symbolRepo = makeSymbolRepoMock();
+      const relationRepo = makeRelationRepoMock();
+      fileRepo.getFile.mockReturnValue({
+        project: 'test-project', filePath: 'src/a.ts',
+        contentHash: 'h1', mtimeMs: 1000, size: 512, lineCount: 80, updatedAt: '',
+      });
+      symbolRepo.getFileSymbols.mockReturnValue([
+        { name: 'Foo', kind: 'class', filePath: 'src/a.ts', isExported: true },
+        { name: 'bar', kind: 'function', filePath: 'src/a.ts', isExported: true },
+        { name: '_internal', kind: 'function', filePath: 'src/a.ts', isExported: false },
+      ] as any);
+      relationRepo.getOutgoing.mockReturnValue([{}, {}] as any);
+      const opts = makeOptions({ fileRepo, symbolRepo, relationRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).getFileStats('src/a.ts');
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toMatchObject({
+        filePath: 'src/a.ts',
+        lineCount: 80,
+        size: 512,
+        symbolCount: 3,
+        exportedSymbolCount: 2,
+        relationCount: 2,
+      });
+      await ledger.close();
+    });
+
+    // 2. [HP] file with 0 symbols → symbolCount=0, exportedSymbolCount=0
+    it('should return symbolCount=0 and exportedSymbolCount=0 when file has no symbols', async () => {
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getFile.mockReturnValue({
+        project: 'test-project', filePath: 'src/empty.ts',
+        contentHash: 'h0', mtimeMs: 0, size: 0, lineCount: 1, updatedAt: '',
+      });
+      const opts = makeOptions({ fileRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).getFileStats('src/empty.ts');
+
+      expect(isErr(result)).toBe(false);
+      expect(result.symbolCount).toBe(0);
+      expect(result.exportedSymbolCount).toBe(0);
+      await ledger.close();
+    });
+
+    // 3. [HP] 3 symbols, 2 exported → exportedSymbolCount=2
+    it('should return exportedSymbolCount=2 when only 2 of 3 symbols are exported', async () => {
+      const fileRepo = makeFileRepoMock();
+      const symbolRepo = makeSymbolRepoMock();
+      fileRepo.getFile.mockReturnValue({
+        project: 'test-project', filePath: 'src/b.ts',
+        contentHash: 'h2', mtimeMs: 2, size: 100, lineCount: 20, updatedAt: '',
+      });
+      symbolRepo.getFileSymbols.mockReturnValue([
+        { name: 'A', kind: 'class', filePath: 'src/b.ts', isExported: true },
+        { name: 'B', kind: 'class', filePath: 'src/b.ts', isExported: true },
+        { name: 'c', kind: 'variable', filePath: 'src/b.ts', isExported: false },
+      ] as any);
+      const opts = makeOptions({ fileRepo, symbolRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).getFileStats('src/b.ts');
+
+      expect(isErr(result)).toBe(false);
+      expect(result.symbolCount).toBe(3);
+      expect(result.exportedSymbolCount).toBe(2);
+      await ledger.close();
+    });
+
+    // 4. [NE] file not indexed → Err('search')
+    it('should return Err with search type when getFileStats is called for a file not in the index', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).getFileStats('src/missing.ts');
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('search');
+      await ledger.close();
+    });
+
+    // 5. [NE] closed → Err('closed')
+    it('should return Err with closed type when getFileStats is called on a closed instance', async () => {
+      const opts = makeOptions();
+      const ledger = await openOrThrow(opts);
+      await ledger.close();
+
+      const result = (ledger as any).getFileStats('src/a.ts');
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('closed');
+    });
+
+    // 6. [ED] lineCount null → returns 0
+    it('should return lineCount=0 when file record has null lineCount', async () => {
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getFile.mockReturnValue({
+        project: 'test-project', filePath: 'src/null-lc.ts',
+        contentHash: 'h3', mtimeMs: 0, size: 0, lineCount: null, updatedAt: '',
+      });
+      const opts = makeOptions({ fileRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).getFileStats('src/null-lc.ts');
+
+      expect(isErr(result)).toBe(false);
+      expect(result.lineCount).toBe(0);
+      await ledger.close();
+    });
+
+    // 7. [CO] getFileSymbols throws → Err('store')
+    it('should return Err with store type when symbolRepo.getFileSymbols throws inside getFileStats', async () => {
+      const fileRepo = makeFileRepoMock();
+      const symbolRepo = makeSymbolRepoMock();
+      fileRepo.getFile.mockReturnValue({
+        project: 'test-project', filePath: 'src/a.ts',
+        contentHash: 'h4', mtimeMs: 0, size: 0, lineCount: 1, updatedAt: '',
+      });
+      symbolRepo.getFileSymbols.mockImplementation(() => { throw new Error('db fail'); });
+      const opts = makeOptions({ fileRepo, symbolRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).getFileStats('src/a.ts');
+
+      expect(isErr(result)).toBe(true);
+      expect((result as any).data.type).toBe('store');
+      await ledger.close();
+    });
+
+    // 8. [HP] 0 relations → relationCount=0
+    it('should return relationCount=0 when file has no outgoing relations', async () => {
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getFile.mockReturnValue({
+        project: 'test-project', filePath: 'src/leaf.ts',
+        contentHash: 'h5', mtimeMs: 0, size: 50, lineCount: 5, updatedAt: '',
+      });
+      const opts = makeOptions({ fileRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = (ledger as any).getFileStats('src/leaf.ts');
+
+      expect(isErr(result)).toBe(false);
+      expect(result.relationCount).toBe(0);
+      await ledger.close();
+    });
+  });
 });
