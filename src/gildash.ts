@@ -728,6 +728,7 @@ export class Gildash {
    *
    * @param filePath - File path used as the cache key and for diagnostics.
    * @param sourceText - Raw TypeScript source code.
+   * @param options - Optional oxc-parser {@link ParserOptions} (e.g. `sourceType`, `lang`).
    * @returns A {@link ParsedFile}, or `Err<GildashError>` with `type='closed'` if the instance
    *   is closed, or `type='parse'` if the parser fails.
    *
@@ -1505,6 +1506,7 @@ export class Gildash {
    * The operation does not fail even if every file fails — it returns an empty `Map`.
    *
    * @param filePaths - Absolute paths of files to parse.
+   * @param options - Optional oxc-parser {@link ParserOptions} (e.g. `sourceType`, `lang`).
    * @returns A `Map<filePath, ParsedFile>` for every successfully-parsed file,
    *   or `Err<GildashError>` with `type='closed'` if the instance is closed.
    */

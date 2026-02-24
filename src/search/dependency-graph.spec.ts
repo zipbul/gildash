@@ -780,6 +780,6 @@ describe('DependencyGraph', () => {
     const paths = graph.getCyclePaths();
 
     // K3 has: [A,B], [B,C], [A,C], [A,B,C], [A,C,B] = 5 elementary circuits
-    expect(paths.length).toBeGreaterThanOrEqual(5);
+    expect(paths).toHaveLength(5);
   });
 });

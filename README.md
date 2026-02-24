@@ -17,7 +17,6 @@ gildash indexes your TypeScript codebase into a local SQLite database, then lets
 | "Which files break if I change this module?" | Directed import graph with transitive impact analysis |
 | "Are there any circular dependencies?" | Cycle detection across the full import graph |
 | "Where is this symbol actually defined?" | Re-export chain resolution to the original source |
-| "Which exports are never imported?" | Dead-export detection across projects |
 | "Find every `console.log(...)` call" | AST-level structural pattern search via [ast-grep](https://ast-grep.github.io/) |
 
 <br>
@@ -278,7 +277,7 @@ Returns `Promise<Gildash>` (wrapped in `Result`).
 | `resolveSymbol(name, filePath)` | `Result<ResolvedSymbol>` | Follow re-export chain to original |
 | `getHeritageChain(name, filePath)` | `Promise<Result<HeritageNode>>` | extends / implements tree |
 | `indexExternalPackages(packages)` | `Promise<Result<IndexResult[]>>` | Index `.d.ts` from `node_modules` |
-| `batchParse(filePaths)` | `Promise<Result<Map>>` | Concurrent multi-file parsing |
+| `batchParse(filePaths, opts?)` | `Promise<Result<Map>>` | Concurrent multi-file parsing. `opts`: oxc-parser `ParserOptions`. |
 
 ### Lifecycle & Low-level
 
@@ -286,7 +285,7 @@ Returns `Promise<Gildash>` (wrapped in `Result`).
 |--------|---------|-------------|
 | `reindex()` | `Promise<Result<IndexResult>>` | Force full re-index (owner only) |
 | `onIndexed(callback)` | `() => void` | Subscribe to index-complete events |
-| `parseSource(filePath, src)` | `Result<ParsedFile>` | Parse & cache a single file |
+| `parseSource(filePath, src, opts?)` | `Result<ParsedFile>` | Parse & cache a single file. `opts`: oxc-parser `ParserOptions`. |
 | `extractSymbols(parsed)` | `Result<ExtractedSymbol[]>` | Extract symbols from parsed AST |
 | `extractRelations(parsed)` | `Result<CodeRelation[]>` | Extract relations from parsed AST |
 | `getParsedAst(filePath)` | `ParsedFile \| undefined` | Cached AST lookup (read-only) |

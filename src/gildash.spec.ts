@@ -2245,6 +2245,24 @@ describe('Gildash', () => {
       expect((result as any).data.type).toBe('search');
       await ledger.close();
     });
+
+    it('should pass options to graph getCyclePaths when maxCycles is provided', async () => {
+      const relationRepo = makeRelationRepoMock();
+      relationRepo.getByType.mockReturnValue([
+        { srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts', type: 'imports', project: 'test-project', srcSymbolName: null, dstSymbolName: null, metaJson: null },
+        { srcFilePath: 'src/b.ts', dstFilePath: 'src/a.ts', type: 'imports', project: 'test-project', srcSymbolName: null, dstSymbolName: null, metaJson: null },
+        { srcFilePath: 'src/c.ts', dstFilePath: 'src/d.ts', type: 'imports', project: 'test-project', srcSymbolName: null, dstSymbolName: null, metaJson: null },
+        { srcFilePath: 'src/d.ts', dstFilePath: 'src/c.ts', type: 'imports', project: 'test-project', srcSymbolName: null, dstSymbolName: null, metaJson: null },
+      ]);
+      const opts = makeOptions({ relationRepo });
+      const ledger = await openOrThrow(opts);
+
+      const result = await ledger.getCyclePaths(undefined, { maxCycles: 1 });
+
+      expect(isErr(result)).toBe(false);
+      expect(result as string[][]).toHaveLength(1);
+      await ledger.close();
+    });
   });
 
   // ─── FR-02: batchParse ───
