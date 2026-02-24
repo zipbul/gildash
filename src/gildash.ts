@@ -316,7 +316,7 @@ export class Gildash {
   /** Project key of the cached graph (`project ?? '__cross__'`). */
   private graphCacheKey: string | null = null;
   /** Semantic Layer (tsc-backed) — `null` when `semantic` option is `false` (default). */
-  private semanticLayer: Pick<SemanticLayer, 'collectTypeAt' | 'collectFileTypes' | 'findReferences' | 'findImplementations' | 'getModuleInterface' | 'getSymbolNode' | 'notifyFileChanged' | 'dispose' | 'isDisposed' | 'lineColumnToPosition'> | null = null;
+  private semanticLayer: Pick<SemanticLayer, 'collectTypeAt' | 'collectFileTypes' | 'findReferences' | 'findImplementations' | 'getModuleInterface' | 'getSymbolNode' | 'notifyFileChanged' | 'dispose' | 'isDisposed' | 'lineColumnToPosition' | 'findNamePosition'> | null = null;
 
   private constructor(opts: {
     projectRoot: string;
@@ -549,6 +549,20 @@ export class Gildash {
       }
 
       await c.fullIndex();
+
+      // Feed indexed files to the Semantic Layer so tsc knows about them.
+      if (instance.semanticLayer) {
+        const files = repos.fileRepo.getAllFiles(defaultProject);
+        await Promise.all(
+          files.map(async (f) => {
+            try {
+              const absPath = path.resolve(projectRoot, f.filePath);
+              const content = await readFileFn(absPath);
+              instance.semanticLayer?.notifyFileChanged(absPath, content);
+            } catch { /* best-effort */ }
+          }),
+        );
+      }
     } else {
       let retryCount = 0;
       const healthcheck = async () => {
@@ -604,6 +618,20 @@ export class Gildash {
               instance.coordinator = promotedCoordinator;
               instance.watcher = promotedWatcher;
               await promotedCoordinator.fullIndex();
+
+              // Feed indexed files to the Semantic Layer after promotion.
+              if (instance.semanticLayer) {
+                const files = repos.fileRepo.getAllFiles(defaultProject);
+                await Promise.all(
+                  files.map(async (f) => {
+                    try {
+                      const absPath = path.resolve(projectRoot, f.filePath);
+                      const content = await readFileFn(absPath);
+                      instance.semanticLayer?.notifyFileChanged(absPath, content);
+                    } catch { /* best-effort */ }
+                  }),
+                );
+              }
             } catch (setupErr) {
               logger.error('[Gildash] owner promotion failed, reverting to reader', setupErr);
               if (promotedWatcher) {
@@ -1327,11 +1355,13 @@ export class Gildash {
       };
       if (this.semanticLayer) {
         try {
-          const pos = this.semanticLayer.lineColumnToPosition(
-            filePath, sym.span.start.line, sym.span.start.column,
+          const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(this.projectRoot, filePath);
+          const declPos = this.semanticLayer.lineColumnToPosition(
+            absPath, sym.span.start.line, sym.span.start.column,
           );
-          if (pos !== null) {
-            const resolvedType = this.semanticLayer.collectTypeAt(filePath, pos);
+          if (declPos !== null) {
+            const pos = this.semanticLayer.findNamePosition(absPath, declPos, sym.name) ?? declPos;
+            const resolvedType = this.semanticLayer.collectTypeAt(absPath, pos);
             if (resolvedType) {
               full.resolvedType = resolvedType;
             }
@@ -1735,7 +1765,7 @@ export class Gildash {
     symbolName: string,
     filePath: string,
     project?: string,
-  ): { sym: SymbolSearchResult; position: number } | null {
+  ): { sym: SymbolSearchResult; position: number; absPath: string } | null {
     const effectiveProject = project ?? this.defaultProject;
     const results = this.symbolSearchFn({
       symbolRepo: this.symbolRepo,
@@ -1744,13 +1774,17 @@ export class Gildash {
     });
     if (results.length === 0) return null;
     const sym = results[0]!;
-    const position = this.semanticLayer!.lineColumnToPosition(
-      filePath,
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(this.projectRoot, filePath);
+    const declPos = this.semanticLayer!.lineColumnToPosition(
+      absPath,
       sym.span.start.line,
       sym.span.start.column,
     );
-    if (position === null) return null;
-    return { sym, position };
+    if (declPos === null) return null;
+    // span.start points to the declaration start (e.g., `export` keyword).
+    // Find the actual symbol name position for tsc APIs.
+    const position = this.semanticLayer!.findNamePosition(absPath, declPos, sym.name) ?? declPos;
+    return { sym, position, absPath };
   }
 
   /**
@@ -1776,7 +1810,7 @@ export class Gildash {
       if (!resolved) {
         return err(gildashError('search', `Gildash: symbol '${symbolName}' not found in '${filePath}'`));
       }
-      return this.semanticLayer.collectTypeAt(filePath, resolved.position);
+      return this.semanticLayer.collectTypeAt(resolved.absPath, resolved.position);
     } catch (e) {
       return err(gildashError('search', 'Gildash: getResolvedType failed', e));
     }
@@ -1802,7 +1836,7 @@ export class Gildash {
       if (!resolved) {
         return err(gildashError('search', `Gildash: symbol '${symbolName}' not found in '${filePath}'`));
       }
-      return this.semanticLayer.findReferences(filePath, resolved.position);
+      return this.semanticLayer.findReferences(resolved.absPath, resolved.position);
     } catch (e) {
       return err(gildashError('search', 'Gildash: getSemanticReferences failed', e));
     }
@@ -1830,7 +1864,7 @@ export class Gildash {
       if (!resolved) {
         return err(gildashError('search', `Gildash: symbol '${symbolName}' not found in '${filePath}'`));
       }
-      return this.semanticLayer.findImplementations(filePath, resolved.position);
+      return this.semanticLayer.findImplementations(resolved.absPath, resolved.position);
     } catch (e) {
       return err(gildashError('search', 'Gildash: getImplementations failed', e));
     }

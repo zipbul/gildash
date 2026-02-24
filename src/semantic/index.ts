@@ -235,6 +235,27 @@ export class SemanticLayer {
     }
   }
 
+  // ── Name position lookup ────────────────────────────────────────────────
+
+  /**
+   * Find the byte offset of a symbol **name** starting from its declaration position.
+   *
+   * `declarationPos` typically points to the `export` keyword (the declaration start
+   * stored in the DB), while the symbol name sits a few tokens ahead.
+   * Uses a simple text search to locate the first occurrence of `name` after `declarationPos`.
+   *
+   * Returns `null` when the file is not in the program or the name is not found.
+   */
+  findNamePosition(filePath: string, declarationPos: number, name: string): number | null {
+    this.#assertNotDisposed();
+    const sourceFile = this.#program.getProgram().getSourceFile(filePath);
+    if (!sourceFile) return null;
+    const text = sourceFile.getFullText();
+    const idx = text.indexOf(name, declarationPos);
+    if (idx < 0) return null;
+    return idx;
+  }
+
   // ── Lifecycle ───────────────────────────────────────────────────────────
 
   dispose(): void {

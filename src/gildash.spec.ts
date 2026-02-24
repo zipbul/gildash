@@ -3595,6 +3595,7 @@ describe('Gildash', () => {
         dispose: mock(() => {}),
         isDisposed: false,
         lineColumnToPosition: mock((_fp: string, _line: number, _col: number) => 42 as number | null),
+        findNamePosition: mock((_fp: string, _declPos: number, _name: string) => 55 as number | null),
       };
     }
 
@@ -3658,7 +3659,8 @@ describe('Gildash', () => {
       expect(isErr(result)).toBe(false);
       expect(result).toEqual(SAMPLE_TYPE);
       expect(opts._sl.lineColumnToPosition).toHaveBeenCalledWith('/project/src/a.ts', 5, 10);
-      expect(opts._sl.collectTypeAt).toHaveBeenCalledWith('/project/src/a.ts', 42);
+      expect(opts._sl.findNamePosition).toHaveBeenCalledWith('/project/src/a.ts', 42, 'Foo');
+      expect(opts._sl.collectTypeAt).toHaveBeenCalledWith('/project/src/a.ts', 55);
       await ledger.close();
     });
 
@@ -3692,7 +3694,7 @@ describe('Gildash', () => {
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual(refs);
-      expect(opts._sl.findReferences).toHaveBeenCalledWith('/project/src/a.ts', 42);
+      expect(opts._sl.findReferences).toHaveBeenCalledWith('/project/src/a.ts', 55);
       await ledger.close();
     });
 
@@ -3711,7 +3713,7 @@ describe('Gildash', () => {
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual(impls);
-      expect(opts._sl.findImplementations).toHaveBeenCalledWith('/project/src/a.ts', 42);
+      expect(opts._sl.findImplementations).toHaveBeenCalledWith('/project/src/a.ts', 55);
       await ledger.close();
     });
 
