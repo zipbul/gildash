@@ -412,7 +412,18 @@ describe('Gildash', () => {
     const result = ledger.parseSource('/project/src/a.ts', 'const x = 1;');
 
     expect(result).toMatchObject({ filePath: '/project/src/a.ts' });
-    expect(opts.parseSourceFn).toHaveBeenCalledWith('/project/src/a.ts', 'const x = 1;');
+    expect(opts.parseSourceFn).toHaveBeenCalledWith('/project/src/a.ts', 'const x = 1;', undefined);
+    await ledger.close();
+  });
+
+  it('should pass options to parseSourceFn when parseSource is called with options', async () => {
+    const opts = makeOptions();
+    const ledger = await openOrThrow(opts);
+    const options = { sourceType: 'script' as const };
+
+    ledger.parseSource('/project/src/a.ts', 'const x = 1;', options);
+
+    expect(opts.parseSourceFn).toHaveBeenCalledWith('/project/src/a.ts', 'const x = 1;', options);
     await ledger.close();
   });
 
@@ -2322,6 +2333,23 @@ describe('Gildash', () => {
 
       expect(isErr(result)).toBe(false);
       expect((result as Map<string, any>).size).toBe(1);
+      await ledger.close();
+    });
+
+    it('should pass options to parseSourceFn for each file when batchParse is called with options', async () => {
+      const readFileFn = mock(async (_fp: string) => '// content');
+      const parseSourceFn = mock((fp: string, text: string, _opts: any) => ({
+        filePath: fp, program: { body: [] }, errors: [], comments: [], sourceText: text,
+      })) as any;
+      const opts = { ...makeOptions({ readFileFn }), parseSourceFn };
+      const ledger = await openOrThrow(opts);
+      const options = { sourceType: 'module' as const };
+
+      await ledger.batchParse(['/project/src/a.ts', '/project/src/b.ts'], options);
+
+      for (const call of (parseSourceFn.mock.calls as any[])) {
+        expect(call[2]).toBe(options);
+      }
       await ledger.close();
     });
   });

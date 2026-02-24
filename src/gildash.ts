@@ -23,6 +23,7 @@ import { discoverProjects } from './common/project-discovery';
 import type { ProjectBoundary } from './common/project-discovery';
 import { loadTsconfigPaths, clearTsconfigPathsCache } from './common/tsconfig-resolver';
 import type { TsconfigPaths } from './common/tsconfig-resolver';
+import type { ParserOptions } from 'oxc-parser';
 import { symbolSearch as defaultSymbolSearch } from './search/symbol-search';
 import type { SymbolSearchQuery, SymbolSearchResult } from './search/symbol-search';
 import { relationSearch as defaultRelationSearch } from './search/relation-search';
@@ -741,9 +742,9 @@ export class Gildash {
    * const symbols = ledger.extractSymbols(parsed);
    * ```
    */
-  parseSource(filePath: string, sourceText: string): Result<ParsedFile, GildashError> {
+  parseSource(filePath: string, sourceText: string, options?: ParserOptions): Result<ParsedFile, GildashError> {
     if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
-    const result = this.parseSourceFn(filePath, sourceText);
+    const result = this.parseSourceFn(filePath, sourceText, options);
     if (isErr(result)) return result;
     this.parseCache.set(filePath, result);
     return result;
@@ -1572,14 +1573,14 @@ export class Gildash {
    * @returns A `Map<filePath, ParsedFile>` for every successfully-parsed file,
    *   or `Err<GildashError>` with `type='closed'` if the instance is closed.
    */
-  async batchParse(filePaths: string[]): Promise<Result<Map<string, ParsedFile>, GildashError>> {
+  async batchParse(filePaths: string[], options?: ParserOptions): Promise<Result<Map<string, ParsedFile>, GildashError>> {
     if (this.closed) return err(gildashError('closed', 'Gildash: instance is closed'));
     const result = new Map<string, ParsedFile>();
     await Promise.all(
       filePaths.map(async (fp) => {
         try {
           const text = await this.readFileFn(fp);
-          const parsed = this.parseSourceFn(fp, text);
+          const parsed = this.parseSourceFn(fp, text, options);
           if (!isErr(parsed)) {
             result.set(fp, parsed as ParsedFile);
           }
