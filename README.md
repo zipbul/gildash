@@ -144,12 +144,9 @@ const cyclePaths = await ledger.getCyclePaths();
 
 ### Code Quality Analysis
 
-Detect dead exports, inspect module interfaces, and measure coupling.
+Inspect module interfaces and measure coupling.
 
 ```ts
-// Dead exports — exported symbols never imported anywhere
-const dead = ledger.getDeadExports();
-
 // File statistics — line count, symbol count, size
 const stats = ledger.getFileStats('src/app.ts');
 
@@ -265,7 +262,6 @@ Returns `Promise<Gildash>` (wrapped in `Result`).
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `getDeadExports(project?, opts?)` | `Result<Array>` | Unused exported symbols |
 | `getFullSymbol(name, filePath)` | `Result<FullSymbol>` | Members, jsDoc, decorators, type info |
 | `getFileStats(filePath)` | `Result<FileStats>` | Line count, symbol count, size |
 | `getFanMetrics(filePath)` | `Promise<Result<FanMetrics>>` | Fan-in / fan-out coupling |

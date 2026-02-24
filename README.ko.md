@@ -144,12 +144,9 @@ const cyclePaths = await ledger.getCyclePaths();
 
 ### 코드 품질 분석
 
-미사용 export 감지, 모듈 인터페이스 조회, 결합도 측정을 수행합니다.
+모듈 인터페이스 조회, 결합도 측정을 수행합니다.
 
 ```ts
-// 미사용 export — 어디에서도 import되지 않은 exported 심볼
-const dead = ledger.getDeadExports();
-
 // 파일 통계 — 라인 수, 심볼 수, 파일 크기
 const stats = ledger.getFileStats('src/app.ts');
 
@@ -265,7 +262,6 @@ if (isErr(result)) {
 
 | 메서드 | 반환 타입 | 설명 |
 |--------|-----------|------|
-| `getDeadExports(project?, opts?)` | `Result<Array>` | 미사용 exported 심볼 |
 | `getFullSymbol(name, filePath)` | `Result<FullSymbol>` | 멤버, jsDoc, 데코레이터, 타입 정보 |
 | `getFileStats(filePath)` | `Result<FileStats>` | 라인 수, 심볼 수, 파일 크기 |
 | `getFanMetrics(filePath)` | `Promise<Result<FanMetrics>>` | fan-in/fan-out 결합도 |
