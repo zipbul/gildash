@@ -90,6 +90,13 @@ beforeEach(() => {
     existsSync: mockExistsSync,
     unlinkSync: mockUnlinkSync,
   }));
+  mock.module('drizzle-orm/bun-sqlite', () => ({
+    drizzle: mockDrizzleFn,
+  }));
+  mock.module('drizzle-orm/bun-sqlite/migrator', () => ({
+    migrate: mockMigrateFn,
+  }));
+  mock.module('bun:sqlite', () => ({ Database: MockDatabase }));
 });
 
 describe('DbConnection', () => {

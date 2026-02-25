@@ -35,6 +35,22 @@ const {
   MAX_HEALTHCHECK_RETRIES,
 } = await import('./lifecycle');
 
+beforeEach(() => {
+  mock.module('../common/tsconfig-resolver', () => ({
+    loadTsconfigPaths: mock(async () => null),
+    clearTsconfigPathsCache: mockClearTsconfigPathsCache,
+  }));
+  mock.module('../indexer/index-coordinator', () => ({
+    IndexCoordinator: class {
+      fullIndex = mockCoordinatorFullIndex;
+      shutdown = mockCoordinatorShutdown;
+      onIndexed = mockCoordinatorOnIndexed;
+      handleWatcherEvent = mock(() => {});
+      constructor(..._args: any[]) {}
+    },
+  }));
+});
+
 // ─── Helpers ────────────────────────────────────────────────────────
 
 function makeCoordinator(): CoordinatorLike & Record<string, any> {

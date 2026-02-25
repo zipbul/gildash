@@ -62,6 +62,9 @@ function makeCtx(overrides?: Partial<GildashContext>): GildashContext {
 }
 
 beforeEach(() => {
+  mock.module('../search/dependency-graph', () => ({
+    DependencyGraph: MockDependencyGraph,
+  }));
   mockBuild.mockClear();
   mockGetAffectedByChange.mockClear();
   mockHasCycle.mockClear();

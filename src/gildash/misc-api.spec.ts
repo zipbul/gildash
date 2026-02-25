@@ -56,6 +56,11 @@ function makeCtx(overrides?: Partial<GildashContext>): GildashContext {
 }
 
 beforeEach(() => {
+  mock.module('../indexer/index-coordinator', () => ({
+    IndexCoordinator: class {
+      fullIndex = mockFullIndex;
+    },
+  }));
   mockFullIndex.mockClear();
 });
 
