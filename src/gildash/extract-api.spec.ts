@@ -40,7 +40,7 @@ describe('extractSymbols', () => {
     const result = extractSymbols(ctx, parsed);
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(symbols);
+    expect(result).toBe(symbols as any);
     expect(fn).toHaveBeenCalledTimes(1);
     expect(fn).toHaveBeenCalledWith(parsed);
   });
@@ -127,7 +127,7 @@ describe('extractRelations', () => {
     const result = extractRelations(ctx, parsed);
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(relations);
+    expect(result).toBe(relations as any);
     expect(fn).toHaveBeenCalledTimes(1);
     expect(fn).toHaveBeenCalledWith(parsed.program, parsed.filePath, tsconfigPaths);
   });

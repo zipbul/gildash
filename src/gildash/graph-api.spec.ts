@@ -22,8 +22,12 @@ class MockDependencyGraph {
   getCyclePaths = mockGetCyclePaths;
   getDependents = mockGraphGetDependents;
   getDependencies = mockGraphGetDependencies;
-  constructor(public opts: any) {}
+  constructor(public opts: any) {
+    lastDependencyGraphOpts = opts;
+  }
 }
+
+let lastDependencyGraphOpts: any = null;
 
 mock.module('../search/dependency-graph', () => ({
   DependencyGraph: MockDependencyGraph,
@@ -425,5 +429,27 @@ describe('graph-api state transitions', () => {
     const second = getDependencies(ctx, 'a.ts');
     expect(isErr(second)).toBe(true);
     if (isErr(second)) expect(second.data.type).toBe('closed');
+  });
+});
+
+describe('getOrBuildGraph additionalProjects', () => {
+  it('should pass additionalProjects from boundaries when project is not provided', () => {
+    const ctx = makeCtx();
+    (ctx as any).boundaries = [{ project: 'proj-b' }, { project: 'proj-c' }];
+
+    invalidateGraphCache(ctx);
+    getOrBuildGraph(ctx, undefined);
+
+    expect(lastDependencyGraphOpts?.additionalProjects).toEqual(['proj-b', 'proj-c']);
+  });
+
+  it('should pass undefined additionalProjects when a specific project is provided', () => {
+    const ctx = makeCtx();
+    (ctx as any).boundaries = [{ project: 'proj-b' }];
+
+    invalidateGraphCache(ctx);
+    getOrBuildGraph(ctx, 'proj-a');
+
+    expect(lastDependencyGraphOpts?.additionalProjects).toBeUndefined();
   });
 });

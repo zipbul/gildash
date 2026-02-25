@@ -76,7 +76,7 @@ export interface IndexCoordinatorOptions {
   };
   relationRepo: {
     replaceFileRelations(project: string, filePath: string, relations: ReadonlyArray<Partial<RelationRecord>>): void;
-    retargetRelations(project: string, oldFile: string, oldSymbol: string | null, newFile: string, newSymbol: string | null): void;
+    retargetRelations(opts: { dstProject: string; oldFile: string; oldSymbol: string | null; newFile: string; newSymbol: string | null; newDstProject?: string }): void;
     deleteFileRelations(project: string, filePath: string): void;
   };
   parseSourceFn?: typeof parseSource;
@@ -441,13 +441,13 @@ export class IndexCoordinator {
           const matches = symbolRepo.getByFingerprint(oldProject, sym.fingerprint);
           if (matches.length === 1) {
             const newSym = matches[0]!;
-            relationRepo.retargetRelations(
-              oldProject,
+            relationRepo.retargetRelations({
+              dstProject: oldProject,
               oldFile,
-              sym.name,
-              newSym.filePath,
-              newSym.name,
-            );
+              oldSymbol: sym.name,
+              newFile: newSym.filePath,
+              newSymbol: newSym.name,
+            });
           }
         }
       }

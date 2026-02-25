@@ -32,7 +32,7 @@ function makeSym(name: string, filePath: string, fingerprint = 'fp1'): SymbolSea
     kind: 'function' as any,
     project: 'default',
     span: { start: { line: 1, column: 0 }, end: { line: 1, column: 10 } },
-  } as SymbolSearchResult;
+  } as unknown as SymbolSearchResult;
 }
 
 function makeCtx(overrides?: Partial<GildashContext>): GildashContext {
@@ -194,7 +194,7 @@ describe('reindex', () => {
     const result = await reindex(ctx);
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(indexResult);
+    expect(result).toBe(indexResult as any);
     expect(fullIndex).toHaveBeenCalledTimes(1);
     expect(ctx.graphCache).toBeNull();
     expect(ctx.graphCacheKey).toBeNull();
@@ -370,7 +370,7 @@ describe('findPattern', () => {
     const result = await findPattern(ctx, 'if(', { filePaths: ['a.ts', 'b.ts'] });
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(matches);
+    expect(result).toBe(matches as any);
     expect(searchFn).toHaveBeenCalledWith({ pattern: 'if(', filePaths: ['a.ts', 'b.ts'] });
   });
 

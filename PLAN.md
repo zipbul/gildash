@@ -1,5 +1,13 @@
 # gildash — relations FK 근본 수정 + 크로스 프로젝트 관계
 
+## 버전 전략
+
+- 타겟 버전: **0.6.0** (minor)
+- `StoredCodeRelation` 타입 도입 + `RelationSearchQuery.dstProject` API 확장 + DB migration → minor 변경
+- changeset: `minor` 레벨로 작성
+
+---
+
 ## 문제 정의
 
 ### 증상
@@ -204,10 +212,11 @@ replaceFileRelations(project: string, srcFilePath: string, rels: ReadonlyArray<P
 ```
 
 - `getOutgoing`: SELECT에 `dstProject: relationsTable.dstProject` 추가 (두 개의 SELECT 쿼리 모두)
-- `getIncoming`: WHERE 조건 `dstProject` 기준으로 변경 (project + dstFilePath → **dstProject + dstFilePath**). SELECT에 `dstProject` 추가
+- `getIncoming`: WHERE 조건 `dstProject` 기준으로 변경 (project + dstFilePath → **dstProject + dstFilePath**). SELECT에 `dstProject` 추가. **named parameter 패턴**으로 전환하여 사일런트 시그니처 변경 방지:
 
 ```ts
-getIncoming(dstProject: string, dstFilePath: string): RelationRecord[] {
+getIncoming(opts: { dstProject: string; dstFilePath: string }): RelationRecord[] {
+  const { dstProject, dstFilePath } = opts;
   return this.db.drizzleDb.select({ ... , dstProject: relationsTable.dstProject, ... })
     .from(relationsTable)
     .where(and(eq(relationsTable.dstProject, dstProject), eq(relationsTable.dstFilePath, dstFilePath)))
@@ -219,23 +228,24 @@ getIncoming(dstProject: string, dstFilePath: string): RelationRecord[] {
 
 | 파일 | 위치 | 수정 내용 |
 |------|------|----------|
-| `test/store.test.ts` | L429, L434, L461, L474 | 파라미터 의미 확인 (단일 프로젝트에서 project === dstProject) |
-| `test/indexer.test.ts` | L130 | retarget 후 getIncoming 호출 |
-| `src/gildash.spec.ts` | L68 | mock 정의 |
+| `test/store.test.ts` | L429, L434, L461, L474 | `getIncoming({ dstProject: 'test-project', dstFilePath: '...' })` 형태로 변경 |
+| `test/indexer.test.ts` | L130 | `getIncoming({ dstProject: 'test-project', dstFilePath: 'src/new.ts' })` |
+| `src/gildash.spec.ts` | L68 | mock 시그니처 `(opts: { dstProject: string; dstFilePath: string })` |
 
 - `getByType`: SELECT에 `dstProject` 추가
 - `searchRelations`: `dstProject` 필터 옵션 추가. WHERE에 `opts.dstProject !== undefined ? eq(relationsTable.dstProject, opts.dstProject) : undefined` 추가. SELECT에 `dstProject` 추가
-- `retargetRelations`: WHERE/SET에 `dstProject` 반영
+- `retargetRelations`: WHERE/SET에 `dstProject` 반영. **named parameter 패턴**으로 전환 — 6개 positional 파라미터는 가독성·안전성 모두 부족:
 
 ```ts
-retargetRelations(
-  dstProject: string,      // ← 기존 project → dstProject로 의미 변경
-  oldFile: string,
-  oldSymbol: string | null,
-  newFile: string,
-  newSymbol: string | null,
-  newDstProject?: string,   // 프로젝트 이동 시 (optional, 기본: dstProject 유지)
-): void {
+retargetRelations(opts: {
+  dstProject: string;
+  oldFile: string;
+  oldSymbol: string | null;
+  newFile: string;
+  newSymbol: string | null;
+  newDstProject?: string;
+}): void {
+  const { dstProject, oldFile, oldSymbol, newFile, newSymbol, newDstProject } = opts;
   const condition = oldSymbol === null
     ? and(
         eq(relationsTable.dstProject, dstProject),
@@ -265,7 +275,7 @@ retargetRelations(
 ```diff
 -relationRepo.retargetRelations(oldProject, oldFile, sym.name, newSym.filePath, newSym.name);
 +const dstProject = resolveFileProject(oldFile, this.opts.boundaries);
-+relationRepo.retargetRelations(dstProject, oldFile, sym.name, newSym.filePath, newSym.name);
++relationRepo.retargetRelations({ dstProject, oldFile, oldSymbol: sym.name, newFile: newSym.filePath, newSymbol: newSym.name });
 ```
 
 **`IndexCoordinatorOptions.relationRepo` 인터페이스 업데이트:**
@@ -274,12 +284,12 @@ retargetRelations(
  relationRepo: {
    replaceFileRelations(project: string, filePath: string, relations: ReadonlyArray<Partial<RelationRecord>>): void;
 -  retargetRelations(project: string, oldFile: string, oldSymbol: string | null, newFile: string, newSymbol: string | null): void;
-+  retargetRelations(dstProject: string, oldFile: string, oldSymbol: string | null, newFile: string, newSymbol: string | null, newDstProject?: string): void;
++  retargetRelations(opts: { dstProject: string; oldFile: string; oldSymbol: string | null; newFile: string; newSymbol: string | null; newDstProject?: string }): void;
    deleteFileRelations(project: string, filePath: string): void;
  };
 ```
 
-파라미터 타입이 모두 `string`이므로 컴파일 에러 없이 의미 변경됨. 인터페이스와 구현체 시그니처를 동시에 변경해야 함.
+named parameter 패턴으로 파라미터 순서 실수가 컴파일 에러로 잡힌다. 인터페이스와 구현체 시그니처를 동시에 변경해야 함.
 
 - `deleteFileRelations`: 변경 없음 (srcFilePath 기준)
 
@@ -397,7 +407,7 @@ knownFiles 이중 방어로 잘못된 후보는 자동 필터링. 후보는 넓�
 
 - 기본값 `resolveImport` → 기존 호출 전부 호환
 - 공개 API (`Gildash.extractRelations()`)는 기본값 사용 → 영향 없음
-- `imports-extractor.extractImports`와 `extractor-utils.buildImportMap`은 이미 `resolveImportFn` 파라미터를 가지고 있음
+- `imports-extractor.extractImports` (4번째 파라미터, L11-15)와 `extractor-utils.buildImportMap` (3번째 파라미터, L76)은 이미 `resolveImportFn` 파라미터를 가지고 있음 — 현재 `extractRelations`에서 이들을 호출할 때 전달하지 않아 기본값(`resolveImport`)이 사용됨. DI 파라미터 추가 후 `extractRelations` 내부에서 `resolveImportFn`을 이 두 함수에 전달하는 것이 핵심
 
 ---
 
@@ -502,22 +512,33 @@ knownFiles 이중 방어로 잘못된 후보는 자동 필터링. 후보는 넓�
 
 #### `src/indexer/index-coordinator.ts`
 
-**변경 1: fullIndex 트랜잭션 — knownFiles Set 구축**
+> **구조 참고**: `doIndex` 내부에 `useTransaction` 분기가 존재한다.
+> - `useTransaction=true` (fullIndex / 초기 인덱싱): 이미 preread + `dbConnection.transaction()` 내부에 2-pass 구조 존재 (Pass 1: upsertFile, Pass 2: parse+index). **여기에 knownFiles 주입 필요.**
+> - `useTransaction=false` (증분 인덱싱): `processChanged` → `processFile` 단일 파일 순차. **2-pass 구조로 전면 교체 필요.**
+>
+> **양쪽 모두** `knownFiles` + `boundaries`를 `indexFileRelations`에 전달해야 한다.
 
-Pass 1 (파일 삽입) 이후, Pass 2 이전에:
+**변경 1: `useTransaction=true` 경로 — knownFiles 주입**
 
-```ts
-// knownFiles Set 구축: getFilesMap이 Pass 1에서 upsert한 파일을 이미 포함 (read-your-own-writes)
-// 따라서 preread 별도 루프는 불필요 — getFilesMap 단일 루프로 충분
-const knownFiles = new Set<string>();
-for (const boundary of boundaries) {
-  for (const [fp] of fileRepo.getFilesMap(boundary.project)) {
-    knownFiles.add(`${boundary.project}::${fp}`);
-  }
-}
+기존 트랜잭션 내부 Pass 1 (upsertFile 루프) 직후, Pass 2 (파싱+인덱싱 루프) 직전에 knownFiles를 구축:
+
+```diff
+ // 기존 트랜잭션 내부 (dbConnection.transaction 콜백 내)
+ // ... Pass 1: upsertFile 루프 완료 후 ...
+
++// knownFiles Set 구축: Pass 1에서 upsert한 파일 + 기존 파일 모두 포함 (read-your-own-writes)
++const knownFiles = new Set<string>();
++for (const boundary of boundaries) {
++  for (const [fp] of fileRepo.getFilesMap(boundary.project)) {
++    knownFiles.add(`${boundary.project}::${fp}`);
++  }
++}
+
+ // Pass 2: Parse sources and index symbols + relations.
+ const parseFn = this.opts.parseSourceFn ?? parseSource;
 ```
 
-Pass 2에서 `indexFileRelations` 호출 시:
+Pass 2의 `indexFileRelations` 호출에 knownFiles + boundaries 추가:
 
 ```diff
  totalRelations += indexFileRelations({
@@ -532,10 +553,14 @@ Pass 2에서 `indexFileRelations` 호출 시:
  });
 ```
 
-**변경 2: processChanged (증분) — 2-pass 구조로 전면 변경**
+**삽입 위치**: [index-coordinator.ts L377](src/indexer/index-coordinator.ts#L377) (upsertFile 루프 종료) 와 [L380](src/indexer/index-coordinator.ts#L380) (`const parseFn = ...`) 사이.
 
-기존 `processFile` 단일 파일 순차 처리 → **2-pass 구조**로 변경.
+**변경 2: `useTransaction=false` 경로 (processChanged) — 2-pass 구조로 전면 교체**
+
+기존 `processChanged` → `processFile` 단일 파일 순차 처리 → **2-pass 구조**로 변경.
 **이유**: 파일 A(신규)→B(신규) 시 A가 먼저 처리되면 B가 knownFiles에 없어 A→B relation 소실.
+
+`processFile` 메서드는 **삭제 가능** — 2-pass 구조로 대체되며 더 이상 호출되지 않음.
 
 ```ts
 const processChanged = async (): Promise<{ symbols: number; relations: number; failedFiles: string[] }> => {
@@ -604,18 +629,39 @@ const processChanged = async (): Promise<{ symbols: number; relations: number; f
 
 **핵심**: Pass 1에서 모든 파일 `upsertFile` 완료 → `knownFiles`에 모든 신규 파일 포함 → Pass 2에서 정확한 relation 생성. `knownFiles` 구축 1회.
 
-기존 `processFile` 메서드는 이 2-pass 구조로 대체. 더 이상 파일별 독립 호출 아님.
+기존 `processFile` 메서드는 삭제 가능 — `processChanged` 2-pass로 완전 대체.
 
-**원자성 주의**: 증분(incremental) 경로는 fullIndex와 달리 외부 트랜잭션으로 감싸져 있지 않음. Pass 1 (upsertFile) 완료 후 Pass 2 도중 crash 시 파일만 upsert되고 relation 없는 불완전 상태 가능. 이는 기존 `processFile` 방식과 동일한 한계이나, 2-pass로 실패 윈도우가 N배 확대됨. **대응**: `processChanged` 전체를 `dbConnection.transaction()`으로 감싸는 것을 권장:
+**원자성 주의**: 증분(incremental) 경로는 fullIndex와 달리 외부 트랜잭션으로 감싸져 있지 않음. Pass 1 (upsertFile) 완료 후 Pass 2 도중 crash 시 파일만 upsert되고 relation 없는 불완전 상태 가능. 이는 기존 `processFile` 방식과 동일한 한계이나, 2-pass로 실패 윈도우가 N배 확대됨.
+
+**대응**: `bun:sqlite`의 `transaction()`은 동기 전용이므로, async I/O가 포함된 Pass 1을 통째로 감쌀 수 없다. **Pass 2(순수 동기 DB 연산)만 동기 트랜잭션으로 보호:**
 
 ```ts
-// doIndex 내부, processChanged 호출부
-const counts = dbConnection.transaction(() => processChanged());
-// 또는 processChanged 내부 첫 줄에서
-// return this.opts.dbConnection.transaction(async () => { ... });
+const processChanged = async (): Promise<{ symbols: number; relations: number; failedFiles: string[] }> => {
+  // ── Pass 1: 파일 read + parse + upsertFile (async I/O → 트랜잭션 밖) ──
+  for (const file of changed) {
+    const text = await Bun.file(absPath).text();  // async
+    fileRepo.upsertFile({ ... });
+    // ... parse ...
+    prepared.push({ ... });
+  }
+
+  // ── knownFiles 구축 (동기, 1회) ──
+  const knownFiles = new Set<string>();
+  for (const boundary of boundaries) { ... }
+
+  // ── Pass 2: index symbols + relations (순수 동기 DB → 트랜잭션으로 보호) ──
+  dbConnection.transaction(() => {
+    for (const fd of prepared) {
+      indexFileSymbols({ ... });
+      indexFileRelations({ ..., knownFiles, boundaries });
+    }
+  });
+
+  return { symbols, relations, failedFiles };
+};
 ```
 
-fullIndex 경로와 동일하게 트랜잭션 보호를 적용하면, crash 시 전체 롤백으로 데이터 일관성 보장.
+Pass 1의 upsert는 트랜잭션 밖이지만, crash 시 contentHash 불일치로 다음 증분에서 재처리된다. Pass 2는 동기 트랜잭션으로 전체 롤백 보장 — symbols/relations의 원자성 확보.
 
 ---
 
@@ -720,44 +766,77 @@ fullIndex 경로와 동일하게 트랜잭션 보호를 적용하면, crash 시 
 
 #### `src/extractor/types.ts`
 
-**`CodeRelation` 타입에 `dstProject` 추가 (공개 API)**:
+**`CodeRelation` 타입은 변경하지 않음** — extractor(순수 AST 분석) 출력에는 `dstProject`가 없으므로 원본 타입 유지.
+
+#### `src/search/relation-search.ts`
+
+**`StoredCodeRelation` 타입 분리 (공개 API):**
+
+DB에서 조회된 relation은 `dstProject`가 반드시 존재한다. optional 하나로 퉁치면 extractor 출력(dstProject 없음)과 store 조회 결과(dstProject 있음)가 타입 레벨에서 구분 불가하므로, 별도 타입으로 분리:
+
+```ts
+import type { CodeRelation } from '../extractor/types';
+
+/** DB에서 조회된 relation. dstProject가 반드시 존재. */
+export interface StoredCodeRelation extends CodeRelation {
+  dstProject: string;
+}
+```
+
+`relationSearch` 반환 타입 변경:
 
 ```diff
- export interface CodeRelation {
-   type: 'imports' | 'type-references' | 're-exports' | 'calls' | 'extends' | 'implements';
-   srcFilePath: string;
-   srcSymbolName: string | null;
-+  dstProject?: string;          // optional로 하위 호환
-   dstFilePath: string;
-   dstSymbolName: string | null;
-   metaJson?: string;
-   meta?: Record<string, unknown>;
+-export function relationSearch(...): CodeRelation[] {
++export function relationSearch(...): StoredCodeRelation[] {
+   return records.map(r => ({
+     type: r.type as CodeRelation['type'],
+     srcFilePath: r.srcFilePath,
+     srcSymbolName: r.srcSymbolName,
++    dstProject: r.dstProject,
+     dstFilePath: r.dstFilePath,
+     dstSymbolName: r.dstSymbolName,
+     metaJson: r.metaJson ?? undefined,
+     meta,
+   }));
  }
 ```
 
-`relationSearch` 매핑에 추가 (`src/search/relation-search.ts`):
+**공개 API 반환 타입 전파:**
+
+| 메서드 | 기존 반환 | 변경 후 |
+|--------|----------|--------|
+| `searchRelations()` | `Result<CodeRelation[]>` | `Result<StoredCodeRelation[]>` |
+| `searchAllRelations()` | `Result<CodeRelation[]>` | `Result<StoredCodeRelation[]>` |
+| `getInternalRelations()` | `Result<CodeRelation[]>` | `Result<StoredCodeRelation[]>` |
+
+`StoredCodeRelation extends CodeRelation`이므로 기존 소비자 코드에서 `CodeRelation`으로 받던 것이 그대로 호환된다 (liskov substitution).
+
+**`StoredCodeRelation`을 공개 export에 추가:**
 
 ```diff
- return records.map(r => ({
-   type: r.type as CodeRelation['type'],
-   srcFilePath: r.srcFilePath,
-   srcSymbolName: r.srcSymbolName,
-+  dstProject: r.dstProject,
-   dstFilePath: r.dstFilePath,
-   dstSymbolName: r.dstSymbolName,
-   metaJson: r.metaJson ?? undefined,
-   meta,
- }));
+ // src/index.ts 또는 src/search/index.ts
++export type { StoredCodeRelation } from './search/relation-search';
 ```
 
 ---
 
 ## 마이그레이션 전략
 
-1. migration SQL은 `src/store/migrations/0004_relations_dst_project.sql`에 작성
-2. `src/store/migrations/meta/` 디렉터리에 drizzle 메타 JSON 업데이트 (`_journal.json` 엔트리 + `0004_snapshot.json`)
-3. `drizzle-kit generate`로 자동 생성 시도 → 수동 검증/수정
-4. 기존 데이터: `dstProject = project`로 마이그레이션 (동일 프로젝트 가정)
+### 절차 (반드시 순서대로)
+
+1. `schema.ts`에 `dstProject` 컴럼 + FK 변경 적용
+2. `bunx drizzle-kit generate` 실행 → 자동 생성된 SQL + snapshot + journal 확인
+3. 자동 생성 결과 검증:
+   - drizzle-kit이 `ALTER TABLE` 변경만 내려주고 테이블 재생성을 안 하는 경우: **수동 SQL로 교체** (SQLite는 ALTER TABLE로 FK 변경 불가, 테이블 재생성 필수)
+   - 자동 생성된 SQL이 PLAN의 테이블 재생성 패턴과 일치하는 경우: 그대로 사용
+   - 두 경우 모두 `AUTOINCREMENT 시퀀스 복원` 및 `데이터 마이그레이션 (dstProject = project)` 구문이 포함되어 있는지 확인
+4. `0004_snapshot.json`은 `drizzle-kit generate`가 자동 생성. **수동 작성 금지** — drizzle 내부 형식이 버전별로 다름
+5. 수동 SQL 교체 시 `_journal.json`의 tag/idx가 자동 생성된 파일명과 일치하는지 확인
+6. 기존 데이터: `INSERT INTO relations_new ... SELECT ... project AS dst_project ...` 로 `dstProject = project` 마이그레이션
+
+### 수동 SQL 필요 시 (drizzle-kit이 테이블 재생성을 생성하지 않을 경우)
+
+migration SQL을 수동으로 `src/store/migrations/0004_relations_dst_project.sql`에 작성하고, `0004_snapshot.json`은 `drizzle-kit generate`가 생성한 것을 유지. SQL만 교체.
 
 ### FK 토글 안전 장치
 
@@ -804,10 +883,10 @@ FK 위반이 발견되면 migration SQL에 오류가 있다는 의미이므로 �
 | 파일 | 수정 내용 |
 |------|----------|
 | `src/store/schema.spec.ts` | `dstProject` 컬럼 존재 확인 테스트 |
-| `src/store/repositories/relation.repository.spec.ts` | 모든 CRUD에 `dstProject` 포함. 크로스 프로젝트 INSERT/SELECT 테스트 추가. `replaceFileRelations` 원자성 테스트. `retargetRelations` 신규 시그니처 테스트 |
+| `src/store/repositories/relation.repository.spec.ts` | 모든 CRUD에 `dstProject` 포함. 크로스 프로젝트 INSERT/SELECT 테스트 추가. `replaceFileRelations` 원자성 테스트. `getIncoming`/`retargetRelations` named parameter 시그니처 테스트 |
 | `src/indexer/relation-indexer.spec.ts` | `knownFiles` 필터링 테스트, `dstProject` 독립 결정 테스트, bare specifier 커스텀 resolver 테스트 |
 | `src/indexer/index-coordinator.spec.ts` | `knownFiles` 구축 + 전달 테스트, 디렉터리 임포트 정확도 테스트, **processChanged 2-pass 구조** 테스트 |
-| `src/search/relation-search.spec.ts` | `dstProject` 필터 테스트. `dstProject` 매핑 테스트 |
+| `src/search/relation-search.spec.ts` | `dstProject` 필터 테스트. `StoredCodeRelation` 반환 타입 + `dstProject` 매핑 테스트 |
 | `src/extractor/extractor-utils.spec.ts` | `resolveBareSpecifier` 테스트. `resolveImport` `.d.ts` 후보 테스트 |
 | `src/extractor/relation-extractor.spec.ts` | `resolveImportFn` DI 테스트 |
 | `src/search/dependency-graph.spec.ts` | `additionalProjects` 크로스 프로젝트 테스트 |
@@ -830,7 +909,7 @@ FK 위반이 발견되면 migration SQL에 오류가 있다는 의미이므로 �
 | `retargetRelations` dstProject 기반 WHERE/SET | `relation.repository.spec.ts` |
 | 기존 데이터 마이그레이션 (`dstProject = project`) | `test/store.test.ts` |
 | `DependencyGraph` 크로스 프로젝트 (`additionalProjects`) | `dependency-graph.spec.ts` |
-| `CodeRelation.dstProject` 매핑 | `relation-search.spec.ts` |
+| `StoredCodeRelation.dstProject` 매핑 + 타입 검증 | `relation-search.spec.ts` |
 
 ### 통합 테스트
 
@@ -843,73 +922,85 @@ FK 위반이 발견되면 migration SQL에 오류가 있다는 의미이므로 �
 
 ## 실행 순서 (의존 관계 기반)
 
+### 모델 배정 기준
+
+| 모델 | 배정 기준 | Step 수 |
+|------|----------|--------|
+| **Sonnet** | diff가 명확하고 기계적 반복 패턴. 필드 추가, 시그니처 변경, mock 업데이트, 타입 정의 등 | 9 |
+| **Opus** | 다중 함수 조합, 제어 흐름 전면 교체, 트랜잭션 분리 등 구조적 판단이 필요한 변경 | 2 |
+
 ```
-Step 1 — 스키마 + 마이그레이션 + connection.ts FK 토글
+Step 1 [Sonnet] — 스키마 + 마이그레이션 + connection.ts FK 토글
 ├─ schema.ts: dstProject 컬럼 + dst FK 변경
 ├─ migration 0004 SQL (AUTOINCREMENT 시퀀스 복원 포함)
 ├─ migration meta JSON (_journal.json + 0004_snapshot.json via drizzle-kit)
 ├─ connection.ts: migrate 전후 FK OFF/ON 토글
 └─ schema.spec.ts 수정
 
-Step 2 — relation.repository
+Step 2 [Sonnet] — relation.repository
 ├─ RelationRecord에 dstProject 추가
 ├─ 모든 CRUD 메서드 dstProject 반영 (모든 SELECT + INSERT)
 ├─ replaceFileRelations: dstProject fallback + 내부 트랜잭션 원자성
-├─ getIncoming: WHERE dstProject + 시그니처 변경
-├─ retargetRelations: dstProject 기반 WHERE/SET + 신규 시그니처
+├─ getIncoming: named parameter 패턴 + WHERE dstProject
+├─ retargetRelations: named parameter 패턴 + dstProject 기반 WHERE/SET
 └─ relation.repository.spec.ts 수정
 
-Step 3 — extractor-utils
+Step 3 [Sonnet] — extractor-utils
 ├─ resolveImport: .d.ts / /index.d.ts 후보 추가
 ├─ resolveBareSpecifier 함수 추가 (서브패스 포함)
 └─ extractor-utils.spec.ts 수정
 
-Step 4 — relation-extractor
+Step 4 [Sonnet] — relation-extractor
 ├─ extractRelations에 resolveImportFn DI
 └─ relation-extractor.spec.ts 수정
 
-Step 5 — relation-indexer
+Step 5 [Opus] — relation-indexer
 ├─ RelationDbRow에 dstProject 추가
-├─ knownFiles 기반 커스텀 resolver 조립
-├─ dstProject 독립 결정 로직
+├─ knownFiles 기반 커스텀 resolver 조립 (resolveImport + resolveBareSpecifier + knownFiles 필터 조합)
+├─ dstProject 독립 결정 로직 (boundaries 기반)
 └─ relation-indexer.spec.ts 수정
 
-Step 6 — index-coordinator
-├─ fullIndex: knownFiles Set 구축 + 전달
-├─ processChanged: 2-pass 구조로 전면 변경 (Pass 1: upsert, Pass 2: index)
-├─ processChanged: 트랜잭션 래핑으로 원자성 보장
-├─ IndexCoordinatorOptions.relationRepo.retargetRelations 시그니처 업데이트
-├─ retargetRelations 호출처: dstProject 전달
+Step 6 [Opus] — index-coordinator
+├─ useTransaction=true 경로: knownFiles Set 구축 + Pass 1/2 사이 삽입
+├─ useTransaction=false 경로: processChanged 2-pass 구조로 전면 교체
+├─ processChanged: Pass 2만 dbConnection.transaction()으로 보호
+├─ processFile 메서드 삭제 (2-pass로 완전 대체)
+├─ IndexCoordinatorOptions.relationRepo: getIncoming/retargetRelations named parameter 시그니처
+├─ retargetRelations 호출처: named parameter 형태로 dstProject 전달
 └─ index-coordinator.spec.ts 수정
 
-Step 7 — 공개 API 타입
-├─ src/extractor/types.ts: CodeRelation에 dstProject?: string 추가
-└─ src/search/relation-search.ts: dstProject 매핑 + 필터
+Step 7 [Sonnet] — 공개 API 타입
+├─ src/extractor/types.ts: 변경 없음 (CodeRelation 원본 유지)
+├─ src/search/relation-search.ts: StoredCodeRelation 타입 정의 + dstProject 매핑 + 반환 타입 변경
+└─ src/index.ts: StoredCodeRelation export 추가
 
-Step 8 — relation-search
+Step 8 [Sonnet] — relation-search
 ├─ RelationSearchQuery에 dstProject 추가
 ├─ IRelationRepo 인터페이스 dstProject 추가
 └─ relation-search.spec.ts 수정
 
-Step 9 — dependency-graph + graph-api
+Step 9 [Sonnet] — dependency-graph + graph-api
 ├─ DependencyGraph: additionalProjects 지원
 ├─ graph-api.ts: getOrBuildGraph에 boundaries 전달
 ├─ dependency-graph.spec.ts 수정
 └─ graph-api.spec.ts 수정
 
-Step 10 — 호출처 전파 + mock 업데이트
+Step 10 [Sonnet] — 호출처 전파 + mock 업데이트
 ├─ src/gildash.spec.ts: mock에 dstProject 추가
 ├─ test/store.test.ts: getIncoming/retargetRelations 테스트 업데이트
 └─ test/indexer.test.ts: retargetRelations 테스트 업데이트
 
-Step 11 — 전체 GREEN 확인
+Step 11 [Sonnet] — 전체 GREEN 확인
 ├─ bun test (전체)
 ├─ bun test:coverage
-└─ 통합 테스트 확인
+├─ 통합 테스트 확인
+└─ 실패 시 Opus로 에스컬레이션
 ```
 
 각 Step은 Test-First Flow (OVERFLOW → PRUNE → RED → GREEN) 적용.
 Step 간 의존: 1 → 2 → (3,4 병렬) → 5 → 6 → 7 → 8 → (9,10 병렬) → 11.
+
+**실행 흐름**: Sonnet(1→2→3,4) → Opus(5→6) → Sonnet(7→8→9,10→11)
 
 ---
 
@@ -919,6 +1010,7 @@ Step 간 의존: 1 → 2 → (3,4 병렬) → 5 → 6 → 7 → 8 → (9,10 병�
 |------|---------|------|
 | 소스 변경 | 12 | schema.ts, connection.ts, relation.repository.ts, extractor-utils.ts, relation-extractor.ts, relation-indexer.ts, index-coordinator.ts, relation-search.ts, types.ts (CodeRelation), dependency-graph.ts, graph-api.ts, (migration SQL) |
 | 타입레벨 자동 반영 (code 변경 불필요) | 2 | context.ts — `ExtractRelationsFn` 4번째 파라미터 옵셔널+기본값이므로 타입 변경 불필요. query-api.ts — `RelationSearchQuery.dstProject` 추가로 타입 레벨 자동 확장, 코드 변경 없음 |
+| 공개 타입 추가 | 1 | `StoredCodeRelation` (relation-search.ts에서 정의, src/index.ts에서 export) |
 | 테스트 수정 | 12 | schema.spec.ts, relation.repository.spec.ts, extractor-utils.spec.ts, relation-extractor.spec.ts, relation-indexer.spec.ts, index-coordinator.spec.ts, relation-search.spec.ts, dependency-graph.spec.ts, graph-api.spec.ts, gildash.spec.ts, test/store.test.ts, test/indexer.test.ts |
 | 통합 테스트 | 2 | test/store.test.ts, test/indexer.test.ts |
 | 마이그레이션 | 1+meta | 0004_relations_dst_project.sql + _journal.json + 0004_snapshot.json |
@@ -937,7 +1029,7 @@ Step 간 의존: 1 → 2 → (3,4 병렬) → 5 → 6 → 7 → 8 → (9,10 병�
 | 기존 테스트 대량 수정 | 중간 | RelationRecord mock 데이터에 dstProject 추가 필요 |
 | AUTOINCREMENT 시퀀스 초기화 | 낮음 | migration SQL에 sqlite_sequence 복원 구문 포함 |
 | `replaceFileRelations` 원자성 (증분) | 중간 | 내부 트랜잭션으로 DELETE+INSERT 감싸기 |
-| `getIncoming` 시그니처 의미 변경 | 중간 | positional이므로 컴파일 에러 없음. 호출처 전파 리스트로 대응. 프로덕션 호출처 없음 (테스트만) |
+| `getIncoming`/`retargetRelations` 시그니처 변경 | 낮음 | named parameter 패턴으로 전환 — 파라미터 순서 실수가 컴파일 에러로 잡힘. 호출처 전파 리스트로 대응 |
 | 증분 2-pass 구조 변경 | 중간 | processChanged 내부만 변경. 외부 API 영향 없음 |
-| 증분 2-pass 원자성 부재 | 중간 | processChanged를 `dbConnection.transaction()`으로 감싸 권장. crash 시 전체 롤백 |
-| `IndexCoordinatorOptions.relationRepo` 인터페이스 시그니처 | 중간 | `retargetRelations` 6파라미터로 변경. 인터페이스와 구현체 동시 변경 필수 |
+| 증분 2-pass 원자성 분리 | 낮음 | Pass 2만 동기 트랜잭션으로 보호. Pass 1 crash 시 contentHash 불일치로 다음 증분에서 재처리 |
+| `IndexCoordinatorOptions.relationRepo` 인터페이스 시그니처 | 낮음 | `getIncoming`/`retargetRelations` named parameter로 변경. 인터페이스와 구현체 동시 변경 필수. 잘못된 파라미터가 컴파일 에러로 감지됨 |

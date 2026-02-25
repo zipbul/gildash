@@ -59,7 +59,7 @@ describe('resolveSymbolPosition', () => {
     const result = resolveSymbolPosition(ctx, 'Foo', '/project/src/a.ts');
 
     expect(result).not.toBeNull();
-    expect(result!.sym).toBe(dummySym);
+    expect(result!.sym).toBe(dummySym as any);
     expect(result!.position).toBe(50); // findNamePosition returned 50
     expect(result!.absPath).toBe('/project/src/a.ts');
   });
@@ -152,7 +152,7 @@ describe('getResolvedType', () => {
     const result = getResolvedType(ctx, 'Foo', '/project/src/a.ts');
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(typeResult);
+    expect(result).toBe(typeResult as any);
   });
 
   it('should return err with type closed when ctx is closed', () => {
@@ -216,7 +216,7 @@ describe('getSemanticReferences', () => {
     const result = getSemanticReferences(ctx, 'Foo', '/project/src/a.ts');
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(refs);
+    expect(result).toBe(refs as any);
   });
 
   it('should return err with type closed when ctx is closed', () => {
@@ -272,7 +272,7 @@ describe('getImplementations', () => {
     const result = getImplementations(ctx, 'Foo', '/project/src/a.ts');
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(impls);
+    expect(result).toBe(impls as any);
   });
 
   it('should return err with type closed when ctx is closed', () => {
@@ -312,7 +312,7 @@ describe('getSemanticModuleInterface', () => {
     const result = getSemanticModuleInterface(ctx, '/project/src/a.ts');
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(iface);
+    expect(result).toBe(iface as any);
   });
 
   it('should return err with type closed when ctx is closed', () => {

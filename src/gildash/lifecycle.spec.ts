@@ -2,6 +2,7 @@ import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:te
 import { err, isErr } from '@zipbul/result';
 import { gildashError } from '../errors';
 import type { GildashContext, CoordinatorLike, WatcherLike } from './context';
+import { ProjectWatcher } from '../watcher/project-watcher';
 
 // ─── Module Mocks ───────────────────────────────────────────────────
 
@@ -9,16 +10,6 @@ const mockClearTsconfigPathsCache = mock(() => {});
 mock.module('../common/tsconfig-resolver', () => ({
   loadTsconfigPaths: mock(async () => null),
   clearTsconfigPathsCache: mockClearTsconfigPathsCache,
-}));
-
-const mockWatcherStart = mock(async () => undefined as any);
-const mockWatcherClose = mock(async () => undefined as any);
-mock.module('../watcher/project-watcher', () => ({
-  ProjectWatcher: class {
-    start = mockWatcherStart;
-    close = mockWatcherClose;
-    constructor(..._args: any[]) {}
-  },
 }));
 
 const mockCoordinatorFullIndex = mock(async () => ({ indexed: 0 }));
@@ -48,7 +39,7 @@ const {
 
 function makeCoordinator(): CoordinatorLike & Record<string, any> {
   return {
-    fullIndex: mock(async () => ({ indexed: 5 })),
+    fullIndex: mock(async () => ({ indexed: 5 })) as any,
     shutdown: mock(async () => {}),
     onIndexed: mock((_cb: any) => () => {}),
     handleWatcherEvent: mock(() => {}),
@@ -85,7 +76,7 @@ function makeRepos() {
   };
 }
 
-function makeInitOptions(overrides?: Record<string, any>) {
+function makeInitOptions(overrides?: Record<string, any>): any {
   const coordinator = makeCoordinator();
   const watcher = makeWatcher();
   const db = makeDb();
@@ -169,12 +160,9 @@ let capturedIntervalCallbacks: Function[];
 
 beforeEach(() => {
   mockClearTsconfigPathsCache.mockClear();
-  mockWatcherStart.mockClear();
-  mockWatcherClose.mockClear();
   mockCoordinatorFullIndex.mockClear();
   mockCoordinatorShutdown.mockClear();
   mockCoordinatorOnIndexed.mockClear();
-  mockWatcherStart.mockImplementation(async () => undefined as any);
   capturedIntervalCallbacks = [];
   processOnSpy = spyOn(process, 'on').mockReturnValue(process as any);
   processOffSpy = spyOn(process, 'off').mockReturnValue(process as any);
@@ -242,7 +230,7 @@ describe('initializeContext', () => {
     const result = await initializeContext(opts);
 
     expect(isErr(result)).toBe(false);
-    expect((result as GildashContext).semanticLayer).toBe(semanticLayer);
+    expect((result as GildashContext).semanticLayer).toBe(semanticLayer as any);
   });
 
   it('should create reader with healthcheck timer when role is reader', async () => {
@@ -573,6 +561,7 @@ describe('setupOwnerInfrastructure', () => {
   });
 
   it('should create ProjectWatcher when no watcherFactory is provided', async () => {
+    const startSpy = spyOn(ProjectWatcher.prototype, 'start').mockResolvedValue(undefined as any);
     const coordinator = makeCoordinator();
     const ctx = makeCtx({
       coordinatorFactory: mock(() => coordinator) as any,
@@ -582,8 +571,9 @@ describe('setupOwnerInfrastructure', () => {
     await setupOwnerInfrastructure(ctx, { isWatchMode: true });
 
     expect(ctx.watcher).not.toBeNull();
-    expect(mockWatcherStart).toHaveBeenCalledTimes(1);
+    expect(startSpy).toHaveBeenCalledTimes(1);
     expect(coordinator.fullIndex).toHaveBeenCalledTimes(1);
+    startSpy.mockRestore();
   });
 });
 

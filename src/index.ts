@@ -7,7 +7,7 @@ export type { GildashError, GildashErrorType } from "./errors";
 export { symbolSearch } from "./search/symbol-search";
 export type { SymbolSearchQuery, SymbolSearchResult } from "./search/symbol-search";
 export { relationSearch } from "./search/relation-search";
-export type { RelationSearchQuery } from "./search/relation-search";
+export type { RelationSearchQuery, StoredCodeRelation } from "./search/relation-search";
 export { DependencyGraph } from "./search/dependency-graph";
 export { patternSearch } from "./search/pattern-search";
 export type { PatternMatch, PatternSearchOptions } from "./search/pattern-search";

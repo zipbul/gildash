@@ -23,6 +23,7 @@ export function getOrBuildGraph(ctx: GildashContext, project?: string): Dependen
   const g = new DependencyGraph({
     relationRepo: ctx.relationRepo,
     project: project ?? ctx.defaultProject,
+    additionalProjects: project ? undefined : ctx.boundaries?.map(b => b.project),
   });
   g.build();
   ctx.graphCache = g;

@@ -43,7 +43,7 @@ function makeSymbolRepo() {
 function makeRelationRepo() {
   return {
     replaceFileRelations: mock((p: any, f: any, r: any) => {}),
-    retargetRelations: mock((p: any, of: any, os: any, nf: any, ns: any) => {}),
+    retargetRelations: mock((opts: any) => {}),
     deleteFileRelations: mock((p: any, f: any) => {}),
   };
 }

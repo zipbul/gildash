@@ -65,7 +65,7 @@ describe('getStats', () => {
     const result = getStats(ctx);
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(stats);
+    expect(result).toBe(stats as any);
   });
 
   it('should return err when closed', () => {
@@ -101,7 +101,7 @@ describe('searchSymbols', () => {
     const result = searchSymbols(ctx, { text: 'Foo' });
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(symbols);
+    expect(result).toBe(symbols as any);
   });
 
   it('should return err when closed', () => {
@@ -130,7 +130,7 @@ describe('searchRelations', () => {
     const result = searchRelations(ctx, { type: 'imports' });
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(rels);
+    expect(result).toBe(rels as any);
   });
 
   it('should return err when closed', () => {
@@ -217,7 +217,7 @@ describe('listIndexedFiles', () => {
     const result = listIndexedFiles(ctx);
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(files);
+    expect(result).toBe(files as any);
   });
 
   it('should return err when closed', () => {
@@ -523,7 +523,7 @@ describe('getFileInfo', () => {
     const result = getFileInfo(ctx, 'a.ts');
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(file);
+    expect(result).toBe(file as any);
   });
 
   it('should return err when closed', () => {
@@ -552,7 +552,7 @@ describe('getSymbolsByFile', () => {
     const result = getSymbolsByFile(ctx, 'src/a.ts');
 
     expect(isErr(result)).toBe(false);
-    expect(result).toBe(symbols);
+    expect(result).toBe(symbols as any);
     expect(searchFn).toHaveBeenCalledWith(
       expect.objectContaining({
         query: expect.objectContaining({ filePath: 'src/a.ts' }),
