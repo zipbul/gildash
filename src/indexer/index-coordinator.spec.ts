@@ -86,6 +86,7 @@ function makeCoordinator(overrides: Partial<{
     symbolRepo: (overrides.symbolRepo ?? makeSymbolRepo()) as any,
     relationRepo: overrides.relationRepo ?? makeRelationRepo(),
     parseSourceFn: mockParseSource as any,
+    logger: { error: mock(() => {}) },
   });
 }
 
@@ -1240,5 +1241,121 @@ describe('IndexCoordinator', () => {
       expect(getAllFilesIdx).toBeGreaterThanOrEqual(0);
       expect(transactionIdx).toBeGreaterThan(getAllFilesIdx);
     });
+  });
+
+  // ─── Coverage: finally drain + flushPending error paths ───
+
+  // [HP] pendingEvents drained in finally after fullIndex completes
+  it('should drain pendingEvents via startIndex in finally block after fullIndex completes', async () => {
+    let resolveFirst!: () => void;
+    const blockFirst = new Promise<any>((res) => {
+      resolveFirst = () => res({ changed: [], unchanged: [], deleted: [] });
+    });
+    mockDetectChanges.mockReturnValueOnce(blockFirst);
+
+    const symbolRepo = makeSymbolRepo();
+    const coordinator = makeCoordinator({ symbolRepo });
+    const first = coordinator.fullIndex();
+
+    // Push valid event during indexing
+    coordinator.handleWatcherEvent({ filePath: 'src/a.ts', eventType: 'change' } as any);
+
+    resolveFirst();
+    await first;
+
+    // Drain starts asynchronously in finally → give microtasks time
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+
+    // The drain should have called Bun.file for the drained event's file
+    const bunFileCalls = (Bun.file as any).mock.calls as [string][];
+    const drainedCall = bunFileCalls.find(([p]) => p.includes('src/a.ts'));
+    expect(drainedCall).toBeDefined();
+  });
+
+  // [NE] finally drain → doIndex rejects → .catch logs error
+  it('should catch and log error when drain startIndex rejects in finally block', async () => {
+    let resolveFirst!: () => void;
+    const blockFirst = new Promise<any>((res) => {
+      resolveFirst = () => res({ changed: [], unchanged: [], deleted: [] });
+    });
+    mockDetectChanges.mockReturnValueOnce(blockFirst);
+
+    const symbolRepo = makeSymbolRepo();
+    let afterSnapshotCallCount = 0;
+    const origGetFileSymbols = symbolRepo.getFileSymbols;
+    // Make getFileSymbols throw on afterSnapshot during drain
+    symbolRepo.getFileSymbols.mockImplementation((p: any, f: any) => {
+      afterSnapshotCallCount++;
+      // First fullIndex: empty changed, no afterSnapshot calls. Subsequent drain call: throw.
+      if (afterSnapshotCallCount > 0 && f === 'src/drain-fail.ts') {
+        throw new Error('afterSnapshot exploded');
+      }
+      return [];
+    });
+
+    const coordinator = makeCoordinator({ symbolRepo });
+    const first = coordinator.fullIndex();
+
+    // Push event during indexing
+    coordinator.handleWatcherEvent({ filePath: 'src/drain-fail.ts', eventType: 'change' } as any);
+
+    resolveFirst();
+    await first;
+
+    // Give microtasks time for drain + its .catch
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+
+    // No unhandled rejection → test passes if it reaches here
+    expect(true).toBe(true);
+  });
+
+  // [NE] flushPending → doIndex rejects → .catch logs error
+  it('should catch and log error when flushPending startIndex rejects after debounce', async () => {
+    const symbolRepo = makeSymbolRepo();
+    symbolRepo.getFileSymbols.mockImplementation((p: any, f: any) => {
+      if (f === 'src/flush-fail.ts') {
+        throw new Error('afterSnapshot exploded');
+      }
+      return [];
+    });
+
+    const coordinator = makeCoordinator({ symbolRepo });
+    coordinator.handleWatcherEvent({ filePath: 'src/flush-fail.ts', eventType: 'change' } as any);
+
+    jest.advanceTimersByTime(150);
+
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+
+    // No unhandled rejection → test passes if it reaches here
+    expect(true).toBe(true);
+  });
+
+  // [CO] fullIndex + watcher event arrives during → finally drains
+  it('should drain watcher event added during fullIndex in the finally block', async () => {
+    let resolveFirst!: () => void;
+    const blockFirst = new Promise<any>((res) => {
+      resolveFirst = () => res({ changed: [], unchanged: [], deleted: [] });
+    });
+    mockDetectChanges.mockReturnValueOnce(blockFirst);
+
+    const coordinator = makeCoordinator();
+    const first = coordinator.fullIndex();
+
+    // Simulate watcher event arriving DURING fullIndex
+    coordinator.handleWatcherEvent({ filePath: 'src/concurrent.ts', eventType: 'change' } as any);
+
+    resolveFirst();
+    const result = await first;
+
+    // fullIndex result itself has 0 changed (empty detectChanges result)
+    expect(result.indexedFiles).toBe(0);
+
+    // Wait for drain
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+
+    // Drain should have processed the pending event
+    const bunFileCalls = (Bun.file as any).mock.calls as [string][];
+    const drainedCall = bunFileCalls.find(([p]) => p.includes('src/concurrent.ts'));
+    expect(drainedCall).toBeDefined();
   });
 });

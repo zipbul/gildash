@@ -476,4 +476,32 @@ describe("TscProgram", () => {
     // Assert
     expect(prog.isDisposed).toBe(true);
   });
+
+  // 31. [HP] extends가 있는 tsconfig → host의 fileExists·readFile 콜백 실행
+  it("should invoke host fileExists and readFile callbacks when tsconfig uses extends", () => {
+    // Arrange
+    const BASE_PATH = "/project/base.json";
+    const baseTsconfig = JSON.stringify({ compilerOptions: { strict: true } });
+    const extendsTsconfig = JSON.stringify({
+      extends: "./base.json",
+      compilerOptions: { target: "ES2022", module: "NodeNext", noEmit: true },
+    });
+    const readConfigFn = (p: string): string | undefined => {
+      if (p === TSCONFIG_PATH) return extendsTsconfig;
+      if (p === BASE_PATH) return baseTsconfig;
+      return undefined;
+    };
+
+    // Act
+    const result = TscProgram.create(TSCONFIG_PATH, {
+      readConfigFile: readConfigFn,
+      resolveNonTrackedFile: makeResolveNonTracked(),
+    });
+
+    // Assert — successfully created (extends resolved via host callbacks)
+    expect(isErr(result)).toBe(false);
+    if (!isErr(result)) {
+      result.dispose();
+    }
+  });
 });

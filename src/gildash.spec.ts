@@ -140,6 +140,7 @@ function makeOptions(opts: {
     symbolSearchFn: mock((opts: any) => []) as any,
     relationSearchFn: mock((opts: any) => []) as any,
     patternSearchFn: mock(async (_opts: any) => []) as any,
+    logger: { error: mock(() => {}) },
     readFileFn: opts.readFileFn ?? mock(async (_fp: string) => '// default content'),
     unlinkFn: opts.unlinkFn ?? mock(async (_fp: string) => {}),
     db: db,
@@ -559,6 +560,24 @@ describe('Gildash', () => {
     });
 
     expect(cb).toHaveBeenCalledTimes(1);
+    await ledger.close();
+  });
+
+  it('should invoke internal invalidateGraphCache when coordinator.onIndexedCb fires in owner mode', async () => {
+    const coordinator = makeCoordinatorMock();
+    const opts = makeOptions({ coordinator });
+    const ledger = await openOrThrow(opts);
+
+    // Set a non-null graphCache to detect invalidation
+    ledger._ctx.graphCache = {} as any;
+    ledger._ctx.graphCacheKey = 'test-key';
+    coordinator.onIndexedCb?.({
+      indexedFiles: 1, changedFiles: ['a.ts'], deletedFiles: [],
+      totalSymbols: 2, totalRelations: 1, durationMs: 5,
+    });
+
+    expect(ledger._ctx.graphCache).toBeNull();
+    expect(ledger._ctx.graphCacheKey).toBeNull();
     await ledger.close();
   });
 
@@ -1144,9 +1163,9 @@ describe('Gildash', () => {
 
     const ledger = await openOrThrow(opts);
 
-    const coordinator = (ledger as any).coordinator;
+    const coordinator = ledger._ctx.coordinator;
     if (coordinator) coordinator.shutdown = mock(async () => { throw new Error('shutdown fail'); });
-    (ledger as any).db.close = mock(() => { throw new Error('db close fail'); });
+    (ledger._ctx.db as any).close = mock(() => { throw new Error('db close fail'); });
 
     for (let i = 0; i < 10; i++) {
       jest.advanceTimersByTime(60_000);
@@ -1155,7 +1174,7 @@ describe('Gildash', () => {
 
     for (let j = 0; j < 20; j++) await Promise.resolve();
 
-    expect((ledger as any).closed).toBe(true);
+    expect(ledger._ctx.closed).toBe(true);
   });
 
   it('should catch and log when close() rejects inside signal handler', async () => {
@@ -1168,15 +1187,15 @@ describe('Gildash', () => {
     const handler = sigintCall?.[1] as (() => void) | undefined;
     expect(handler).toBeDefined();
 
-    const coordinator = (ledger as any).coordinator;
+    const coordinator = ledger._ctx.coordinator;
     if (coordinator) coordinator.shutdown = mock(async () => { throw new Error('shutdown fail'); });
-    (ledger as any).db.close = mock(() => { throw new Error('db close fail'); });
+    (ledger._ctx.db as any).close = mock(() => { throw new Error('db close fail'); });
 
     handler!();
 
     for (let j = 0; j < 20; j++) await Promise.resolve();
 
-    expect((ledger as any).closed).toBe(true);
+    expect(ledger._ctx.closed).toBe(true);
     spyOn_.mockRestore();
   });
 
@@ -1329,7 +1348,7 @@ describe('Gildash', () => {
 
     for (let j = 0; j < 20; j++) await Promise.resolve();
 
-    expect((ledger as any).closed).toBe(true);
+    expect(ledger._ctx.closed).toBe(true);
   });
 
   it('should return "owner" from role getter when opened as owner', async () => {
@@ -2595,7 +2614,7 @@ describe('Gildash', () => {
       const opts = { ...makeOptions(), watchMode: false } as any;
       const ledger = await openOrThrow(opts);
 
-      expect((ledger as any).timer).toBeNull();
+      expect(ledger._ctx.timer).toBeNull();
       await ledger.close();
     });
 
@@ -2604,7 +2623,7 @@ describe('Gildash', () => {
       const opts = { ...makeOptions(), watchMode: false } as any;
       const ledger = await openOrThrow(opts);
 
-      expect((ledger as any).signalHandlers).toHaveLength(0);
+      expect(ledger._ctx.signalHandlers).toHaveLength(0);
       await ledger.close();
     });
 
@@ -3965,6 +3984,244 @@ describe('Gildash', () => {
       expect(disposeIdx).not.toBe(-1);
       expect(dbCloseIdx).not.toBe(-1);
       expect(disposeIdx).toBeLessThan(dbCloseIdx);
+    });
+
+    // ─── Promotion + Semantic Layer coverage ───
+
+    // 22. [HP] Promotion watcher callback → semantic notifyFileChanged
+    it('should call semanticLayer.notifyFileChanged when promotion watcher callback fires with change event', async () => {
+      const acquireMock = mock(async () => 'reader' as const);
+      (acquireMock as any).mockResolvedValueOnce('reader').mockResolvedValue('owner' as const);
+      const watcher = makeWatcherMock();
+      let capturedCb: ((event: any) => void) | null = null;
+      watcher.start = mock(async (cb: any) => { capturedCb = cb; });
+      const coordinator = makeCoordinatorMock();
+      coordinator.handleWatcherEvent = mock(() => {});
+      const sl = makeSemanticLayerMock();
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getAllFiles.mockReturnValue([]);
+      const readFileMock = mock(async (_fp: string) => 'const promoted = 1;');
+      const base = makeOptions({ role: 'reader', watcher, coordinator, fileRepo, readFileFn: readFileMock as any });
+      const opts = {
+        ...base,
+        semantic: true,
+        semanticLayerFactory: mock((_path: string) => sl),
+        _sl: sl,
+      } as any;
+      opts.acquireWatcherRoleFn = acquireMock as any;
+
+      const ledger = await openOrThrow(opts);
+
+      jest.advanceTimersByTime(60_000);
+      for (let j = 0; j < 20; j++) await Promise.resolve();
+
+      expect(capturedCb).not.toBeNull();
+      capturedCb!({ eventType: 'change', filePath: '/project/src/a.ts' });
+      for (let j = 0; j < 20; j++) await Promise.resolve();
+
+      expect(readFileMock).toHaveBeenCalledWith('/project/src/a.ts');
+      expect(sl.notifyFileChanged).toHaveBeenCalledWith('/project/src/a.ts', 'const promoted = 1;');
+      await ledger.close();
+    });
+
+    // 23. [HP] Promotion → feed indexed files to semantic layer
+    it('should feed indexed files to semanticLayer.notifyFileChanged after promotion fullIndex completes', async () => {
+      const acquireMock = mock(async () => 'reader' as const);
+      (acquireMock as any).mockResolvedValueOnce('reader').mockResolvedValue('owner' as const);
+      const watcher = makeWatcherMock();
+      watcher.start = mock(async (_cb: any) => {});
+      const coordinator = makeCoordinatorMock();
+      const sl = makeSemanticLayerMock();
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getAllFiles.mockReturnValue([
+        { filePath: 'src/x.ts', project: 'test-project', contentHash: 'h1', mtimeMs: 1, size: 10, updatedAt: '', lineCount: 1 },
+        { filePath: 'src/y.ts', project: 'test-project', contentHash: 'h2', mtimeMs: 2, size: 20, updatedAt: '', lineCount: 2 },
+      ]);
+      const readFileMock = mock(async (fp: string) => `// content of ${fp}`);
+      const base = makeOptions({ role: 'reader', watcher, coordinator, fileRepo, readFileFn: readFileMock as any });
+      const opts = {
+        ...base,
+        semantic: true,
+        semanticLayerFactory: mock((_path: string) => sl),
+        _sl: sl,
+      } as any;
+      opts.acquireWatcherRoleFn = acquireMock as any;
+
+      const ledger = await openOrThrow(opts);
+
+      jest.advanceTimersByTime(60_000);
+      for (let j = 0; j < 30; j++) await Promise.resolve();
+
+      expect(sl.notifyFileChanged).toHaveBeenCalledTimes(2);
+      await ledger.close();
+    });
+
+    // 24. [NE] Promotion watcher callback → readFileFn rejects → .catch absorbs silently
+    it('should not throw when promotion watcher callback readFileFn rejects for semantic notification', async () => {
+      const acquireMock = mock(async () => 'reader' as const);
+      (acquireMock as any).mockResolvedValueOnce('reader').mockResolvedValue('owner' as const);
+      const watcher = makeWatcherMock();
+      let capturedCb: ((event: any) => void) | null = null;
+      watcher.start = mock(async (cb: any) => { capturedCb = cb; });
+      const coordinator = makeCoordinatorMock();
+      coordinator.handleWatcherEvent = mock(() => {});
+      const sl = makeSemanticLayerMock();
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getAllFiles.mockReturnValue([]);
+      const readFileMock = mock(async (_fp: string) => { throw new Error('read denied'); });
+      const base = makeOptions({ role: 'reader', watcher, coordinator, fileRepo, readFileFn: readFileMock as any });
+      const opts = {
+        ...base,
+        semantic: true,
+        semanticLayerFactory: mock((_path: string) => sl),
+        _sl: sl,
+      } as any;
+      opts.acquireWatcherRoleFn = acquireMock as any;
+
+      const ledger = await openOrThrow(opts);
+
+      jest.advanceTimersByTime(60_000);
+      for (let j = 0; j < 20; j++) await Promise.resolve();
+
+      capturedCb!({ eventType: 'change', filePath: '/project/src/a.ts' });
+      for (let j = 0; j < 20; j++) await Promise.resolve();
+
+      expect(sl.notifyFileChanged).not.toHaveBeenCalled();
+      await ledger.close();
+    });
+
+    // 25. [NE] Promotion feed files → readFileFn throws for some, others succeed
+    it('should silently catch errors when some readFileFn calls fail during promotion file feed', async () => {
+      const acquireMock = mock(async () => 'reader' as const);
+      (acquireMock as any).mockResolvedValueOnce('reader').mockResolvedValue('owner' as const);
+      const watcher = makeWatcherMock();
+      watcher.start = mock(async (_cb: any) => {});
+      const coordinator = makeCoordinatorMock();
+      const sl = makeSemanticLayerMock();
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getAllFiles.mockReturnValue([
+        { filePath: 'src/ok.ts', project: 'test-project', contentHash: 'h1', mtimeMs: 1, size: 10, updatedAt: '', lineCount: 1 },
+        { filePath: 'src/fail.ts', project: 'test-project', contentHash: 'h2', mtimeMs: 2, size: 20, updatedAt: '', lineCount: 2 },
+      ]);
+      let callCount = 0;
+      const readFileMock = mock(async (fp: string) => {
+        callCount++;
+        if (fp.includes('fail')) throw new Error('read denied');
+        return '// ok';
+      });
+      const base = makeOptions({ role: 'reader', watcher, coordinator, fileRepo, readFileFn: readFileMock as any });
+      const opts = {
+        ...base,
+        semantic: true,
+        semanticLayerFactory: mock((_path: string) => sl),
+        _sl: sl,
+      } as any;
+      opts.acquireWatcherRoleFn = acquireMock as any;
+
+      const ledger = await openOrThrow(opts);
+
+      jest.advanceTimersByTime(60_000);
+      for (let j = 0; j < 30; j++) await Promise.resolve();
+
+      expect(sl.notifyFileChanged).toHaveBeenCalledTimes(1);
+      await ledger.close();
+    });
+
+    // 26. [ED] Promotion watcher 'delete' event → semantic path NOT entered
+    it('should not call semanticLayer.notifyFileChanged when promotion watcher callback fires with delete event', async () => {
+      const acquireMock = mock(async () => 'reader' as const);
+      (acquireMock as any).mockResolvedValueOnce('reader').mockResolvedValue('owner' as const);
+      const watcher = makeWatcherMock();
+      let capturedCb: ((event: any) => void) | null = null;
+      watcher.start = mock(async (cb: any) => { capturedCb = cb; });
+      const coordinator = makeCoordinatorMock();
+      coordinator.handleWatcherEvent = mock(() => {});
+      const sl = makeSemanticLayerMock();
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getAllFiles.mockReturnValue([]);
+      const readFileMock = mock(async (_fp: string) => 'content');
+      const base = makeOptions({ role: 'reader', watcher, coordinator, fileRepo, readFileFn: readFileMock as any });
+      const opts = {
+        ...base,
+        semantic: true,
+        semanticLayerFactory: mock((_path: string) => sl),
+        _sl: sl,
+      } as any;
+      opts.acquireWatcherRoleFn = acquireMock as any;
+
+      const ledger = await openOrThrow(opts);
+
+      jest.advanceTimersByTime(60_000);
+      for (let j = 0; j < 20; j++) await Promise.resolve();
+
+      capturedCb!({ eventType: 'delete', filePath: '/project/src/a.ts' });
+      for (let j = 0; j < 20; j++) await Promise.resolve();
+
+      expect(sl.notifyFileChanged).not.toHaveBeenCalled();
+      await ledger.close();
+    });
+
+    // 27. [NE] Owner watcher callback → readFileFn rejects → .catch absorbs silently
+    it('should silently catch when readFileFn rejects inside owner watcher callback with semantic enabled', async () => {
+      const watcher = makeWatcherMock();
+      let capturedCb: ((event: any) => void) | null = null;
+      watcher.start = mock(async (cb: any) => { capturedCb = cb; });
+      const sl = makeSemanticLayerMock();
+      const readFileMock = mock(async (_fp: string) => { throw new Error('read fail'); });
+      const base = makeOptions({ watcher, readFileFn: readFileMock as any });
+      const opts = {
+        ...base,
+        semantic: true,
+        semanticLayerFactory: mock((_path: string) => sl),
+        _sl: sl,
+      } as any;
+
+      const ledger = await openOrThrow(opts);
+
+      capturedCb!({ eventType: 'change', filePath: '/project/src/a.ts' });
+      for (let j = 0; j < 10; j++) await Promise.resolve();
+
+      expect(sl.notifyFileChanged).not.toHaveBeenCalled();
+      await ledger.close();
+    });
+
+    // 28. [NE] Promotion → internal onIndexed callback fires invalidateGraphCache
+    it('should invoke internal invalidateGraphCache when promoted coordinator.onIndexedCb fires', async () => {
+      const acquireMock = mock(async () => 'reader' as const);
+      (acquireMock as any).mockResolvedValueOnce('reader').mockResolvedValue('owner' as const);
+      const coordinator = makeCoordinatorMock();
+      const watcher = makeWatcherMock();
+      watcher.start = mock(async (_cb: any) => {});
+      const fileRepo = makeFileRepoMock();
+      fileRepo.getAllFiles.mockReturnValue([]);
+      const sl = makeSemanticLayerMock();
+      const base = makeOptions({ role: 'reader', coordinator, watcher, fileRepo });
+      const opts = {
+        ...base,
+        semantic: true,
+        semanticLayerFactory: mock((_path: string) => sl),
+        _sl: sl,
+      } as any;
+      opts.acquireWatcherRoleFn = acquireMock as any;
+
+      const ledger = await openOrThrow(opts);
+
+      jest.advanceTimersByTime(60_000);
+      for (let j = 0; j < 20; j++) await Promise.resolve();
+
+      // Set non-null graphCache to detect invalidation after promotion
+      ledger._ctx.graphCache = {} as any;
+      ledger._ctx.graphCacheKey = 'test-key';
+
+      // After promotion, the coordinator's onIndexedCb is the internal callback
+      coordinator.onIndexedCb?.({
+        indexedFiles: 1, changedFiles: ['a.ts'], deletedFiles: [],
+        totalSymbols: 2, totalRelations: 1, durationMs: 5,
+      });
+
+      expect(ledger._ctx.graphCache).toBeNull();
+      expect(ledger._ctx.graphCacheKey).toBeNull();
+      await ledger.close();
     });
   });
 });
