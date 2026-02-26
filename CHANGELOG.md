@@ -1,5 +1,20 @@
 # @zipbul/gildash
 
+## 0.7.0
+
+### Minor Changes
+
+- [#31](https://github.com/zipbul/gildash/pull/31) [`b4f50aa`](https://github.com/zipbul/gildash/commit/b4f50aa8ccb44243f4404078a436947556ce2464) Thanks [@parkrevil](https://github.com/parkrevil)! - Replace `Result<T, GildashError>` return types with direct returns and `GildashError` throws across all 34 public API methods.
+
+  **Breaking changes:**
+
+  - All public methods now return values directly and throw `GildashError` on failure (previously returned `Result<T, GildashError>`)
+  - `@zipbul/result` is no longer a peer dependency (moved to internal dependency)
+  - `GildashError` is now a class extending `Error` (previously a plain interface)
+  - `getFullSymbol()`, `getFileInfo()`, `getResolvedType()` return `null` for "not found" (previously returned an error)
+  - `resolveSymbol()` returns `{ circular: true }` for circular re-exports (previously returned an error)
+  - `ResolvedSymbol` type has a new `circular: boolean` field
+
 ## 0.6.0
 
 ### Minor Changes
