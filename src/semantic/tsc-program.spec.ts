@@ -296,6 +296,45 @@ describe("TscProgram", () => {
     }
   });
 
+  // T6-1. [NE] defaultReadConfigFile error path — non-existent tsconfig with no DI override
+  it("should return GildashError when defaultReadConfigFile fails for non-existent path", () => {
+    // Arrange & Act — no readConfigFile option → uses defaultReadConfigFile
+    const result = TscProgram.create("/absolutely/nonexistent/tsconfig.json", {});
+
+    // Assert
+    expect(isErr(result)).toBe(true);
+    if (isErr<GildashError>(result)) {
+      expect(result.data.type).toBe("semantic");
+      expect(result.data.message).toContain("tsconfig not found");
+    }
+  });
+
+  // T6-2. [NE] defaultResolveNonTrackedFile error path — non-existent file via DI that delegates to default
+  it("should return undefined from getScriptSnapshot for non-existent file when resolver returns undefined", () => {
+    // Arrange — use a resolver that returns undefined for an unknown file
+    // (mirrors defaultResolveNonTrackedFile behavior on ENOENT)
+    const resolveNonTrackedFile = (p: string): string | undefined => {
+      if (p.includes("lib.") && p.endsWith(".d.ts")) return FAKE_LIB_CONTENT;
+      return undefined; // same as defaultResolveNonTrackedFile catch path
+    };
+
+    const result = TscProgram.create(TSCONFIG_PATH, {
+      readConfigFile: makeReadConfigFile(VALID_TSCONFIG),
+      resolveNonTrackedFile,
+    });
+
+    // Assert — creation should succeed
+    expect(isErr(result)).toBe(false);
+    if (!isErr(result)) {
+      const host = result.__testing__.host;
+      // Act — try to get snapshot of a non-existent, non-lib file
+      const snapshot = host.getScriptSnapshot("/absolutely/nonexistent/random.ts");
+      // Assert — resolver returns undefined → getScriptSnapshot returns undefined
+      expect(snapshot).toBeUndefined();
+      result.dispose();
+    }
+  });
+
   // 17. [NE] JSON 문법 오류 tsconfig → GildashError
   it("should return GildashError when tsconfig contains malformed JSON", () => {
     // Arrange

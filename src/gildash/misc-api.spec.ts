@@ -15,6 +15,9 @@ mock.module('../indexer/index-coordinator', () => ({
 const {
   diffSymbols,
   onIndexed,
+  onFileChanged,
+  onError,
+  onRoleChanged,
   reindex,
   resolveSymbol,
   findPattern,
@@ -47,6 +50,9 @@ function makeCtx(overrides?: Partial<GildashContext>): GildashContext {
     parseCache: {} as any,
     logger: { error: () => {} } as any,
     onIndexedCallbacks: new Set(),
+    onFileChangedCallbacks: new Set(),
+    onErrorCallbacks: new Set(),
+    onRoleChangedCallbacks: new Set(),
     coordinator: null,
     relationSearchFn: mock(() => []),
     patternSearchFn: mock(async () => []),
@@ -179,6 +185,57 @@ describe('onIndexed', () => {
     dispose();
 
     expect(ctx.onIndexedCallbacks.has(callback)).toBe(false);
+  });
+});
+
+// ─── onFileChanged ──────────────────────────────────────────────────
+
+describe('onFileChanged', () => {
+  it('should add callback and return dispose function that removes it', () => {
+    const ctx = makeCtx();
+    const callback = mock(() => {});
+
+    const dispose = onFileChanged(ctx, callback);
+
+    expect(ctx.onFileChangedCallbacks.has(callback)).toBe(true);
+
+    dispose();
+
+    expect(ctx.onFileChangedCallbacks.has(callback)).toBe(false);
+  });
+});
+
+// ─── onError ────────────────────────────────────────────────────────
+
+describe('onError', () => {
+  it('should add callback and return dispose function that removes it', () => {
+    const ctx = makeCtx();
+    const callback = mock(() => {});
+
+    const dispose = onError(ctx, callback);
+
+    expect(ctx.onErrorCallbacks.has(callback)).toBe(true);
+
+    dispose();
+
+    expect(ctx.onErrorCallbacks.has(callback)).toBe(false);
+  });
+});
+
+// ─── onRoleChanged ──────────────────────────────────────────────────
+
+describe('onRoleChanged', () => {
+  it('should add callback and return dispose function that removes it', () => {
+    const ctx = makeCtx();
+    const callback = mock(() => {});
+
+    const dispose = onRoleChanged(ctx, callback);
+
+    expect(ctx.onRoleChangedCallbacks.has(callback)).toBe(true);
+
+    dispose();
+
+    expect(ctx.onRoleChangedCallbacks.has(callback)).toBe(false);
   });
 });
 

@@ -160,9 +160,14 @@ function makeCtx(overrides?: Partial<GildashContext>): GildashContext {
     signalHandlers: [],
     tsconfigPaths: null,
     boundaries: [],
+    instanceId: 'test-uuid',
     onIndexedCallbacks: new Set(),
+    onFileChangedCallbacks: new Set(),
+    onErrorCallbacks: new Set(),
+    onRoleChangedCallbacks: new Set(),
     graphCache: null,
     graphCacheKey: null,
+    graphCacheBuiltAt: null,
     semanticLayer: null,
     ...overrides,
   } as unknown as GildashContext;
@@ -579,6 +584,98 @@ describe('setupOwnerInfrastructure', () => {
 
     expect(notifyFileDeleted).toHaveBeenCalledWith('/project/src/removed.ts');
   });
+
+  it('should catch semanticLayer.notifyFileDeleted throw on delete event and fire onError', async () => {
+    const coordinator = makeCoordinator();
+    const watcher = makeWatcher();
+    const deleteError = new Error('delete notify fail');
+    const semanticLayer = {
+      notifyFileChanged: mock(() => {}),
+      notifyFileDeleted: mock(() => { throw deleteError; }),
+      dispose: mock(() => {}),
+    };
+    const onErrorCb = mock(() => {});
+    const ctx = makeCtx({
+      coordinatorFactory: mock(() => coordinator) as any,
+      watcherFactory: mock(() => watcher) as any,
+      semanticLayer: semanticLayer as any,
+      onErrorCallbacks: new Set([onErrorCb]),
+    });
+
+    await setupOwnerInfrastructure(ctx, { isWatchMode: true });
+
+    const startCall = (watcher.start as ReturnType<typeof mock>).mock.calls[0];
+    const watcherCallback = startCall![0] as (event: any) => void;
+    watcherCallback({ filePath: '/project/src/removed.ts', eventType: 'delete' });
+
+    expect(onErrorCb).toHaveBeenCalledTimes(1);
+    const firedError = (onErrorCb.mock.calls as unknown as GildashError[][])[0]![0]!;
+    expect(firedError).toBeInstanceOf(GildashError);
+    expect(firedError.type).toBe('semantic');
+    expect(firedError.cause).toBe(deleteError);
+  });
+
+  it('should catch semanticLayer.notifyFileChanged throw and fire onError', async () => {
+    const coordinator = makeCoordinator();
+    const watcher = makeWatcher();
+    const changeError = new Error('change notify fail');
+    const semanticLayer = {
+      notifyFileChanged: mock(() => { throw changeError; }),
+      notifyFileDeleted: mock(() => {}),
+      dispose: mock(() => {}),
+    };
+    const onErrorCb = mock(() => {});
+    const ctx = makeCtx({
+      coordinatorFactory: mock(() => coordinator) as any,
+      watcherFactory: mock(() => watcher) as any,
+      semanticLayer: semanticLayer as any,
+      onErrorCallbacks: new Set([onErrorCb]),
+      readFileFn: mock(async () => 'file content') as any,
+    });
+
+    await setupOwnerInfrastructure(ctx, { isWatchMode: true });
+
+    const startCall = (watcher.start as ReturnType<typeof mock>).mock.calls[0];
+    const watcherCallback = startCall![0] as (event: any) => void;
+    watcherCallback({ filePath: '/project/src/changed.ts', eventType: 'update' });
+
+    // Wait for the async readFileFn promise to resolve
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(onErrorCb).toHaveBeenCalledTimes(1);
+    const firedError = (onErrorCb.mock.calls as unknown as GildashError[][])[0]![0]!;
+    expect(firedError).toBeInstanceOf(GildashError);
+    expect(firedError.type).toBe('semantic');
+    expect(firedError.cause).toBe(changeError);
+  });
+
+  it('should catch semanticLayer.notifyFileDeleted throw in read-error recovery', async () => {
+    const coordinator = makeCoordinator();
+    const watcher = makeWatcher();
+    const semanticLayer = {
+      notifyFileChanged: mock(() => {}),
+      notifyFileDeleted: mock(() => { throw new Error('delete during recovery fail'); }),
+      dispose: mock(() => {}),
+    };
+    const ctx = makeCtx({
+      coordinatorFactory: mock(() => coordinator) as any,
+      watcherFactory: mock(() => watcher) as any,
+      semanticLayer: semanticLayer as any,
+      readFileFn: mock(async () => { throw new Error('read fail'); }) as any,
+    });
+
+    await setupOwnerInfrastructure(ctx, { isWatchMode: true });
+
+    const startCall = (watcher.start as ReturnType<typeof mock>).mock.calls[0];
+    const watcherCallback = startCall![0] as (event: any) => void;
+    watcherCallback({ filePath: '/project/src/unreadable.ts', eventType: 'update' });
+
+    // Wait for the async readFileFn rejection + catch handler
+    await new Promise(r => setTimeout(r, 10));
+
+    // Should log both the read error and the recovery error without crashing
+    expect((ctx.logger.error as any).mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -725,9 +822,9 @@ describe('lifecycle state transitions', () => {
 
   it('should invalidate graphCache via onIndexed callback in setupOwnerInfrastructure', async () => {
     const coordinator = makeCoordinator();
-    let graphCacheInvalidator: Function | null = null;
+    const capturedCallbacks: Function[] = [];
     coordinator.onIndexed = mock((cb: any) => {
-      graphCacheInvalidator = cb;
+      capturedCallbacks.push(cb);
       return () => {};
     });
     const ctx = makeCtx({
@@ -738,8 +835,11 @@ describe('lifecycle state transitions', () => {
 
     await setupOwnerInfrastructure(ctx, { isWatchMode: false });
 
-    expect(graphCacheInvalidator).not.toBeNull();
-    graphCacheInvalidator!();
+    // The second onIndexed callback is the incremental invalidation one
+    // Trigger full invalidation path by exceeding the 100-file threshold
+    const graphCacheInvalidator = capturedCallbacks[capturedCallbacks.length - 1]!;
+    const manyFiles = Array.from({ length: 101 }, (_, i) => `file${i}.ts`);
+    graphCacheInvalidator({ changedFiles: manyFiles, deletedFiles: [], failedFiles: [] });
     expect(ctx.graphCache).toBeNull();
     expect(ctx.graphCacheKey).toBeNull();
   });
