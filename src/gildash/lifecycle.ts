@@ -82,13 +82,31 @@ function createWatcherCallback(
     coordinator.handleWatcherEvent?.(event);
     if (ctx.semanticLayer) {
       if (event.eventType === 'delete') {
-        ctx.semanticLayer.notifyFileDeleted(event.filePath);
+        try {
+          ctx.semanticLayer.notifyFileDeleted(event.filePath);
+        } catch (e) {
+          ctx.logger.error('[Gildash] semanticLayer.notifyFileDeleted threw:', e);
+          for (const cb of ctx.onErrorCallbacks) {
+            try { cb(e instanceof GildashError ? e : new GildashError('semantic', 'semantic notifyFileDeleted failed', { cause: e })); } catch { /* protect watcher */ }
+          }
+        }
       } else {
         ctx.readFileFn(event.filePath).then(content => {
-          ctx.semanticLayer?.notifyFileChanged(event.filePath, content);
+          try {
+            ctx.semanticLayer?.notifyFileChanged(event.filePath, content);
+          } catch (e) {
+            ctx.logger.error('[Gildash] semanticLayer.notifyFileChanged threw:', e);
+            for (const cb of ctx.onErrorCallbacks) {
+              try { cb(e instanceof GildashError ? e : new GildashError('semantic', 'semantic notifyFileChanged failed', { cause: e })); } catch { /* protect watcher */ }
+            }
+          }
         }).catch((readErr) => {
           ctx.logger.error('[Gildash] failed to read file for semantic layer', event.filePath, readErr);
-          ctx.semanticLayer?.notifyFileDeleted(event.filePath);
+          try {
+            ctx.semanticLayer?.notifyFileDeleted(event.filePath);
+          } catch (e) {
+            ctx.logger.error('[Gildash] semanticLayer.notifyFileDeleted threw during read error recovery:', e);
+          }
         });
       }
     }

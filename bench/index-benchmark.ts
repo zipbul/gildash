@@ -41,6 +41,9 @@ async function runBenchmark(fileCount: number): Promise<void> {
     const g = await Gildash.open({ projectRoot: tmpDir, watchMode: false });
     const stats = g.getStats();
 
+    if (stats.fileCount !== fileCount) throw new Error(`Expected ${fileCount} files, got ${stats.fileCount}`);
+    if (stats.symbolCount < fileCount) throw new Error(`Expected >= ${fileCount} symbols, got ${stats.symbolCount}`);
+
     const elapsed = performance.now() - start;
     const heapAfter = process.memoryUsage().heapUsed;
     const heapDeltaMb = ((heapAfter - heapBefore) / 1024 / 1024).toFixed(1);

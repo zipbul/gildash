@@ -105,10 +105,10 @@ describe('stress: large-scale indexing', () => {
     expect(stats.fileCount).toBe(FILE_COUNT);
   });
 
-  it('should report a positive symbol count', () => {
+  it('should report exactly one symbol per file', () => {
     const stats = gildash.getStats();
-    // Every file exports at least one symbol
-    expect(stats.symbolCount).toBeGreaterThanOrEqual(FILE_COUNT);
+    // Each file exports exactly one symbol (value_N)
+    expect(stats.symbolCount).toBe(FILE_COUNT);
   });
 
   it('should detect no cycles in the linear dependency chain', async () => {
@@ -177,7 +177,35 @@ describe('stress: large-scale indexing', () => {
     expect(files.length).toBe(FILE_COUNT);
   });
 
-  it('should log final memory usage summary', () => {
+  it('should find symbols by prefix search', () => {
+    const results = gildash.searchSymbols({ text: 'value_0' });
+    // Should find at least value_0 (exact match)
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results.some(r => r.name === 'value_0')).toBe(true);
+  });
+
+  it('should return dependencies for a file in the import chain', () => {
+    const files = gildash.listIndexedFiles();
+    const module1 = files.find(f => f.filePath.endsWith('module_1.ts'))!;
+    expect(module1).toBeDefined();
+
+    const deps = gildash.getDependencies(module1.filePath);
+    // module_1 imports from module_0
+    expect(deps.length).toBe(1);
+    expect(deps[0]).toContain('module_0.ts');
+  });
+
+  it('should return dependents for the root of the chain', () => {
+    const files = gildash.listIndexedFiles();
+    const module0 = files.find(f => f.filePath.endsWith('module_0.ts'))!;
+    expect(module0).toBeDefined();
+
+    const dependents = gildash.getDependents(module0.filePath);
+    // module_0 is imported by module_1
+    expect(dependents.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('should stay within memory budget', () => {
     const mem = process.memoryUsage();
     console.log('[stress] ── Final Memory Summary ──');
     console.log(`[stress]   heapUsed:  ${formatBytes(mem.heapUsed)}`);
@@ -185,7 +213,11 @@ describe('stress: large-scale indexing', () => {
     console.log(`[stress]   rss:       ${formatBytes(mem.rss)}`);
     console.log(`[stress]   external:  ${formatBytes(mem.external)}`);
 
-    // Sanity check: heap should not exceed 2 GB
-    expect(mem.heapUsed).toBeLessThan(2 * 1024 * 1024 * 1024);
+    // Per-file memory budget: < 0.5 MB per indexed file
+    const perFileHeapMb = mem.heapUsed / 1024 / 1024 / FILE_COUNT;
+    expect(perFileHeapMb).toBeLessThan(0.5);
+
+    // Absolute cap: heap should not exceed 1 GB for 10k files
+    expect(mem.heapUsed).toBeLessThan(1024 * 1024 * 1024);
   });
 });

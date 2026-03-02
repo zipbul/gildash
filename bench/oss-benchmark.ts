@@ -108,6 +108,9 @@ async function benchProject(project: OSSProject): Promise<void> {
     const heapAfter = process.memoryUsage().heapUsed;
     const stats = g.getStats();
 
+    if (stats.fileCount === 0) throw new Error(`${project.name}: expected at least some indexed files`);
+    if (stats.symbolCount === 0) throw new Error(`${project.name}: expected at least some symbols`);
+
     console.log(`  Indexing: ${formatMs(indexElapsed)}`);
     console.log(`  Files: ${stats.fileCount}  |  Symbols: ${stats.symbolCount}`);
     console.log(`  Heap: ${formatBytes(heapAfter)} (delta: ${formatBytes(heapAfter - heapBefore)})`);

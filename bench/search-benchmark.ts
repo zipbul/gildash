@@ -68,6 +68,18 @@ try {
 
   const g = await Gildash.open({ projectRoot: tmpDir, watchMode: false });
 
+  // ── Warmup + Correctness Assertions ──────────────────────────────────
+  {
+    const stats = g.getStats();
+    if (stats.fileCount !== FILE_COUNT) throw new Error(`Expected ${FILE_COUNT} files, got ${stats.fileCount}`);
+
+    const exactMatch = g.searchSymbols({ text: 'handler_0' });
+    if (!Array.isArray(exactMatch)) throw new Error('searchSymbols should return array');
+    if (exactMatch.length === 0) throw new Error('Exact match for handler_0 should find results');
+
+    console.log('  ✓ correctness assertions passed');
+  }
+
   benchSearch(g, 'exact name match', { text: 'handler_500' });
   benchSearch(g, 'prefix match (handler)', { text: 'handler' });
   benchSearch(g, 'kind filter (class)', { text: 'Service', kind: 'class' });

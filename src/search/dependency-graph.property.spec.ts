@@ -6,9 +6,11 @@ import type { IDependencyGraphRepo } from './dependency-graph';
 
 const PROJECT = 'test-project';
 
+const filePathArbitrary = fc.stringMatching(/^\/[a-zA-Z][a-zA-Z0-9_]{0,9}\.ts$/);
+
 const edgeArbitrary = fc.record({
-  src: fc.stringMatching(/^\/[a-z]{1,3}\.ts$/),
-  dst: fc.stringMatching(/^\/[a-z]{1,3}\.ts$/),
+  src: filePathArbitrary,
+  dst: filePathArbitrary,
 });
 
 const edgesArbitrary = fc.array(edgeArbitrary);
@@ -127,6 +129,11 @@ describe('DependencyGraph (property-based)', () => {
           expect(patchedDeps).toBeDefined();
           expect([...patchedDeps!].sort()).toEqual([...deps].sort());
         }
+
+        // Verify patched has no extra keys beyond reference
+        for (const [node] of patchedAdjacency) {
+          expect(referenceAdjacency.has(node)).toBe(true);
+        }
       }),
     );
   });
@@ -134,7 +141,7 @@ describe('DependencyGraph (property-based)', () => {
   it('should detect cycle when a self-loop A->A exists', () => {
     fc.assert(
       fc.property(
-        fc.stringMatching(/^\/[a-z]{1,3}\.ts$/),
+        filePathArbitrary,
         edgesArbitrary,
         (selfLoopNode, extraEdges) => {
           const edges = [
@@ -148,5 +155,33 @@ describe('DependencyGraph (property-based)', () => {
         },
       ),
     );
+  });
+
+  it('should return only valid cycles from getCyclePaths where each step is a real edge', () => {
+    fc.assert(
+      fc.property(edgesArbitrary, (edges) => {
+        const graph = buildGraphFromEdges(edges);
+        const cyclePaths = graph.getCyclePaths();
+
+        for (const cycle of cyclePaths) {
+          // Each cycle must have at least 1 node
+          expect(cycle.length).toBeGreaterThanOrEqual(1);
+          // Verify adjacency: each consecutive pair must be connected
+          for (let i = 0; i < cycle.length; i++) {
+            const from = cycle[i]!;
+            const to = cycle[(i + 1) % cycle.length]!;
+            const deps = graph.getDependencies(from);
+            expect(deps).toContain(to);
+          }
+        }
+      }),
+    );
+  });
+
+  it('should report no cycles and no dependencies for an empty graph', () => {
+    const graph = buildGraphFromEdges([]);
+    expect(graph.hasCycle()).toBe(false);
+    expect(graph.getCyclePaths()).toEqual([]);
+    expect(graph.getAdjacencyList().size).toBe(0);
   });
 });

@@ -112,6 +112,22 @@ try {
 
   const g = await Gildash.open({ projectRoot: tmpDir, watchMode: false });
 
+  // ── Warmup + Correctness Assertions ──────────────────────────────────
+  {
+    const stats = g.getStats();
+    if (stats.fileCount !== FILE_COUNT) throw new Error(`Expected ${FILE_COUNT} files, got ${stats.fileCount}`);
+    if (stats.symbolCount < FILE_COUNT) throw new Error(`Expected at least ${FILE_COUNT} symbols, got ${stats.symbolCount}`);
+
+    const hasCycleResult = await g.hasCycle();
+    if (typeof hasCycleResult !== 'boolean') throw new Error('hasCycle() should return boolean');
+
+    const graph = await g.getImportGraph();
+    if (!(graph instanceof Map)) throw new Error('getImportGraph() should return Map');
+    if (graph.size === 0) throw new Error('Import graph should not be empty');
+
+    console.log('  ✓ correctness assertions passed');
+  }
+
   // Graph operations (first call builds the cache, subsequent calls use it)
   await benchAsync('hasCycle (cold build)', () => g.hasCycle());
   await benchAsync('hasCycle (cached)', () => g.hasCycle());

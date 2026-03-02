@@ -293,7 +293,7 @@ Requires `semantic: true` at open time.
 | `findPattern(pattern, opts?)` | `Promise<PatternMatch[]>` | AST structural search (ast-grep) |
 | `resolveSymbol(name, filePath)` | `ResolvedSymbol` | Follow re-export chain to original |
 | `getHeritageChain(name, filePath)` | `Promise<HeritageNode>` | extends / implements tree |
-| `batchParse(filePaths, opts?)` | `Promise<Map>` | Concurrent multi-file parsing. `opts`: oxc-parser `ParserOptions`. |
+| `batchParse(filePaths, opts?)` | `Promise<BatchParseResult>` | Concurrent multi-file parsing. Returns `{ parsed, failures }`. `opts`: oxc-parser `ParserOptions`. |
 
 ### Lifecycle & Low-level
 
@@ -301,6 +301,9 @@ Requires `semantic: true` at open time.
 |--------|---------|-------------|
 | `reindex()` | `Promise<IndexResult>` | Force full re-index (owner only) |
 | `onIndexed(callback)` | `() => void` | Subscribe to index-complete events |
+| `onFileChanged(callback)` | `() => void` | Subscribe to file-change events |
+| `onError(callback)` | `() => void` | Subscribe to error events |
+| `onRoleChanged(callback)` | `() => void` | Subscribe to owner/reader role-change events |
 | `parseSource(filePath, src, opts?)` | `ParsedFile` | Parse & cache a single file. `opts`: oxc-parser `ParserOptions`. |
 | `extractSymbols(parsed)` | `ExtractedSymbol[]` | Extract symbols from parsed AST |
 | `extractRelations(parsed)` | `CodeRelation[]` | Extract relations from parsed AST |
@@ -518,13 +521,27 @@ Gildash (Facade)
 When multiple processes share the same SQLite database, gildash enforces a single-writer guarantee:
 
 - **Owner** — Runs the file watcher, performs indexing, sends a heartbeat every 30 s
-- **Reader** — Read-only access; polls owner health every 60 s and self-promotes if the owner goes stale
+- **Reader** — Read-only access; polls owner health every 15 s and self-promotes if the owner goes stale (60 s threshold)
 
 <br>
 
 ## ⬆️ Upgrading
 
-### From 0.5.x to 0.6.0
+### From 0.7.x to 0.8.0
+
+**Breaking:** `batchParse()` now returns `BatchParseResult` (with `parsed` and `failures` fields) instead of `Map<string, ParsedFile>`.
+
+```diff
+- const parsed = await ledger.batchParse(filePaths);
+- const ast = parsed.get('src/app.ts');
++ const { parsed, failures } = await ledger.batchParse(filePaths);
++ const ast = parsed.get('src/app.ts');
++ if (failures.length > 0) console.warn('Failed:', failures);
+```
+
+**New event methods:** `onFileChanged()`, `onError()`, `onRoleChanged()` added alongside `onIndexed()`.
+
+### From 0.6.x to 0.7.0
 
 **Breaking:** `@zipbul/result` is no longer part of the public API. All methods now return values directly and throw `GildashError` on failure.
 

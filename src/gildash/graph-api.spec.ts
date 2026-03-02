@@ -300,6 +300,21 @@ describe('getImportGraph', () => {
 
     await expect(getImportGraph(ctx)).rejects.toThrow(GildashError);
   });
+
+  it('should catch exception and throw GildashError with cause', async () => {
+    const error = new Error('graph fail');
+    mockGetAdjacencyList.mockImplementation(() => { throw error; });
+    const ctx = makeCtx();
+
+    try {
+      await getImportGraph(ctx, 'proj');
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GildashError);
+      expect((e as GildashError).type).toBe('search');
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
 });
 
 // ─── getTransitiveDependencies ──────────────────────────────────────

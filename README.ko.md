@@ -292,7 +292,7 @@ try {
 | `findPattern(pattern, opts?)` | `Promise<PatternMatch[]>` | AST 구조적 검색 (ast-grep) |
 | `resolveSymbol(name, filePath)` | `ResolvedSymbol` | re-export 체인을 따라 원본 추적 |
 | `getHeritageChain(name, filePath)` | `Promise<HeritageNode>` | extends/implements 트리 |
-| `batchParse(filePaths, opts?)` | `Promise<Map>` | 다중 파일 동시 파싱. `opts`: oxc-parser `ParserOptions`. |
+| `batchParse(filePaths, opts?)` | `Promise<BatchParseResult>` | 다중 파일 동시 파싱. `{ parsed, failures }` 반환. `opts`: oxc-parser `ParserOptions`. |
 
 ### 라이프사이클 & 저수준
 
@@ -300,6 +300,9 @@ try {
 |--------|-----------|------|
 | `reindex()` | `Promise<IndexResult>` | 강제 전체 재인덱싱 (owner만 가능) |
 | `onIndexed(callback)` | `() => void` | 인덱싱 완료 이벤트 구독 |
+| `onFileChanged(callback)` | `() => void` | 파일 변경 이벤트 구독 |
+| `onError(callback)` | `() => void` | 에러 이벤트 구독 |
+| `onRoleChanged(callback)` | `() => void` | owner/reader 역할 변경 이벤트 구독 |
 | `parseSource(filePath, src, opts?)` | `ParsedFile` | 단일 파일 파싱 & 캐시. `opts`: oxc-parser `ParserOptions`. |
 | `extractSymbols(parsed)` | `ExtractedSymbol[]` | 파싱된 AST에서 심볼 추출 |
 | `extractRelations(parsed)` | `CodeRelation[]` | 파싱된 AST에서 관계 추출 |
@@ -407,13 +410,27 @@ Gildash (파사드)
 동일 SQLite DB를 여러 프로세스가 공유할 때, 단일 writer를 보장합니다:
 
 - **Owner** — 파일 워처 실행, 인덱싱 수행, 30초 간격으로 heartbeat 전송
-- **Reader** — 읽기 전용 접근; 60초 간격으로 owner 상태 확인, owner가 stale 상태가 되면 reader 중 하나가 owner로 승격
+- **Reader** — 읽기 전용 접근; 15초 간격으로 owner 상태 확인, owner가 60초 이상 stale 상태이면 reader 중 하나가 owner로 승격
 
 <br>
 
 ## ⬆️ 업그레이드
 
-### 0.5.x → 0.6.0
+### 0.7.x → 0.8.0
+
+**Breaking:** `batchParse()`가 `Map<string, ParsedFile>` 대신 `BatchParseResult` (`parsed` + `failures` 필드)를 반환합니다.
+
+```diff
+- const parsed = await ledger.batchParse(filePaths);
+- const ast = parsed.get('src/app.ts');
++ const { parsed, failures } = await ledger.batchParse(filePaths);
++ const ast = parsed.get('src/app.ts');
++ if (failures.length > 0) console.warn('실패:', failures);
+```
+
+**새 이벤트 메서드:** `onFileChanged()`, `onError()`, `onRoleChanged()`가 `onIndexed()`와 함께 추가되었습니다.
+
+### 0.6.x → 0.7.0
 
 **Breaking:** `@zipbul/result`가 더 이상 public API의 일부가 아닙니다. 모든 메서드가 값을 직접 반환하고, 실패 시 `GildashError`를 throw합니다.
 
