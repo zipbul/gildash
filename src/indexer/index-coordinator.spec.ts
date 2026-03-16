@@ -9,7 +9,6 @@ import type { TsconfigPaths } from '../common/tsconfig-resolver';
 const mockDetectChanges = mock(async (opts: any): Promise<DetectChangesResult> => ({ changed: [], unchanged: [], deleted: [] }));
 const mockIndexFileSymbols = mock((opts: any) => {});
 const mockIndexFileRelations = mock((opts: any) => 0);
-const mockDetectRenames = mock((before: any, after: any) => ({ renamed: [], added: [], removed: [] }));
 const mockParseSource = mock((filePath: string, text: string) => ({
   filePath: filePath,
   program: {},
@@ -97,7 +96,6 @@ describe('IndexCoordinator', () => {
     mock.module('./file-indexer', () => ({ detectChanges: mockDetectChanges }));
     mock.module('./symbol-indexer', () => ({ indexFileSymbols: mockIndexFileSymbols }));
     mock.module('./relation-indexer', () => ({ indexFileRelations: mockIndexFileRelations }));
-    mock.module('./rename-detector', () => ({ detectRenames: mockDetectRenames }));
     mock.module('../common/tsconfig-resolver', () => ({ loadTsconfigPaths: mockLoadTsconfigPaths, clearTsconfigPathsCache: mockClearTsconfigPathsCache }));
     mock.module('../common/project-discovery', () => ({ resolveFileProject: mockResolveFileProject, discoverProjects: mockDiscoverProjects }));
 
@@ -106,8 +104,6 @@ describe('IndexCoordinator', () => {
     mockIndexFileSymbols.mockReset();
     mockIndexFileRelations.mockReset();
     mockIndexFileRelations.mockReturnValue(0);
-    mockDetectRenames.mockReset();
-    mockDetectRenames.mockReturnValue({ renamed: [], added: [], removed: [] });
     mockParseSource.mockReset();
     mockParseSource.mockImplementation((fp: string, text: string) => ({
       filePath: fp, program: { body: [] }, errors: [], comments: [], sourceText: text,
