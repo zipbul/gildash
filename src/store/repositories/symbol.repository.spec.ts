@@ -259,6 +259,101 @@ describe('SymbolRepository', () => {
     expect(chain['all']).toHaveBeenCalled();
   });
 
+  // ── progressive regex fetch ───────────────────────────────────────────────
+
+  it('should return matching results when regex matches fewer than limit and all multipliers exhausted', () => {
+    const { db, chain } = makeDbMock();
+    const repo = new SymbolRepository(db);
+
+    // Simulate: 1000 records per fetch (>= fetchLimit), 3 match regex
+    const allRecords = Array.from({ length: 1000 }, (_, i) => ({
+      ...makeSymRecord({ name: `symbol_${i}` }),
+      id: i,
+    }));
+    allRecords[100] = { ...makeSymRecord({ name: 'MATCH_alpha' }), id: 100 };
+    allRecords[300] = { ...makeSymRecord({ name: 'MATCH_beta' }), id: 300 };
+    allRecords[600] = { ...makeSymRecord({ name: 'MATCH_gamma' }), id: 600 };
+
+    chain['all']!.mockReturnValue(allRecords);
+
+    const results = repo.searchByQuery({ regex: '^MATCH_', limit: 10 });
+
+    expect(results.length).toBe(3);
+    expect(results.map((r: any) => r.name)).toEqual(['MATCH_alpha', 'MATCH_beta', 'MATCH_gamma']);
+  });
+
+  it('should return up to limit results when regex matches more than limit', () => {
+    const { db, chain } = makeDbMock();
+    const repo = new SymbolRepository(db);
+
+    const allRecords = Array.from({ length: 50 }, (_, i) => ({
+      ...makeSymRecord({ name: `get_item_${i}` }),
+      id: i,
+    }));
+
+    chain['all']!.mockReturnValue(allRecords);
+
+    const results = repo.searchByQuery({ regex: '^get_', limit: 5 });
+
+    expect(results.length).toBe(5);
+  });
+
+  it('should return empty array when regex matches nothing across all multipliers', () => {
+    const { db, chain } = makeDbMock();
+    const repo = new SymbolRepository(db);
+
+    const allRecords = Array.from({ length: 1000 }, (_, i) => ({
+      ...makeSymRecord({ name: `symbol_${i}` }),
+      id: i,
+    }));
+    chain['all']!.mockReturnValue(allRecords);
+
+    const results = repo.searchByQuery({ regex: '^NONEXISTENT$', limit: 10 });
+
+    expect(results).toEqual([]);
+  });
+
+  it('should return partial results when DB has fewer records than smallest fetchLimit', () => {
+    const { db, chain } = makeDbMock();
+    const repo = new SymbolRepository(db);
+
+    // Only 3 records total, limit=10 → fetchLimit=50, results.length(3) < fetchLimit(50)
+    const allRecords = [
+      { ...makeSymRecord({ name: 'MATCH_one' }), id: 1 },
+      { ...makeSymRecord({ name: 'other' }), id: 2 },
+      { ...makeSymRecord({ name: 'MATCH_two' }), id: 3 },
+    ];
+    chain['all']!.mockReturnValue(allRecords);
+
+    const results = repo.searchByQuery({ regex: '^MATCH_', limit: 10 });
+
+    expect(results.length).toBe(2);
+    expect(results.map((r: any) => r.name)).toEqual(['MATCH_one', 'MATCH_two']);
+  });
+
+  it('should throw GildashError for invalid regex pattern', () => {
+    const { db } = makeDbMock();
+    const repo = new SymbolRepository(db);
+
+    expect(() => repo.searchByQuery({ regex: '[invalid', limit: 10 })).toThrow();
+  });
+
+  it('should handle regex with limit=1 and single match in large dataset', () => {
+    const { db, chain } = makeDbMock();
+    const repo = new SymbolRepository(db);
+
+    const allRecords = Array.from({ length: 100 }, (_, i) => ({
+      ...makeSymRecord({ name: i === 50 ? 'UNIQUE_target' : `sym_${i}` }),
+      id: i,
+    }));
+    chain['all']!.mockReturnValue(allRecords);
+
+    const results = repo.searchByQuery({ regex: '^UNIQUE_', limit: 1 });
+
+    expect(results.length).toBe(1);
+    expect(results[0]!.name).toBe('UNIQUE_target');
+  });
+
   // ── LEG-1 / FR-19 ─────────────────────────────────────────────────────────
 
   // [HP] decorator 있을 때 searchByQuery 체인 .all() 호출됨

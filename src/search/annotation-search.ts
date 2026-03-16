@@ -44,7 +44,8 @@ export function annotationSearch(options: {
 
   let ftsQuery: string | undefined;
   if (query.text) {
-    ftsQuery = toFtsPrefixQuery(query.text) ?? undefined;
+    const raw = toFtsPrefixQuery(query.text);
+    if (raw) ftsQuery = raw;
   }
 
   const records = annotationRepo.search({
