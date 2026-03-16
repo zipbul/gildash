@@ -74,4 +74,49 @@ describe('annotationSearch', () => {
     const results = annotationSearch({ annotationRepo: makeRepo([]), query: {} });
     expect(results).toEqual([]);
   });
+
+  it('should not pass ftsQuery when text is whitespace-only', () => {
+    const repo = makeRepo();
+    annotationSearch({
+      annotationRepo: repo,
+      query: { text: '   ' },
+    });
+    expect(repo.search).toHaveBeenCalledWith(expect.objectContaining({
+      ftsQuery: undefined,
+    }));
+  });
+
+  it('should not pass ftsQuery when text is empty string', () => {
+    const repo = makeRepo();
+    annotationSearch({
+      annotationRepo: repo,
+      query: { text: '' },
+    });
+    expect(repo.search).toHaveBeenCalledWith(expect.objectContaining({
+      ftsQuery: undefined,
+    }));
+  });
+
+  it('should pass ftsQuery when text has actual content after trimming', () => {
+    const repo = makeRepo();
+    annotationSearch({
+      annotationRepo: repo,
+      query: { text: '  todo  ' },
+    });
+    const call = (repo.search as any).mock.calls[0][0];
+    expect(call.ftsQuery).toBeTruthy();
+    expect(typeof call.ftsQuery).toBe('string');
+    expect(call.ftsQuery.length).toBeGreaterThan(0);
+  });
+
+  it('should not pass ftsQuery when text is tab and newline only', () => {
+    const repo = makeRepo();
+    annotationSearch({
+      annotationRepo: repo,
+      query: { text: '\t\n  \t' },
+    });
+    expect(repo.search).toHaveBeenCalledWith(expect.objectContaining({
+      ftsQuery: undefined,
+    }));
+  });
 });

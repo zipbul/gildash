@@ -53,4 +53,25 @@ describe('toFtsPrefixQuery', () => {
   it('should preserve input word order so reversing words changes the output', () => {
     expect(toFtsPrefixQuery('bar foo')).toBe('"bar"* "foo"*');
   });
+
+  it('should strip null bytes from input to prevent SQLite FTS5 syntax error', () => {
+    const result = toFtsPrefixQuery('hello\x00world');
+    expect(result).not.toContain('\x00');
+    expect(result).toBe('"helloworld"*');
+  });
+
+  it('should strip null bytes when they appear between words', () => {
+    const result = toFtsPrefixQuery('hello \x00 world');
+    expect(result).not.toContain('\x00');
+  });
+
+  it('should return empty string when input is only null bytes', () => {
+    expect(toFtsPrefixQuery('\x00\x00')).toBe('');
+  });
+
+  it('should handle mixed null bytes and valid content', () => {
+    const result = toFtsPrefixQuery('\x00foo\x00 bar\x00');
+    expect(result).not.toContain('\x00');
+    expect(result).toBe('"foo"* "bar"*');
+  });
 });

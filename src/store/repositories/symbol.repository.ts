@@ -199,15 +199,16 @@ export class SymbolRepository {
     }
 
     // Progressive fetch — start small, expand if needed
+    let lastFiltered: (SymbolRecord & { id: number })[] = [];
     for (const multiplier of [5, 20, 100]) {
       const fetchLimit = opts.limit * multiplier;
       const results = builder.limit(fetchLimit).all() as (SymbolRecord & { id: number })[];
-      const filtered = results.filter(r => pattern.test(r.name));
-      if (filtered.length >= opts.limit || results.length < fetchLimit) {
-        return filtered.slice(0, opts.limit);
+      lastFiltered = results.filter(r => pattern.test(r.name));
+      if (lastFiltered.length >= opts.limit || results.length < fetchLimit) {
+        return lastFiltered.slice(0, opts.limit);
       }
     }
 
-    return [];
+    return lastFiltered.slice(0, opts.limit);
   }
 }
