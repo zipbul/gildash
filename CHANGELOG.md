@@ -1,5 +1,14 @@
 # @zipbul/gildash
 
+## 0.9.4
+
+### Patch Changes
+
+- [#46](https://github.com/zipbul/gildash/pull/46) [`af54c73`](https://github.com/zipbul/gildash/commit/af54c73ed3ebcea6a97fdbfea9616c265187d3ec) Thanks [@parkrevil](https://github.com/parkrevil)! - docs: document ResolvedType tree structure guarantee in JSDoc
+
+  - Add tree structure guarantee JSDoc to `ResolvedType` interface and `Gildash.getResolvedType()` — returned value is always a bounded, finite, acyclic tree
+  - Extract magic number depth limit into `MAX_TYPE_DEPTH` named constant in `type-collector.ts`
+
 ## 0.9.3
 
 ### Patch Changes
