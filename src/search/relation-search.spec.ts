@@ -3,6 +3,7 @@ import type { RelationRecord } from '../store/repositories/relation.repository';
 import { relationSearch } from './relation-search';
 import type { IRelationRepo, RelationSearchQuery, StoredCodeRelation } from './relation-search';
 import type { CodeRelation } from '../extractor/types';
+import { GildashError } from '../errors';
 
 function makeRelationRecord(overrides: Partial<RelationRecord> = {}): RelationRecord {
   return {
@@ -326,5 +327,131 @@ describe('relationSearch', () => {
 
     const callArgs = (mockSearchRelations as { mock: { calls: any[][] } }).mock.calls[0]?.[0];
     expect(callArgs?.dstProject).toBe('ext-project');
+  });
+
+  // --- Pattern matching tests ---
+
+  it('should filter results by dstFilePathPattern using glob matching', () => {
+    mockSearchRelations = mock(() => [
+      makeRelationRecord({ dstFilePath: 'packages/core/src/index.ts' }),
+      makeRelationRecord({ dstFilePath: 'packages/utils/src/helpers.ts' }),
+      makeRelationRecord({ dstFilePath: 'src/main.ts' }),
+      makeRelationRecord({ dstFilePath: 'lib/external.ts' }),
+    ]);
+    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+    const results = relationSearch({
+      relationRepo: mockRepo,
+      query: { dstFilePathPattern: 'packages/*/src/**' },
+    });
+    expect(results).toHaveLength(2);
+    expect(results[0]!.dstFilePath).toBe('packages/core/src/index.ts');
+    expect(results[1]!.dstFilePath).toBe('packages/utils/src/helpers.ts');
+  });
+
+  it('should filter results by srcFilePathPattern using glob matching', () => {
+    mockSearchRelations = mock(() => [
+      makeRelationRecord({ srcFilePath: 'packages/core/src/index.ts' }),
+      makeRelationRecord({ srcFilePath: 'src/main.ts' }),
+      makeRelationRecord({ srcFilePath: 'packages/utils/src/helpers.ts' }),
+    ]);
+    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+    const results = relationSearch({
+      relationRepo: mockRepo,
+      query: { srcFilePathPattern: 'packages/*/src/**' },
+    });
+    expect(results).toHaveLength(2);
+    expect(results[0]!.srcFilePath).toBe('packages/core/src/index.ts');
+    expect(results[1]!.srcFilePath).toBe('packages/utils/src/helpers.ts');
+  });
+
+  it('should throw validation error when srcFilePath and srcFilePathPattern both specified', () => {
+    expect(() =>
+      relationSearch({
+        relationRepo: mockRepo,
+        query: { srcFilePath: 'src/a.ts', srcFilePathPattern: 'src/**' },
+      })
+    ).toThrow(GildashError);
+    try {
+      relationSearch({
+        relationRepo: mockRepo,
+        query: { srcFilePath: 'src/a.ts', srcFilePathPattern: 'src/**' },
+      });
+    } catch (e) {
+      expect((e as GildashError).type).toBe('validation');
+    }
+  });
+
+  it('should throw validation error when dstFilePath and dstFilePathPattern both specified', () => {
+    expect(() =>
+      relationSearch({
+        relationRepo: mockRepo,
+        query: { dstFilePath: 'src/b.ts', dstFilePathPattern: 'src/**' },
+      })
+    ).toThrow(GildashError);
+    try {
+      relationSearch({
+        relationRepo: mockRepo,
+        query: { dstFilePath: 'src/b.ts', dstFilePathPattern: 'src/**' },
+      });
+    } catch (e) {
+      expect((e as GildashError).type).toBe('validation');
+    }
+  });
+
+  it('should apply consumer limit after pattern filtering', () => {
+    const records = Array.from({ length: 10 }, (_, i) =>
+      makeRelationRecord({
+        srcFilePath: i < 5 ? `src/match-${i}.ts` : `lib/no-match-${i}.ts`,
+        dstFilePath: 'dst.ts',
+      })
+    );
+    mockSearchRelations = mock(() => records);
+    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+    const results = relationSearch({
+      relationRepo: mockRepo,
+      query: { srcFilePathPattern: 'src/**', limit: 3 },
+    });
+    expect(results).toHaveLength(3);
+    expect(results.every(r => r.srcFilePath.startsWith('src/'))).toBe(true);
+  });
+
+  it('should return empty array when no relations match pattern', () => {
+    mockSearchRelations = mock(() => [
+      makeRelationRecord({ dstFilePath: 'src/a.ts' }),
+      makeRelationRecord({ dstFilePath: 'src/b.ts' }),
+    ]);
+    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+    const results = relationSearch({
+      relationRepo: mockRepo,
+      query: { dstFilePathPattern: 'nonexistent/**' },
+    });
+    expect(results).toEqual([]);
+  });
+
+  it('should work with pattern and type filter combined', () => {
+    mockSearchRelations = mock(() => [
+      makeRelationRecord({ type: 'imports', dstFilePath: 'lib/utils.ts' }),
+      makeRelationRecord({ type: 'imports', dstFilePath: 'src/main.ts' }),
+      makeRelationRecord({ type: 'imports', dstFilePath: 'lib/helpers.ts' }),
+    ]);
+    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+    const results = relationSearch({
+      relationRepo: mockRepo,
+      query: { type: 'imports', dstFilePathPattern: 'lib/**' },
+    });
+    expect(results).toHaveLength(2);
+    expect(results.every(r => r.type === 'imports')).toBe(true);
+    expect(results.every(r => r.dstFilePath.startsWith('lib/'))).toBe(true);
+  });
+
+  it('should pass MAX_SAFE_INTEGER as limit to repo when pattern is used', () => {
+    mockSearchRelations = mock(() => []);
+    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+    relationSearch({
+      relationRepo: mockRepo,
+      query: { srcFilePathPattern: 'src/**', limit: 10 },
+    });
+    const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
+    expect(opts.limit).toBe(Number.MAX_SAFE_INTEGER);
   });
 });

@@ -1,4 +1,5 @@
 import type { CodeRelation } from '../extractor/types';
+import { GildashError } from '../errors';
 import type { RelationRecord } from '../store/repositories/relation.repository';
 
 /**
@@ -25,6 +26,10 @@ export interface RelationSearchQuery {
   dstSymbolName?: string;
   /** Destination project. */
   dstProject?: string;
+  /** Glob pattern for source file path filtering (app-level, via Bun.Glob). Mutually exclusive with srcFilePath. */
+  srcFilePathPattern?: string;
+  /** Glob pattern for destination file path filtering (app-level, via Bun.Glob). Mutually exclusive with dstFilePath. */
+  dstFilePathPattern?: string;
   /** Relationship type: `'imports'`, `'calls'`, `'extends'`, or `'implements'`. */
   type?: CodeRelation['type'];
   /** Limit results to this project. */
@@ -58,8 +63,19 @@ export function relationSearch(options: {
   query: RelationSearchQuery;
 }): StoredCodeRelation[] {
   const { relationRepo, project, query } = options;
+
+  if (query.srcFilePath && query.srcFilePathPattern) {
+    throw new GildashError('validation', 'srcFilePath and srcFilePathPattern are mutually exclusive');
+  }
+  if (query.dstFilePath && query.dstFilePathPattern) {
+    throw new GildashError('validation', 'dstFilePath and dstFilePathPattern are mutually exclusive');
+  }
+
   const effectiveProject = query.project ?? project;
   const limit = query.limit ?? 500;
+
+  const usePatternFilter = !!(query.srcFilePathPattern || query.dstFilePathPattern);
+  const dbLimit = usePatternFilter ? Number.MAX_SAFE_INTEGER : limit;
 
   const records = relationRepo.searchRelations({
     srcFilePath: query.srcFilePath,
@@ -69,10 +85,10 @@ export function relationSearch(options: {
     dstProject: query.dstProject,
     type: query.type,
     project: effectiveProject,
-    limit,
+    limit: dbLimit,
   });
 
-  return records.map(r => {
+  let results = records.map(r => {
     let meta: Record<string, unknown> | undefined;
     if (r.metaJson) {
       try {
@@ -92,4 +108,20 @@ export function relationSearch(options: {
       meta,
     };
   });
+
+  if (query.srcFilePathPattern || query.dstFilePathPattern) {
+    const srcGlob = query.srcFilePathPattern ? new Bun.Glob(query.srcFilePathPattern) : null;
+    const dstGlob = query.dstFilePathPattern ? new Bun.Glob(query.dstFilePathPattern) : null;
+    results = results.filter(r =>
+      (!srcGlob || srcGlob.match(r.srcFilePath)) &&
+      (!dstGlob || dstGlob.match(r.dstFilePath))
+    );
+  }
+
+  // Apply consumer limit at app level when pattern was used
+  if (usePatternFilter && results.length > limit) {
+    results = results.slice(0, limit);
+  }
+
+  return results;
 }
