@@ -254,3 +254,119 @@ describe('IndexCoordinator.fullIndex()', () => {
     expect(thrownError).toBeNull();
   });
 });
+
+// ── IndexResult completeness (integration) ─────────────────────────────────
+
+describe('IndexResult changedSymbols.isExported (integration)', () => {
+  it('should include isExported on changedSymbols entries when fullIndex indexes real files', async () => {
+    const projectDir = join(tmpDir, 'export-proj');
+    await mkdir(join(projectDir, 'src'), { recursive: true });
+    await writeFile(join(projectDir, 'src', 'a.ts'), `export function hello(): void {}\nfunction internal(): void {}`);
+
+    const coordinator = new IndexCoordinator({
+      projectRoot: projectDir,
+      boundaries: [{ dir: '.', project: 'export-test' }],
+      extensions: ['.ts'],
+      ignorePatterns: [],
+      dbConnection: db,
+      parseCache: new ParseCache(10),
+      fileRepo,
+      symbolRepo,
+      relationRepo,
+    });
+
+    const result = await coordinator.fullIndex();
+
+    const exported = result.changedSymbols.added.find(s => s.name === 'hello');
+    const internal = result.changedSymbols.added.find(s => s.name === 'internal');
+    expect(exported).toBeDefined();
+    expect(exported!.isExported).toBe(true);
+    expect(internal).toBeDefined();
+    expect(internal!.isExported).toBe(false);
+  });
+});
+
+describe('IndexResult changedRelations (integration)', () => {
+  it('should report added relations on first fullIndex with real files', async () => {
+    const projectDir = join(tmpDir, 'rel-proj');
+    await mkdir(join(projectDir, 'src'), { recursive: true });
+    await writeFile(join(projectDir, 'src', 'a.ts'), `import { foo } from './b';`);
+    await writeFile(join(projectDir, 'src', 'b.ts'), `export function foo(): void {}`);
+
+    const coordinator = new IndexCoordinator({
+      projectRoot: projectDir,
+      boundaries: [{ dir: '.', project: 'rel-test' }],
+      extensions: ['.ts'],
+      ignorePatterns: [],
+      dbConnection: db,
+      parseCache: new ParseCache(10),
+      fileRepo,
+      symbolRepo,
+      relationRepo,
+    });
+
+    const result = await coordinator.fullIndex();
+
+    expect(result.changedRelations.added.length).toBeGreaterThan(0);
+    expect(result.changedRelations.removed.length).toBe(0);
+    const importRel = result.changedRelations.added.find(r => r.type === 'imports');
+    expect(importRel).toBeDefined();
+    expect(importRel!.srcFilePath).toBe('src/a.ts');
+    expect(importRel!.dstFilePath).toBe('src/b.ts');
+  });
+
+  it('should detect relation removal when import is deleted between two fullIndex runs', async () => {
+    const projectDir = join(tmpDir, 'rel-rm-proj');
+    await mkdir(join(projectDir, 'src'), { recursive: true });
+    await writeFile(join(projectDir, 'src', 'a.ts'), `import { foo } from './b';\nfoo();`);
+    await writeFile(join(projectDir, 'src', 'b.ts'), `export function foo(): void {}`);
+
+    const coordinator = new IndexCoordinator({
+      projectRoot: projectDir,
+      boundaries: [{ dir: '.', project: 'rel-rm' }],
+      extensions: ['.ts'],
+      ignorePatterns: [],
+      dbConnection: db,
+      parseCache: new ParseCache(10),
+      fileRepo,
+      symbolRepo,
+      relationRepo,
+    });
+
+    await coordinator.fullIndex();
+
+    // Remove the import from a.ts
+    await writeFile(join(projectDir, 'src', 'a.ts'), `const x = 1;`);
+
+    const result2 = await coordinator.fullIndex();
+
+    expect(result2.changedRelations.removed.length).toBeGreaterThan(0);
+    const removedImport = result2.changedRelations.removed.find(r => r.type === 'imports');
+    expect(removedImport).toBeDefined();
+  });
+});
+
+describe('IndexResult renamedSymbols / movedSymbols (integration)', () => {
+  it('should return empty movedSymbols on fullIndex', async () => {
+    const projectDir = join(tmpDir, 'mv-proj');
+    await mkdir(join(projectDir, 'src'), { recursive: true });
+    await writeFile(join(projectDir, 'src', 'a.ts'), `export function hello(): void {}`);
+
+    const coordinator = new IndexCoordinator({
+      projectRoot: projectDir,
+      boundaries: [{ dir: '.', project: 'mv-test' }],
+      extensions: ['.ts'],
+      ignorePatterns: [],
+      dbConnection: db,
+      parseCache: new ParseCache(10),
+      fileRepo,
+      symbolRepo,
+      relationRepo,
+    });
+
+    const result = await coordinator.fullIndex();
+
+    expect(result.renamedSymbols).toEqual([]);
+    expect(result.movedSymbols).toEqual([]);
+  });
+});
