@@ -651,6 +651,27 @@ describe("TypeCollector", () => {
     expect(result).toBeNull();
   });
 
+  it("should return true when Array<string> is assignable to Array<unknown>", () => {
+    // Arrange
+    const prog = makeProg();
+    const srcFile = "/project/src/gen-assign-src.ts";
+    const tgtFile = "/project/src/gen-assign-tgt.ts";
+    const srcContent = "export const src: Array<string> = [];";
+    const tgtContent = "export const tgt: Array<unknown> = [];";
+    prog.notifyFileChanged(srcFile, srcContent);
+    prog.notifyFileChanged(tgtFile, tgtContent);
+    const collector = new TypeCollector(prog);
+
+    // Act — Array<string> is assignable to Array<unknown>
+    const result = collector.isAssignableTo(
+      srcFile, pos(srcContent, "src"),
+      tgtFile, pos(tgtContent, "tgt"),
+    );
+
+    // Assert
+    expect(result).toBe(true);
+  });
+
   // 30. [OR] collectAt(A, posA) then collectAt(B, posB) = 역순 → 서로 영향 없음
   it("should return independent results when collecting from two different files in different orders", () => {
     // Arrange

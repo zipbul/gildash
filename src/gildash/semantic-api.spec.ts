@@ -560,6 +560,7 @@ describe('isTypeAssignableToAt', () => {
     });
 
     expect(result).toBe(true);
+    expect(layer.isTypeAssignableTo).toHaveBeenCalledWith('/project/src/a.ts', 100, '/project/src/b.ts', 200);
   });
 
   it('should return false when types are not assignable', () => {
