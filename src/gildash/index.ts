@@ -228,8 +228,40 @@ export class Gildash {
     return semanticApi.getImplementations(this._ctx, symbolName, filePath, project);
   }
 
+  isTypeAssignableTo(
+    sourceSymbol: string,
+    sourceFilePath: string,
+    targetSymbol: string,
+    targetFilePath: string,
+    project?: string,
+  ): boolean | null {
+    return semanticApi.isTypeAssignableTo(
+      this._ctx,
+      sourceSymbol,
+      sourceFilePath,
+      targetSymbol,
+      targetFilePath,
+      project,
+    );
+  }
+
   getSemanticModuleInterface(filePath: string): SemanticModuleInterface {
     return semanticApi.getSemanticModuleInterface(this._ctx, filePath);
+  }
+
+  getFileTypes(filePath: string): Map<number, ResolvedType> {
+    return semanticApi.getFileTypes(this._ctx, filePath);
+  }
+
+  getResolvedTypeAt(filePath: string, line: number, column: number): ResolvedType | null {
+    return semanticApi.getResolvedTypeAt(this._ctx, filePath, line, column);
+  }
+
+  isTypeAssignableToAt(opts: {
+    source: { filePath: string; line: number; column: number };
+    target: { filePath: string; line: number; column: number };
+  }): boolean | null {
+    return semanticApi.isTypeAssignableToAt(this._ctx, opts);
   }
 
   // ─── Misc ───────────────────────────────────────────────────────

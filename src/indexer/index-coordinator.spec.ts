@@ -46,6 +46,7 @@ function makeRelationRepo() {
     replaceFileRelations: mock((p: any, f: any, r: any) => {}),
     retargetRelations: mock((opts: any) => {}),
     deleteFileRelations: mock((p: any, f: any) => {}),
+    getOutgoing: mock((p: any, f: any): any[] => []),
   };
 }
 
@@ -1051,8 +1052,8 @@ describe('IndexCoordinator', () => {
 
       expect(result.changedSymbols.added).toEqual(
         expect.arrayContaining([
-          { name: 'Foo', filePath: 'src/new.ts', kind: 'class' },
-          { name: 'bar', filePath: 'src/new.ts', kind: 'function' },
+          { name: 'Foo', filePath: 'src/new.ts', kind: 'class', isExported: false },
+          { name: 'bar', filePath: 'src/new.ts', kind: 'function', isExported: false },
         ]),
       );
       expect(result.changedSymbols.modified).toHaveLength(0);
@@ -1074,7 +1075,7 @@ describe('IndexCoordinator', () => {
       const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/a.ts' }]);
 
       expect(result.changedSymbols.modified).toEqual([
-        { name: 'doWork', filePath: 'src/a.ts', kind: 'function' },
+        { name: 'doWork', filePath: 'src/a.ts', kind: 'function', isExported: false },
       ]);
       expect(result.changedSymbols.added).toHaveLength(0);
       expect(result.changedSymbols.removed).toHaveLength(0);
@@ -1090,7 +1091,7 @@ describe('IndexCoordinator', () => {
       const result = await coordinator.incrementalIndex([{ eventType: 'delete', filePath: 'src/old.ts' }]);
 
       expect(result.changedSymbols.removed).toEqual([
-        { name: 'OldClass', filePath: 'src/old.ts', kind: 'class' },
+        { name: 'OldClass', filePath: 'src/old.ts', kind: 'class', isExported: false },
       ]);
       expect(result.changedSymbols.added).toHaveLength(0);
       expect(result.changedSymbols.modified).toHaveLength(0);
@@ -1126,8 +1127,8 @@ describe('IndexCoordinator', () => {
 
       const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/swap.ts' }]);
 
-      expect(result.changedSymbols.removed).toEqual([{ name: 'Alpha', filePath: 'src/swap.ts', kind: 'class' }]);
-      expect(result.changedSymbols.added).toEqual([{ name: 'Beta', filePath: 'src/swap.ts', kind: 'function' }]);
+      expect(result.changedSymbols.removed).toEqual([{ name: 'Alpha', filePath: 'src/swap.ts', kind: 'class', isExported: false }]);
+      expect(result.changedSymbols.added).toEqual([{ name: 'Beta', filePath: 'src/swap.ts', kind: 'function', isExported: false }]);
       expect(result.changedSymbols.modified).toHaveLength(0);
     });
 
@@ -1162,7 +1163,7 @@ describe('IndexCoordinator', () => {
 
       const result = await coordinator.fullIndex();
 
-      expect(result.changedSymbols.added).toEqual([{ name: 'NewSym', filePath: 'src/main.ts', kind: 'function' }]);
+      expect(result.changedSymbols.added).toEqual([{ name: 'NewSym', filePath: 'src/main.ts', kind: 'function', isExported: false }]);
       expect(result.changedSymbols.removed).toHaveLength(0);
     });
 
@@ -1241,6 +1242,178 @@ describe('IndexCoordinator', () => {
       // getAllFiles(before snapshot)는 transaction 이전에 호출되어야 한다
       expect(getAllFilesIdx).toBeGreaterThanOrEqual(0);
       expect(transactionIdx).toBeGreaterThan(getAllFilesIdx);
+    });
+
+    // 11. [HP] incremental: exported 심볼 추가 → changedSymbols.added에 isExported: true
+    it('should include isExported: true in changedSymbols.added when exported symbol is added', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const sym = { name: 'Exported', filePath: 'src/exp.ts', kind: 'function', fingerprint: 'fp-exp', isExported: 1 } as any;
+      symbolRepo.getFileSymbols
+        .mockReturnValueOnce([])      // before snapshot
+        .mockReturnValueOnce([sym])   // after snapshot (processFile count)
+        .mockReturnValue([sym]);
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'export function Exported() {}', lastModified: 1, size: 30 } as any);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'create', filePath: 'src/exp.ts' }]);
+
+      expect(result.changedSymbols.added).toEqual([
+        { name: 'Exported', filePath: 'src/exp.ts', kind: 'function', isExported: true },
+      ]);
+    });
+
+    // 12. [HP] incremental: non-exported 심볼 추가 → changedSymbols.added에 isExported: false
+    it('should include isExported: false in changedSymbols.added when non-exported symbol is added', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const sym = { name: 'Internal', filePath: 'src/int.ts', kind: 'function', fingerprint: 'fp-int', isExported: 0 } as any;
+      symbolRepo.getFileSymbols
+        .mockReturnValueOnce([])      // before snapshot
+        .mockReturnValueOnce([sym])   // after snapshot (processFile count)
+        .mockReturnValue([sym]);
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'function Internal() {}', lastModified: 1, size: 22 } as any);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'create', filePath: 'src/int.ts' }]);
+
+      expect(result.changedSymbols.added).toEqual([
+        { name: 'Internal', filePath: 'src/int.ts', kind: 'function', isExported: false },
+      ]);
+    });
+
+    // 13. [HP] incremental: 파일 삭제 → changedSymbols.removed에 isExported 반영
+    it('should include isExported in changedSymbols.removed reflecting deleted symbol export state', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const sym = { name: 'ExpClass', filePath: 'src/del.ts', kind: 'class', fingerprint: 'fp-del', isExported: 1 } as any;
+      symbolRepo.getFileSymbols.mockReturnValue([sym]);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'delete', filePath: 'src/del.ts' }]);
+
+      expect(result.changedSymbols.removed).toEqual([
+        { name: 'ExpClass', filePath: 'src/del.ts', kind: 'class', isExported: true },
+      ]);
+    });
+
+    // 14. [HP] incremental: isExported만 변경 (fingerprint 동일) → modified 감지
+    it('should detect modified when only isExported changes (fingerprint unchanged)', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const beforeSym = { name: 'Toggle', filePath: 'src/tog.ts', kind: 'function', fingerprint: 'fp-same', isExported: 0 } as any;
+      const afterSym  = { name: 'Toggle', filePath: 'src/tog.ts', kind: 'function', fingerprint: 'fp-same', isExported: 1 } as any;
+      symbolRepo.getFileSymbols
+        .mockReturnValueOnce([beforeSym])  // before snapshot
+        .mockReturnValueOnce([afterSym])   // after snapshot (processFile count)
+        .mockReturnValue([afterSym]);
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'export function Toggle() {}', lastModified: 2, size: 28 } as any);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/tog.ts' }]);
+
+      expect(result.changedSymbols.modified).toEqual([
+        { name: 'Toggle', filePath: 'src/tog.ts', kind: 'function', isExported: true },
+      ]);
+      expect(result.changedSymbols.added).toHaveLength(0);
+      expect(result.changedSymbols.removed).toHaveLength(0);
+    });
+
+    // 15. [HP] incremental: structuralFingerprint만 변경 → modified 감지
+    it('should detect modified when only structuralFingerprint changes', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const beforeSym = { name: 'Struct', filePath: 'src/sfp.ts', kind: 'class', fingerprint: 'fp-same', structuralFingerprint: 'sfp-old', isExported: 0 } as any;
+      const afterSym  = { name: 'Struct', filePath: 'src/sfp.ts', kind: 'class', fingerprint: 'fp-same', structuralFingerprint: 'sfp-new', isExported: 0 } as any;
+      symbolRepo.getFileSymbols
+        .mockReturnValueOnce([beforeSym])  // before snapshot
+        .mockReturnValueOnce([afterSym])   // after snapshot (processFile count)
+        .mockReturnValue([afterSym]);
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'class Struct { x = 1; }', lastModified: 2, size: 23 } as any);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/sfp.ts' }]);
+
+      expect(result.changedSymbols.modified).toEqual([
+        { name: 'Struct', filePath: 'src/sfp.ts', kind: 'class', isExported: false },
+      ]);
+      expect(result.changedSymbols.added).toHaveLength(0);
+      expect(result.changedSymbols.removed).toHaveLength(0);
+    });
+
+    // 16. [HP] incremental: isExported 1→0 변경 → modified 감지
+    it('should detect modified when isExported changes from 1 to 0', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const beforeSym = { name: 'Toggled', filePath: 'src/togoff.ts', kind: 'function', fingerprint: 'fp-same', isExported: 1 } as any;
+      const afterSym  = { name: 'Toggled', filePath: 'src/togoff.ts', kind: 'function', fingerprint: 'fp-same', isExported: 0 } as any;
+      symbolRepo.getFileSymbols
+        .mockReturnValueOnce([beforeSym])  // before snapshot
+        .mockReturnValueOnce([afterSym])   // after snapshot (processFile count)
+        .mockReturnValue([afterSym]);
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'function Toggled() {}', lastModified: 2, size: 21 } as any);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/togoff.ts' }]);
+
+      expect(result.changedSymbols.modified).toEqual([
+        { name: 'Toggled', filePath: 'src/togoff.ts', kind: 'function', isExported: false },
+      ]);
+      expect(result.changedSymbols.added).toHaveLength(0);
+      expect(result.changedSymbols.removed).toHaveLength(0);
+    });
+
+    // 17. [NE] incremental: fingerprint/structuralFingerprint/isExported 모두 동일 → modified 비포함
+    it('should not include symbol in modified when file changes but fingerprint structuralFingerprint and isExported are unchanged', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const sym = { name: 'NoChange', filePath: 'src/nochg.ts', kind: 'class', fingerprint: 'fp-same', structuralFingerprint: 'sfp-same', isExported: 0 } as any;
+      symbolRepo.getFileSymbols
+        .mockReturnValueOnce([sym])  // before snapshot
+        .mockReturnValueOnce([sym])  // after snapshot (processFile count)
+        .mockReturnValue([sym]);
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'class NoChange {}', lastModified: 2, size: 17 } as any);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/nochg.ts' }]);
+
+      expect(result.changedSymbols.modified).toHaveLength(0);
+      expect(result.changedSymbols.added).toHaveLength(0);
+      expect(result.changedSymbols.removed).toHaveLength(0);
+    });
+
+    // 18. [HP] incremental: isExported + structuralFingerprint 동시 변경 → modified 1회
+    it('should detect modified exactly once when both isExported and structuralFingerprint change simultaneously', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const beforeSym = { name: 'Dual', filePath: 'src/dual.ts', kind: 'class', fingerprint: 'fp-same', structuralFingerprint: 'sfp1', isExported: 0 } as any;
+      const afterSym  = { name: 'Dual', filePath: 'src/dual.ts', kind: 'class', fingerprint: 'fp-same', structuralFingerprint: 'sfp2', isExported: 1 } as any;
+      symbolRepo.getFileSymbols
+        .mockReturnValueOnce([beforeSym])  // before snapshot
+        .mockReturnValueOnce([afterSym])   // after snapshot (processFile count)
+        .mockReturnValue([afterSym]);
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'export class Dual { x = 1; }', lastModified: 2, size: 28 } as any);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/dual.ts' }]);
+
+      expect(result.changedSymbols.modified).toHaveLength(1);
+      expect(result.changedSymbols.modified[0]).toEqual(
+        { name: 'Dual', filePath: 'src/dual.ts', kind: 'class', isExported: true },
+      );
+      expect(result.changedSymbols.added).toHaveLength(0);
+      expect(result.changedSymbols.removed).toHaveLength(0);
+    });
+
+    // 19. [NE] incremental: structuralFingerprint가 null에서 변경 (legacy DB) → modified 미감지
+    it('should not detect modified when structuralFingerprint changes from null (legacy DB)', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const beforeSym = { name: 'Legacy', filePath: 'src/leg.ts', kind: 'function', fingerprint: 'fp-same', structuralFingerprint: null, isExported: 0 } as any;
+      const afterSym  = { name: 'Legacy', filePath: 'src/leg.ts', kind: 'function', fingerprint: 'fp-same', structuralFingerprint: 'sfp-new', isExported: 0 } as any;
+      symbolRepo.getFileSymbols
+        .mockReturnValueOnce([beforeSym])  // before snapshot
+        .mockReturnValueOnce([afterSym])   // after snapshot (processFile count)
+        .mockReturnValue([afterSym]);
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'function Legacy() {}', lastModified: 2, size: 20 } as any);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/leg.ts' }]);
+
+      expect(result.changedSymbols.modified).toHaveLength(0);
+      expect(result.changedSymbols.added).toHaveLength(0);
+      expect(result.changedSymbols.removed).toHaveLength(0);
     });
   });
 
@@ -1593,6 +1766,324 @@ describe('IndexCoordinator', () => {
     expect(result.totalSymbols).toBe(0);
     expect(result.totalRelations).toBe(0);
     expect(result.failedFiles).toEqual([]);
+  });
+
+  describe('renamedSymbols / movedSymbols', () => {
+    it('should include renamed symbol in renamedSymbols when same-file rename is detected', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const beforeSym = { name: 'oldFn', filePath: 'src/a.ts', kind: 'function', fingerprint: null, structuralFingerprint: 'sfp1', startLine: 5, isExported: 1 } as any;
+      const afterSym = { name: 'newFn', filePath: 'src/a.ts', kind: 'function', fingerprint: null, structuralFingerprint: 'sfp1', startLine: 5, isExported: 1 } as any;
+      symbolRepo.getFileSymbols
+        .mockReturnValueOnce([beforeSym])  // before snapshot
+        .mockReturnValueOnce([afterSym])   // processFile count
+        .mockReturnValue([afterSym]);      // after snapshot
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'code', lastModified: 1, size: 4 } as any);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/a.ts' }]);
+
+      expect(result.renamedSymbols).toEqual([
+        { oldName: 'oldFn', newName: 'newFn', filePath: 'src/a.ts', kind: 'function', isExported: true },
+      ]);
+    });
+
+    it('should exclude renamed symbols from changedSymbols added/removed', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const beforeSym = { name: 'oldFn', filePath: 'src/a.ts', kind: 'function', fingerprint: null, structuralFingerprint: 'sfp1', startLine: 5, isExported: 1 } as any;
+      const afterSym = { name: 'newFn', filePath: 'src/a.ts', kind: 'function', fingerprint: null, structuralFingerprint: 'sfp1', startLine: 5, isExported: 1 } as any;
+      symbolRepo.getFileSymbols
+        .mockReturnValueOnce([beforeSym])  // before snapshot
+        .mockReturnValueOnce([afterSym])   // processFile count
+        .mockReturnValue([afterSym]);      // after snapshot
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'code', lastModified: 1, size: 4 } as any);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/a.ts' }]);
+
+      expect(result.changedSymbols.added).toHaveLength(0);
+      expect(result.changedSymbols.removed).toHaveLength(0);
+    });
+
+    it('should include moved symbol in movedSymbols when cross-file move is detected', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const relationRepo = makeRelationRepo();
+      const deletedSym = { name: 'movedFn', filePath: 'src/old.ts', kind: 'function', fingerprint: 'fp-move', structuralFingerprint: null, startLine: 1, isExported: 1 } as any;
+      const newSym = { name: 'movedFn', filePath: 'src/new.ts', kind: 'function', fingerprint: 'fp-move', structuralFingerprint: null, startLine: 1, isExported: 1 } as any;
+      symbolRepo.getFileSymbols.mockImplementation((p: any, f: any) => {
+        if (f === 'src/old.ts') return [deletedSym];
+        if (f === 'src/new.ts') return [newSym];
+        return [];
+      });
+      // First call from deletedSymbols loop matches; second call from renameResult.removed returns empty to avoid duplicate
+      symbolRepo.getByFingerprint
+        .mockReturnValueOnce([newSym])
+        .mockReturnValue([]);
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'code', lastModified: 1, size: 4 } as any);
+      const coordinator = makeCoordinator({ symbolRepo, relationRepo });
+
+      const result = await coordinator.incrementalIndex([
+        { eventType: 'delete', filePath: 'src/old.ts' },
+        { eventType: 'change', filePath: 'src/new.ts' },
+      ]);
+
+      expect(result.movedSymbols).toEqual([
+        { name: 'movedFn', oldFilePath: 'src/old.ts', newFilePath: 'src/new.ts', kind: 'function', isExported: true },
+      ]);
+    });
+
+    it('should return empty renamedSymbols and movedSymbols on full index', async () => {
+      const fileRepo = makeFileRepo();
+      const symbolRepo = makeSymbolRepo();
+      fileRepo.getAllFiles.mockReturnValue([]);
+      symbolRepo.getFileSymbols.mockReturnValue([]);
+      mockDetectChanges.mockResolvedValue({ changed: [], unchanged: [], deleted: [] });
+      const coordinator = makeCoordinator({ fileRepo, symbolRepo });
+
+      const result = await coordinator.fullIndex();
+
+      expect(result.renamedSymbols).toEqual([]);
+      expect(result.movedSymbols).toEqual([]);
+    });
+  });
+
+  describe('changedRelations', () => {
+    it('should report added relation when new import is indexed', async () => {
+      const relationRepo = makeRelationRepo();
+      const symbolRepo = makeSymbolRepo();
+      let getOutgoingCallCount = 0;
+      const newRelation = {
+        project: 'test-project', type: 'imports', srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      };
+      relationRepo.getOutgoing.mockImplementation((p: any, f: any) => {
+        getOutgoingCallCount++;
+        // First call = before snapshot (empty), second call = after snapshot (has relation)
+        if (getOutgoingCallCount <= 1) return [];
+        if (f === 'src/a.ts') return [newRelation];
+        return [];
+      });
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'import "./b"', lastModified: 1, size: 12 } as any);
+      const coordinator = makeCoordinator({ symbolRepo, relationRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/a.ts' }]);
+
+      expect(result.changedRelations.added).toEqual([{
+        type: 'imports', srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      }]);
+      expect(result.changedRelations.removed).toHaveLength(0);
+    });
+
+    it('should report removed relation when import is deleted from file', async () => {
+      const relationRepo = makeRelationRepo();
+      const symbolRepo = makeSymbolRepo();
+      const oldRelation = {
+        project: 'test-project', type: 'imports', srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      };
+      let getOutgoingCallCount = 0;
+      relationRepo.getOutgoing.mockImplementation((p: any, f: any) => {
+        getOutgoingCallCount++;
+        // First call = before snapshot (has relation), second call = after snapshot (empty)
+        if (getOutgoingCallCount <= 1) return [oldRelation];
+        return [];
+      });
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'no imports', lastModified: 2, size: 10 } as any);
+      const coordinator = makeCoordinator({ symbolRepo, relationRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/a.ts' }]);
+
+      expect(result.changedRelations.removed).toEqual([{
+        type: 'imports', srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      }]);
+      expect(result.changedRelations.added).toHaveLength(0);
+    });
+
+    it('should report deleted file relations as removed', async () => {
+      const relationRepo = makeRelationRepo();
+      const symbolRepo = makeSymbolRepo();
+      const deletedRelation = {
+        project: 'test-project', type: 'imports', srcFilePath: 'src/gone.ts', dstFilePath: 'src/b.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      };
+      relationRepo.getOutgoing.mockImplementation((p: any, f: any) => {
+        if (f === 'src/gone.ts') return [deletedRelation];
+        return [];
+      });
+      symbolRepo.getFileSymbols.mockReturnValue([]);
+      const coordinator = makeCoordinator({ symbolRepo, relationRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'delete', filePath: 'src/gone.ts' }]);
+
+      expect(result.changedRelations.removed).toEqual([{
+        type: 'imports', srcFilePath: 'src/gone.ts', dstFilePath: 'src/b.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      }]);
+      expect(result.changedRelations.added).toHaveLength(0);
+    });
+
+    it('should return empty changedRelations when no relation changes', async () => {
+      const relationRepo = makeRelationRepo();
+      const symbolRepo = makeSymbolRepo();
+      const stableRelation = {
+        project: 'test-project', type: 'imports', srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      };
+      relationRepo.getOutgoing.mockImplementation((p: any, f: any) => {
+        if (f === 'src/a.ts') return [stableRelation];
+        return [];
+      });
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'import "./b"', lastModified: 1, size: 12 } as any);
+      const coordinator = makeCoordinator({ symbolRepo, relationRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/a.ts' }]);
+
+      expect(result.changedRelations.added).toHaveLength(0);
+      expect(result.changedRelations.removed).toHaveLength(0);
+    });
+
+    it('should detect re-export specifier change via metaJson hash', async () => {
+      const relationRepo = makeRelationRepo();
+      const symbolRepo = makeSymbolRepo();
+      const beforeRel = {
+        project: 'test-project', type: 're-exports', srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: '{"specifiers":["A"]}',
+      };
+      const afterRel = {
+        project: 'test-project', type: 're-exports', srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: '{"specifiers":["A","B"]}',
+      };
+      let getOutgoingCallCount = 0;
+      relationRepo.getOutgoing.mockImplementation((p: any, f: any) => {
+        getOutgoingCallCount++;
+        if (getOutgoingCallCount <= 1) return [beforeRel];
+        if (f === 'src/a.ts') return [afterRel];
+        return [];
+      });
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'export { A, B } from "./b"', lastModified: 2, size: 25 } as any);
+      const coordinator = makeCoordinator({ symbolRepo, relationRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/a.ts' }]);
+
+      expect(result.changedRelations.removed).toEqual([{
+        type: 're-exports', srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: '{"specifiers":["A"]}',
+      }]);
+      expect(result.changedRelations.added).toEqual([{
+        type: 're-exports', srcFilePath: 'src/a.ts', dstFilePath: 'src/b.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: '{"specifiers":["A","B"]}',
+      }]);
+    });
+
+    it('should report all relations as added on first fullIndex', async () => {
+      const fileRepo = makeFileRepo();
+      const symbolRepo = makeSymbolRepo();
+      const relationRepo = makeRelationRepo();
+      fileRepo.getAllFiles.mockReturnValue([]);
+      symbolRepo.getFileSymbols.mockReturnValue([]);
+      const newRelation = {
+        project: 'test-project', type: 'imports', srcFilePath: 'src/main.ts', dstFilePath: 'src/lib.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      };
+      let afterCalled = false;
+      relationRepo.getOutgoing.mockImplementation((p: any, f: any) => {
+        // Before snapshot: getAllFiles returns [] so getOutgoing is never called for before
+        // After snapshot: called for changed files
+        if (afterCalled && f === 'src/main.ts') return [newRelation];
+        return [];
+      });
+      // Hook into indexFileRelations to set the flag so after-snapshot returns the relation
+      mockIndexFileRelations.mockImplementation((opts: any) => {
+        afterCalled = true;
+        return 1;
+      });
+      mockDetectChanges.mockResolvedValue({
+        changed: [{ filePath: 'src/main.ts', contentHash: '', mtimeMs: 0, size: 0 }],
+        unchanged: [],
+        deleted: [],
+      });
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'import "./lib"', lastModified: 1, size: 14 } as any);
+      const coordinator = makeCoordinator({ fileRepo, symbolRepo, relationRepo });
+
+      const result = await coordinator.fullIndex();
+
+      expect(result.changedRelations.added).toEqual([{
+        type: 'imports', srcFilePath: 'src/main.ts', dstFilePath: 'src/lib.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      }]);
+      expect(result.changedRelations.removed).toHaveLength(0);
+    });
+
+    it('should report old relations as removed and new relations as added when fullIndex re-indexes existing data', async () => {
+      const fileRepo = makeFileRepo();
+      const symbolRepo = makeSymbolRepo();
+      const relationRepo = makeRelationRepo();
+      const oldRelation = {
+        project: 'test-project', type: 'imports', srcFilePath: 'src/app.ts', dstFilePath: 'src/old-dep.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      };
+      const newRelation = {
+        project: 'test-project', type: 'imports', srcFilePath: 'src/app.ts', dstFilePath: 'src/new-dep.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      };
+      // getAllFiles returns existing file for before-snapshot
+      fileRepo.getAllFiles.mockReturnValue([{ project: 'test-project', filePath: 'src/app.ts' } as any]);
+      symbolRepo.getFileSymbols.mockReturnValue([]);
+      let indexCalled = false;
+      // Before snapshot: getAllFiles → getOutgoing returns old relation
+      // After snapshot: getOutgoing returns new relation (after indexing)
+      relationRepo.getOutgoing.mockImplementation((p: any, f: any) => {
+        if (f === 'src/app.ts') {
+          if (!indexCalled) return [oldRelation];
+          return [newRelation];
+        }
+        return [];
+      });
+      mockIndexFileRelations.mockImplementation((opts: any) => {
+        indexCalled = true;
+        return 1;
+      });
+      mockDetectChanges.mockResolvedValue({
+        changed: [{ filePath: 'src/app.ts', contentHash: '', mtimeMs: 0, size: 0 }],
+        unchanged: [],
+        deleted: [],
+      });
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'import "./new-dep"', lastModified: 1, size: 18 } as any);
+      const coordinator = makeCoordinator({ fileRepo, symbolRepo, relationRepo });
+
+      const result = await coordinator.fullIndex();
+
+      expect(result.changedRelations.removed).toEqual([{
+        type: 'imports', srcFilePath: 'src/app.ts', dstFilePath: 'src/old-dep.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      }]);
+      expect(result.changedRelations.added).toEqual([{
+        type: 'imports', srcFilePath: 'src/app.ts', dstFilePath: 'src/new-dep.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      }]);
+    });
+
+    it('should not report changes when duplicate relations exist in both before and after snapshots', async () => {
+      const relationRepo = makeRelationRepo();
+      const symbolRepo = makeSymbolRepo();
+      const duplicateRelation = {
+        project: 'test-project', type: 'imports', srcFilePath: 'src/dup.ts', dstFilePath: 'src/b.ts',
+        srcSymbolName: null, dstSymbolName: null, dstProject: 'test-project', metaJson: null,
+      };
+      // Return 2 identical relations in both before and after snapshots
+      relationRepo.getOutgoing.mockImplementation((p: any, f: any) => {
+        if (f === 'src/dup.ts') return [duplicateRelation, { ...duplicateRelation }];
+        return [];
+      });
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'import "./b"', lastModified: 1, size: 12 } as any);
+      const coordinator = makeCoordinator({ symbolRepo, relationRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/dup.ts' }]);
+
+      expect(result.changedRelations.added).toHaveLength(0);
+      expect(result.changedRelations.removed).toHaveLength(0);
+    });
   });
 
   it('should include newly upserted files in knownFiles for cross-reference resolution', async () => {

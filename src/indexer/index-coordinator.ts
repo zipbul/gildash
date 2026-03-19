@@ -54,9 +54,46 @@ export interface IndexResult {
    * On the very first full index (empty DB), all symbols appear in `added`.
    */
   changedSymbols: {
-    added: Array<{ name: string; filePath: string; kind: string }>;
-    modified: Array<{ name: string; filePath: string; kind: string }>;
-    removed: Array<{ name: string; filePath: string; kind: string }>;
+    added: Array<{ name: string; filePath: string; kind: string; isExported: boolean }>;
+    modified: Array<{ name: string; filePath: string; kind: string; isExported: boolean }>;
+    removed: Array<{ name: string; filePath: string; kind: string; isExported: boolean }>;
+  };
+  /** Symbols that were renamed (detected via structural fingerprint matching). */
+  renamedSymbols: Array<{
+    oldName: string;
+    newName: string;
+    filePath: string;
+    kind: string;
+    isExported: boolean;
+  }>;
+  /** Symbols that moved to a different file (detected via fingerprint matching). Incremental only. */
+  movedSymbols: Array<{
+    name: string;
+    oldFilePath: string;
+    newFilePath: string;
+    kind: string;
+    isExported: boolean;
+  }>;
+  /** Relation-level diff compared to the previous index state. */
+  changedRelations: {
+    added: Array<{
+      type: string;
+      srcFilePath: string;
+      dstFilePath: string;
+      srcSymbolName: string | null;
+      dstSymbolName: string | null;
+      dstProject: string;
+      metaJson: string | null;
+    }>;
+    removed: Array<{
+      type: string;
+      srcFilePath: string;
+      dstFilePath: string;
+      srcSymbolName: string | null;
+      dstSymbolName: string | null;
+      dstProject: string;
+      metaJson: string | null;
+    }>;
   };
 }
 
@@ -87,6 +124,7 @@ export interface IndexCoordinatorOptions {
     replaceFileRelations(project: string, filePath: string, relations: ReadonlyArray<Partial<RelationRecord>>): void;
     retargetRelations(opts: { dstProject: string; oldFile: string; oldSymbol: string | null; newFile: string; newSymbol: string | null; newDstProject?: string }): void;
     deleteFileRelations(project: string, filePath: string): void;
+    getOutgoing(project: string, srcFilePath: string): RelationRecord[];
   };
   annotationRepo?: {
     deleteFileAnnotations(project: string, filePath: string): void;
@@ -292,6 +330,7 @@ export class IndexCoordinator {
     const snapFromRecord = (sym: SymbolRecord): SymbolSnap => ({
       name: sym.name, filePath: sym.filePath, kind: sym.kind, fingerprint: sym.fingerprint,
       structuralFingerprint: sym.structuralFingerprint ?? null, startLine: sym.startLine,
+      isExported: sym.isExported ?? 0,
     });
 
     if (useTransaction) {
@@ -312,6 +351,34 @@ export class IndexCoordinator {
       for (const [, syms] of deletedSymbols) {
         for (const sym of syms) {
           beforeSnapshot.set(`${sym.filePath}::${sym.name}`, snapFromRecord(sym));
+        }
+      }
+    }
+
+    // Relation before-snapshot: collect outgoing relations for affected files
+    const relationKey = (r: RelationRecord) =>
+      `${r.type}|${r.srcFilePath}|${r.dstFilePath}|${r.srcSymbolName ?? ''}|${r.dstSymbolName ?? ''}|${hashString(r.metaJson ?? '')}`;
+    const beforeRelations = new Map<string, RelationRecord>();
+
+    if (useTransaction) {
+      for (const boundary of this.opts.boundaries) {
+        for (const f of fileRepo.getAllFiles(boundary.project)) {
+          for (const rel of relationRepo.getOutgoing(boundary.project, f.filePath)) {
+            beforeRelations.set(relationKey(rel), rel);
+          }
+        }
+      }
+    } else {
+      for (const file of changed) {
+        const project = resolveFileProject(file.filePath, this.opts.boundaries);
+        for (const rel of relationRepo.getOutgoing(project, file.filePath)) {
+          beforeRelations.set(relationKey(rel), rel);
+        }
+      }
+      for (const filePath of deleted) {
+        const project = resolveFileProject(filePath, this.opts.boundaries);
+        for (const rel of relationRepo.getOutgoing(project, filePath)) {
+          beforeRelations.set(relationKey(rel), rel);
         }
       }
     }
@@ -523,19 +590,49 @@ export class IndexCoordinator {
       }
     }
 
+    // Relation after-snapshot: collect outgoing relations for changed files (deleted files have none after)
+    const afterRelations = new Map<string, RelationRecord>();
+    for (const file of changed) {
+      const project = resolveFileProject(file.filePath, this.opts.boundaries);
+      for (const rel of relationRepo.getOutgoing(project, file.filePath)) {
+        afterRelations.set(relationKey(rel), rel);
+      }
+    }
+
+    // Compute relation-level diff
+    const mapRelation = (r: RelationRecord) => ({
+      type: r.type,
+      srcFilePath: r.srcFilePath,
+      dstFilePath: r.dstFilePath,
+      srcSymbolName: r.srcSymbolName,
+      dstSymbolName: r.dstSymbolName,
+      dstProject: r.dstProject,
+      metaJson: r.metaJson,
+    });
+    const changedRelations: IndexResult['changedRelations'] = {
+      added: [...afterRelations.entries()].filter(([k]) => !beforeRelations.has(k)).map(([, r]) => mapRelation(r)),
+      removed: [...beforeRelations.entries()].filter(([k]) => !afterRelations.has(k)).map(([, r]) => mapRelation(r)),
+    };
+
     // FR-08: compute symbol-level diff (added / modified / removed)
     const changedSymbols: IndexResult['changedSymbols'] = { added: [], modified: [], removed: [] };
     for (const [key, after] of afterSnapshot) {
       const before = beforeSnapshot.get(key);
       if (!before) {
-        changedSymbols.added.push({ name: after.name, filePath: after.filePath, kind: after.kind });
-      } else if (before.fingerprint !== after.fingerprint) {
-        changedSymbols.modified.push({ name: after.name, filePath: after.filePath, kind: after.kind });
+        changedSymbols.added.push({ name: after.name, filePath: after.filePath, kind: after.kind, isExported: Boolean(after.isExported) });
+      } else {
+        const fpChanged = before.fingerprint !== after.fingerprint;
+        const exportChanged = before.isExported !== after.isExported;
+        const sfpChanged = before.structuralFingerprint !== null && after.structuralFingerprint !== null
+          && before.structuralFingerprint !== after.structuralFingerprint;
+        if (fpChanged || exportChanged || sfpChanged) {
+          changedSymbols.modified.push({ name: after.name, filePath: after.filePath, kind: after.kind, isExported: Boolean(after.isExported) });
+        }
       }
     }
     for (const [key, before] of beforeSnapshot) {
       if (!afterSnapshot.has(key)) {
-        changedSymbols.removed.push({ name: before.name, filePath: before.filePath, kind: before.kind });
+        changedSymbols.removed.push({ name: before.name, filePath: before.filePath, kind: before.kind, isExported: Boolean(before.isExported) });
       }
     }
 
@@ -549,7 +646,7 @@ export class IndexCoordinator {
     changedSymbols.removed = changedSymbols.removed.filter(r => !renamedOldKeys.has(`${r.filePath}::${r.name}`));
 
     // Move detection (incremental only)
-    const movedEntries: Array<{ name: string; filePath: string; kind: string; oldFilePath: string }> = [];
+    const movedEntries: Array<{ name: string; filePath: string; kind: string; oldFilePath: string; isExported: number }> = [];
     if (!useTransaction) {
       // 1. Existing deletedSymbols fingerprint matching (cross-file move from deleted files)
       for (const [oldFile, syms] of deletedSymbols) {
@@ -566,7 +663,7 @@ export class IndexCoordinator {
               newFile: newSym.filePath,
               newSymbol: newSym.name,
             });
-            movedEntries.push({ name: newSym.name, filePath: newSym.filePath, kind: newSym.kind, oldFilePath: oldFile });
+            movedEntries.push({ name: newSym.name, filePath: newSym.filePath, kind: newSym.kind, oldFilePath: oldFile, isExported: newSym.isExported ?? 0 });
           }
         }
       }
@@ -588,7 +685,7 @@ export class IndexCoordinator {
               newFile: newSym.filePath,
               newSymbol: newSym.name,
             });
-            movedEntries.push({ name: newSym.name, filePath: newSym.filePath, kind: newSym.kind, oldFilePath: rem.filePath });
+            movedEntries.push({ name: newSym.name, filePath: newSym.filePath, kind: newSym.kind, oldFilePath: rem.filePath, isExported: newSym.isExported ?? 0 });
           }
         }
       }
@@ -701,6 +798,21 @@ export class IndexCoordinator {
       deletedFiles: [...deleted],
       failedFiles: allFailedFiles,
       changedSymbols,
+      renamedSymbols: renameResult.renamed.map(rn => ({
+        oldName: rn.oldName,
+        newName: rn.newName,
+        filePath: rn.filePath,
+        kind: rn.kind,
+        isExported: Boolean(afterSnapshot.get(`${rn.filePath}::${rn.newName}`)?.isExported),
+      })),
+      movedSymbols: movedEntries.map(mv => ({
+        name: mv.name,
+        oldFilePath: mv.oldFilePath,
+        newFilePath: mv.filePath,
+        kind: mv.kind,
+        isExported: Boolean(mv.isExported),
+      })),
+      changedRelations,
     };
   }
 
