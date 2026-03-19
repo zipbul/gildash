@@ -58,6 +58,22 @@ export interface IndexResult {
     modified: Array<{ name: string; filePath: string; kind: string; isExported: boolean }>;
     removed: Array<{ name: string; filePath: string; kind: string; isExported: boolean }>;
   };
+  /** Symbols that were renamed (detected via structural fingerprint matching). */
+  renamedSymbols: Array<{
+    oldName: string;
+    newName: string;
+    filePath: string;
+    kind: string;
+    isExported: boolean;
+  }>;
+  /** Symbols that moved to a different file (detected via fingerprint matching). Incremental only. */
+  movedSymbols: Array<{
+    name: string;
+    oldFilePath: string;
+    newFilePath: string;
+    kind: string;
+    isExported: boolean;
+  }>;
 }
 
 export interface IndexCoordinatorOptions {
@@ -556,7 +572,7 @@ export class IndexCoordinator {
     changedSymbols.removed = changedSymbols.removed.filter(r => !renamedOldKeys.has(`${r.filePath}::${r.name}`));
 
     // Move detection (incremental only)
-    const movedEntries: Array<{ name: string; filePath: string; kind: string; oldFilePath: string }> = [];
+    const movedEntries: Array<{ name: string; filePath: string; kind: string; oldFilePath: string; isExported: number }> = [];
     if (!useTransaction) {
       // 1. Existing deletedSymbols fingerprint matching (cross-file move from deleted files)
       for (const [oldFile, syms] of deletedSymbols) {
@@ -573,7 +589,7 @@ export class IndexCoordinator {
               newFile: newSym.filePath,
               newSymbol: newSym.name,
             });
-            movedEntries.push({ name: newSym.name, filePath: newSym.filePath, kind: newSym.kind, oldFilePath: oldFile });
+            movedEntries.push({ name: newSym.name, filePath: newSym.filePath, kind: newSym.kind, oldFilePath: oldFile, isExported: newSym.isExported ?? 0 });
           }
         }
       }
@@ -595,7 +611,7 @@ export class IndexCoordinator {
               newFile: newSym.filePath,
               newSymbol: newSym.name,
             });
-            movedEntries.push({ name: newSym.name, filePath: newSym.filePath, kind: newSym.kind, oldFilePath: rem.filePath });
+            movedEntries.push({ name: newSym.name, filePath: newSym.filePath, kind: newSym.kind, oldFilePath: rem.filePath, isExported: newSym.isExported ?? 0 });
           }
         }
       }
@@ -708,6 +724,20 @@ export class IndexCoordinator {
       deletedFiles: [...deleted],
       failedFiles: allFailedFiles,
       changedSymbols,
+      renamedSymbols: renameResult.renamed.map(rn => ({
+        oldName: rn.oldName,
+        newName: rn.newName,
+        filePath: rn.filePath,
+        kind: rn.kind,
+        isExported: Boolean(afterSnapshot.get(`${rn.filePath}::${rn.newName}`)?.isExported),
+      })),
+      movedSymbols: movedEntries.map(mv => ({
+        name: mv.name,
+        oldFilePath: mv.oldFilePath,
+        newFilePath: mv.filePath,
+        kind: mv.kind,
+        isExported: Boolean(mv.isExported),
+      })),
     };
   }
 

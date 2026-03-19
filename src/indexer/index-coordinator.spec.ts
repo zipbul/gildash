@@ -1706,6 +1706,84 @@ describe('IndexCoordinator', () => {
     expect(result.failedFiles).toEqual([]);
   });
 
+  describe('renamedSymbols / movedSymbols', () => {
+    it('should include renamed symbol in renamedSymbols when same-file rename is detected', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const beforeSym = { name: 'oldFn', filePath: 'src/a.ts', kind: 'function', fingerprint: null, structuralFingerprint: 'sfp1', startLine: 5, isExported: 1 } as any;
+      const afterSym = { name: 'newFn', filePath: 'src/a.ts', kind: 'function', fingerprint: null, structuralFingerprint: 'sfp1', startLine: 5, isExported: 1 } as any;
+      symbolRepo.getFileSymbols
+        .mockReturnValueOnce([beforeSym])  // before snapshot
+        .mockReturnValueOnce([afterSym])   // processFile count
+        .mockReturnValue([afterSym]);      // after snapshot
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'code', lastModified: 1, size: 4 } as any);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/a.ts' }]);
+
+      expect(result.renamedSymbols).toEqual([
+        { oldName: 'oldFn', newName: 'newFn', filePath: 'src/a.ts', kind: 'function', isExported: true },
+      ]);
+    });
+
+    it('should exclude renamed symbols from changedSymbols added/removed', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const beforeSym = { name: 'oldFn', filePath: 'src/a.ts', kind: 'function', fingerprint: null, structuralFingerprint: 'sfp1', startLine: 5, isExported: 1 } as any;
+      const afterSym = { name: 'newFn', filePath: 'src/a.ts', kind: 'function', fingerprint: null, structuralFingerprint: 'sfp1', startLine: 5, isExported: 1 } as any;
+      symbolRepo.getFileSymbols
+        .mockReturnValueOnce([beforeSym])  // before snapshot
+        .mockReturnValueOnce([afterSym])   // processFile count
+        .mockReturnValue([afterSym]);      // after snapshot
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'code', lastModified: 1, size: 4 } as any);
+      const coordinator = makeCoordinator({ symbolRepo });
+
+      const result = await coordinator.incrementalIndex([{ eventType: 'change', filePath: 'src/a.ts' }]);
+
+      expect(result.changedSymbols.added).toHaveLength(0);
+      expect(result.changedSymbols.removed).toHaveLength(0);
+    });
+
+    it('should include moved symbol in movedSymbols when cross-file move is detected', async () => {
+      const symbolRepo = makeSymbolRepo();
+      const relationRepo = makeRelationRepo();
+      const deletedSym = { name: 'movedFn', filePath: 'src/old.ts', kind: 'function', fingerprint: 'fp-move', structuralFingerprint: null, startLine: 1, isExported: 1 } as any;
+      const newSym = { name: 'movedFn', filePath: 'src/new.ts', kind: 'function', fingerprint: 'fp-move', structuralFingerprint: null, startLine: 1, isExported: 1 } as any;
+      symbolRepo.getFileSymbols.mockImplementation((p: any, f: any) => {
+        if (f === 'src/old.ts') return [deletedSym];
+        if (f === 'src/new.ts') return [newSym];
+        return [];
+      });
+      // First call from deletedSymbols loop matches; second call from renameResult.removed returns empty to avoid duplicate
+      symbolRepo.getByFingerprint
+        .mockReturnValueOnce([newSym])
+        .mockReturnValue([]);
+      spyOn(Bun, 'file').mockReturnValue({ text: async () => 'code', lastModified: 1, size: 4 } as any);
+      const coordinator = makeCoordinator({ symbolRepo, relationRepo });
+
+      const result = await coordinator.incrementalIndex([
+        { eventType: 'delete', filePath: 'src/old.ts' },
+        { eventType: 'change', filePath: 'src/new.ts' },
+      ]);
+
+      expect(result.movedSymbols).toEqual([
+        { name: 'movedFn', oldFilePath: 'src/old.ts', newFilePath: 'src/new.ts', kind: 'function', isExported: true },
+      ]);
+    });
+
+    it('should return empty renamedSymbols and movedSymbols on full index', async () => {
+      const fileRepo = makeFileRepo();
+      const symbolRepo = makeSymbolRepo();
+      fileRepo.getAllFiles.mockReturnValue([]);
+      symbolRepo.getFileSymbols.mockReturnValue([]);
+      mockDetectChanges.mockResolvedValue({ changed: [], unchanged: [], deleted: [] });
+      const coordinator = makeCoordinator({ fileRepo, symbolRepo });
+
+      const result = await coordinator.fullIndex();
+
+      expect(result.renamedSymbols).toEqual([]);
+      expect(result.movedSymbols).toEqual([]);
+    });
+  });
+
   it('should include newly upserted files in knownFiles for cross-reference resolution', async () => {
     const fileRepo = makeFileRepo();
     // After upsertFile calls, getFilesMap returns the new file
