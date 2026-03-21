@@ -328,6 +328,29 @@ describe('Gildash integration', () => {
       expect(paths.some((p: string) => p.includes('app.ts'))).toBe(true);
     });
 
+    it('should return intra-file relations via getInternalRelations', () => {
+      const result = g.getInternalRelations('src/models.ts');
+      // models.ts has class Base implements IService — may have internal relations
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('should return file info via getFileInfo', () => {
+      const result = g.getFileInfo('src/utils.ts');
+      expect(result).not.toBeNull();
+      expect(result!.filePath).toBe('src/utils.ts');
+    });
+
+    it('should return null from getFileInfo for non-indexed file', () => {
+      const result = g.getFileInfo('src/nonexistent.ts');
+      expect(result).toBeNull();
+    });
+
+    it('should return symbols by file via getSymbolsByFile', () => {
+      const result = g.getSymbolsByFile('src/utils.ts');
+      expect(result.length).toBeGreaterThanOrEqual(2);
+      expect(result.some((s: any) => s.name === 'helper')).toBe(true);
+    });
+
     it('should return closed error when searchSymbols is called after close', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'gildash-it-closed-'));
       await createRichProject(dir);
@@ -564,6 +587,26 @@ describe('Gildash integration', () => {
       };
       const allNames = collectNames(result);
       expect(allNames).not.toContain('TOO_DEEP');
+    });
+    it('should register and unsubscribe onFileChanged callback', () => {
+      const cb = () => {};
+      const unsub = g.onFileChanged(cb);
+      expect(typeof unsub).toBe('function');
+      unsub();
+    });
+
+    it('should register and unsubscribe onError callback', () => {
+      const cb = () => {};
+      const unsub = g.onError(cb);
+      expect(typeof unsub).toBe('function');
+      unsub();
+    });
+
+    it('should register and unsubscribe onRoleChanged callback', () => {
+      const cb = () => {};
+      const unsub = g.onRoleChanged(cb);
+      expect(typeof unsub).toBe('function');
+      unsub();
     });
   });
 
