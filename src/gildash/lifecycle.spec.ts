@@ -889,4 +889,157 @@ describe('lifecycle state transitions', () => {
 
     expect(ctx.closed).toBe(true);
   });
+
+  it('should reset retry count when acquire succeeds but setup fails, keeping instance alive', async () => {
+    let callCount = 0;
+    const watcher = makeWatcher();
+    watcher.start = mock(async () => { throw new Error('watcher start failed'); });
+    const opts = makeInitOptions({
+      acquireWatcherRoleFn: mock(() => {
+        callCount++;
+        if (callCount === 1) return 'reader';
+        if (callCount <= 6) throw new Error('db unavailable');
+        return 'owner';
+      }),
+      watcherFactory: mock(() => watcher),
+    });
+
+    const ctx = await initializeContext(opts);
+
+    const healthcheck = capturedIntervalCallbacks[capturedIntervalCallbacks.length - 1]!;
+
+    // 5 consecutive failures (should not shut down — below MAX_HEALTHCHECK_RETRIES)
+    for (let i = 0; i < 5; i++) {
+      await healthcheck();
+    }
+
+    // 6th: acquire succeeds → 'owner', but watcher.start throws → rollback to reader, retry count reset
+    await healthcheck();
+
+    expect(ctx.closed).toBe(false);
+    expect(opts._db.close).not.toHaveBeenCalled();
+
+    // 7th: acquire succeeds again → proves retry count was reset (not accumulated to MAX)
+    await healthcheck();
+
+    expect(ctx.closed).toBe(false);
+    await closeContext(ctx);
+  });
+
+  it('should catch onFileChanged callback throw and log error', async () => {
+    const coordinator = makeCoordinator();
+    const watcher = makeWatcher();
+    const throwingCb = mock(() => { throw new Error('cb boom'); });
+    const ctx = makeCtx({
+      coordinatorFactory: mock(() => coordinator) as any,
+      watcherFactory: mock(() => watcher) as any,
+      onFileChangedCallbacks: new Set([throwingCb]),
+    });
+
+    await setupOwnerInfrastructure(ctx, { isWatchMode: true });
+
+    const startCall = (watcher.start as ReturnType<typeof mock>).mock.calls[0];
+    const watcherCallback = startCall![0] as (event: any) => void;
+    watcherCallback({ filePath: '/project/src/a.ts', eventType: 'update' });
+
+    expect(throwingCb).toHaveBeenCalledTimes(1);
+    expect((ctx.logger.error as any).mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it('should incrementally patch graphCache when onIndexed fires with < 100 changed files', async () => {
+    const coordinator = makeCoordinator();
+    const capturedCallbacks: Function[] = [];
+    coordinator.onIndexed = mock((cb: any) => {
+      capturedCallbacks.push(cb);
+      return () => {};
+    });
+    const patchFilesMock = mock(() => {});
+    const ctx = makeCtx({
+      coordinatorFactory: mock(() => coordinator) as any,
+      graphCache: { patchFiles: patchFilesMock } as any,
+      graphCacheKey: 'some-key',
+      graphCacheBuiltAt: Date.now(),
+      relationRepo: {
+        getByType: mock(() => []),
+        getOutgoing: mock(() => []),
+      } as any,
+    });
+
+    await setupOwnerInfrastructure(ctx, { isWatchMode: false });
+
+    const graphCacheInvalidator = capturedCallbacks[capturedCallbacks.length - 1]!;
+    graphCacheInvalidator({ changedFiles: ['a.ts', 'b.ts'], deletedFiles: [] });
+
+    expect(patchFilesMock).toHaveBeenCalledTimes(1);
+    expect(ctx.graphCache).not.toBeNull();
+  });
+
+  it('should catch onRoleChanged callback throw during promotion and log error', async () => {
+    let callCount = 0;
+    const throwingCb = mock(() => { throw new Error('role cb boom'); });
+    const opts = makeInitOptions({
+      acquireWatcherRoleFn: mock(() => {
+        callCount++;
+        return callCount === 1 ? 'reader' : 'owner';
+      }),
+    });
+
+    const ctx = await initializeContext(opts);
+    ctx.onRoleChangedCallbacks.add(throwingCb);
+
+    const healthcheck = capturedIntervalCallbacks[capturedIntervalCallbacks.length - 1]!;
+    await healthcheck();
+
+    expect(throwingCb).toHaveBeenCalledTimes(1);
+    expect((ctx.logger.error as any).mock.calls.length).toBeGreaterThan(0);
+    await closeContext(ctx);
+  });
+
+  it('should catch coordinator.shutdown error during promotion rollback and log', async () => {
+    let callCount = 0;
+    const coordinator = makeCoordinator();
+    coordinator.fullIndex = mock(async () => { throw new Error('fullIndex fail'); });
+    coordinator.shutdown = mock(async () => { throw new Error('shutdown fail'); });
+    const opts = makeInitOptions({
+      acquireWatcherRoleFn: mock(() => {
+        callCount++;
+        return callCount === 1 ? 'reader' : 'owner';
+      }),
+      coordinatorFactory: mock(() => coordinator),
+    });
+
+    const ctx = await initializeContext(opts);
+
+    const healthcheck = capturedIntervalCallbacks[capturedIntervalCallbacks.length - 1]!;
+    await healthcheck();
+
+    const errorLogs = (ctx.logger.error as any).mock.calls;
+    const hasShutdownLog = errorLogs.some((args: any[]) =>
+      typeof args[0] === 'string' && args[0].includes('coordinator shutdown error'),
+    );
+    expect(hasShutdownLog).toBe(true);
+    await closeContext(ctx);
+  });
+
+  it('should catch onError callback throw during healthcheck failure and log', async () => {
+    let callCount = 0;
+    const throwingErrorCb = mock(() => { throw new Error('onError cb boom'); });
+    const opts = makeInitOptions({
+      acquireWatcherRoleFn: mock(() => {
+        callCount++;
+        if (callCount === 1) return 'reader';
+        throw new Error('health fail');
+      }),
+    });
+
+    const ctx = await initializeContext(opts);
+    ctx.onErrorCallbacks.add(throwingErrorCb);
+
+    const healthcheck = capturedIntervalCallbacks[capturedIntervalCallbacks.length - 1]!;
+    await healthcheck();
+
+    expect(throwingErrorCb).toHaveBeenCalledTimes(1);
+    expect((ctx.logger.error as any).mock.calls.length).toBeGreaterThan(0);
+    await closeContext(ctx);
+  });
 });
