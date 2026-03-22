@@ -1,5 +1,15 @@
 # @zipbul/gildash
 
+## 0.12.0
+
+### Minor Changes
+
+- [#52](https://github.com/zipbul/gildash/pull/52) [`017f073`](https://github.com/zipbul/gildash/commit/017f073ddbea162d01aad2e91138f59bac876d34) Thanks [@parkrevil](https://github.com/parkrevil)! - feat: isTypeAssignableToType API, primitive keyword resolve, absolute path fix
+
+  - Add `isTypeAssignableToType(filePath, position, targetTypeExpression)` — check assignability against type expression strings (e.g. `'PromiseLike<any>'`, `'Error'`)
+  - Fix `getResolvedTypeAtPosition` to resolve primitive type keywords (`string`, `number`, `boolean`, etc.)
+  - Fix `resolveSymbolPosition` to normalize absolute paths to relative before DB search
+
 ## 0.11.0
 
 ### Minor Changes
