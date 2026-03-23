@@ -278,12 +278,13 @@ export function isTypeAssignableToType(
   filePath: string,
   position: number,
   targetTypeExpression: string,
+  options?: { anyConstituent?: boolean },
 ): boolean | null {
   if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
   if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
   try {
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
-    return ctx.semanticLayer.isTypeAssignableToType(absPath, position, targetTypeExpression);
+    return ctx.semanticLayer.isTypeAssignableToType(absPath, position, targetTypeExpression, options);
   } catch (e) {
     if (e instanceof GildashError) throw e;
     throw new GildashError('semantic', 'Gildash: isTypeAssignableToType failed', { cause: e });

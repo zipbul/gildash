@@ -183,9 +183,10 @@ export class SemanticLayer {
     filePath: string,
     position: number,
     targetTypeExpression: string,
+    options?: { anyConstituent?: boolean },
   ): boolean | null {
     this.#assertNotDisposed();
-    return this.#typeCollector.isAssignableToType(filePath, position, targetTypeExpression);
+    return this.#typeCollector.isAssignableToType(filePath, position, targetTypeExpression, options);
   }
 
   // ── Symbol graph ────────────────────────────────────────────────────────

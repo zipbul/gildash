@@ -897,6 +897,65 @@ describe("SemanticLayer", () => {
     expect(() => layer.isTypeAssignableToType("/project/src/a.ts", 0, "string")).toThrow();
   });
 
+  it("should return true with anyConstituent when union has assignable member", () => {
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const filePath = "/project/src/union.ts";
+    const content = "const x: string | null = null;";
+    layer.notifyFileChanged(filePath, content);
+
+    const xPos = pos(content, "x");
+    expect(layer.isTypeAssignableToType(filePath, xPos, "string")).toBe(false);
+    expect(layer.isTypeAssignableToType(filePath, xPos, "string", { anyConstituent: true })).toBe(true);
+    layer.dispose();
+  });
+
+  it("should return false with anyConstituent when no union member is assignable", () => {
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const filePath = "/project/src/union.ts";
+    const content = "const x: number | boolean = 1;";
+    layer.notifyFileChanged(filePath, content);
+
+    const xPos = pos(content, "x");
+    expect(layer.isTypeAssignableToType(filePath, xPos, "string", { anyConstituent: true })).toBe(false);
+    layer.dispose();
+  });
+
+  it("should work with anyConstituent on non-union type", () => {
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const filePath = "/project/src/single.ts";
+    const content = "const x: string = 'hello';";
+    layer.notifyFileChanged(filePath, content);
+
+    const xPos = pos(content, "x");
+    expect(layer.isTypeAssignableToType(filePath, xPos, "string", { anyConstituent: true })).toBe(true);
+    expect(layer.isTypeAssignableToType(filePath, xPos, "number", { anyConstituent: true })).toBe(false);
+    layer.dispose();
+  });
+
   // PRUNE-10 [CO] findNamePosition: skip substring match and find standalone identifier
   it("should skip substring match and find standalone identifier in findNamePosition", () => {
     // Arrange
