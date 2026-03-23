@@ -1,5 +1,13 @@
 # @zipbul/gildash
 
+## 0.13.0
+
+### Minor Changes
+
+- [#59](https://github.com/zipbul/gildash/pull/59) [`8096461`](https://github.com/zipbul/gildash/commit/8096461835f7fa2d8f28f819c2af5a273d1c9213) Thanks [@parkrevil](https://github.com/parkrevil)! - feat: add preEmit option to getSemanticDiagnostics
+
+  `getSemanticDiagnostics(filePath, { preEmit: true })` now uses `ts.getPreEmitDiagnostics()` which includes syntactic, semantic, and declaration diagnostics — equivalent to `tsc --noEmit`. This allows consumers to use a single tsc Program managed by gildash instead of creating a separate one for full diagnostics.
+
 ## 0.12.2
 
 ### Patch Changes
