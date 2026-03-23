@@ -1,5 +1,13 @@
 # @zipbul/gildash
 
+## 0.12.1
+
+### Patch Changes
+
+- [#55](https://github.com/zipbul/gildash/pull/55) [`06c93f5`](https://github.com/zipbul/gildash/commit/06c93f598a08992f21b83c1228b8287b2237866d) Thanks [@parkrevil](https://github.com/parkrevil)! - feat: add anyConstituent option to isTypeAssignableToType
+
+  `isTypeAssignableToType(file, pos, target, { anyConstituent: true })` checks if any member of a union type is assignable to the target, instead of requiring the entire union to be assignable. For non-union types, behavior is unchanged.
+
 ## 0.12.0
 
 ### Minor Changes
