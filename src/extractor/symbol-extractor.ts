@@ -323,7 +323,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
   function buildSymbol(node: OxcNode, isExported: boolean): ExtractedSymbol | ExtractedSymbol[] | null {
     const type: string = node.type ?? '';
 
-    if (type === 'FunctionDeclaration') {
+    if (type === 'FunctionDeclaration' || type === 'TSDeclareFunction') {
       const name: string = node.id?.name ?? 'default';
       const params = (node.params ?? []).map(extractParam);
       const returnType = typeText(node.returnType);
