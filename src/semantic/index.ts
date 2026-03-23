@@ -20,6 +20,7 @@ import type {
   SemanticModuleInterface,
   SemanticExport,
   SemanticDiagnostic,
+  GetDiagnosticsOptions,
 } from "./types";
 
 // ── DI options ───────────────────────────────────────────────────────────────
@@ -330,12 +331,16 @@ export class SemanticLayer {
   // ── Diagnostics ─────────────────────────────────────────────────────────
 
   /**
-   * Return tsc semantic diagnostics for an indexed file.
+   * Return tsc diagnostics for an indexed file.
    *
    * Only files previously registered via `notifyFileChanged` produce
    * meaningful results. Non-indexed files return an empty array.
+   *
+   * @param options.preEmit When `true`, uses `ts.getPreEmitDiagnostics()` which
+   *   includes syntactic, semantic, and declaration diagnostics (equivalent to
+   *   `tsc --noEmit`). Default: `false` (semantic diagnostics only).
    */
-  getDiagnostics(filePath: string): SemanticDiagnostic[] {
+  getDiagnostics(filePath: string, options?: GetDiagnosticsOptions): SemanticDiagnostic[] {
     this.#assertNotDisposed();
     const program = this.#program.getProgram();
     const sourceFile = program.getSourceFile(filePath);
@@ -348,7 +353,11 @@ export class SemanticLayer {
       [ts.DiagnosticCategory.Message]: 'suggestion',
     };
 
-    return program.getSemanticDiagnostics(sourceFile).map((d) => {
+    const diagnostics = options?.preEmit
+      ? ts.getPreEmitDiagnostics(program, sourceFile)
+      : program.getSemanticDiagnostics(sourceFile);
+
+    return diagnostics.map((d) => {
       let line = 1;
       let column = 0;
       if (d.file && d.start !== undefined) {

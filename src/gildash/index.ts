@@ -9,7 +9,7 @@ import type { RelationSearchQuery } from '../search/relation-search';
 import type { SymbolStats } from '../store/repositories/symbol.repository';
 import type { FileRecord } from '../store/repositories/file.repository';
 import type { PatternMatch } from '../search/pattern-search';
-import type { ResolvedType, SemanticReference, Implementation, SemanticModuleInterface, SemanticDiagnostic } from '../semantic/types';
+import type { ResolvedType, SemanticReference, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
 import type { SymbolNode } from '../semantic/symbol-graph';
 import type { GildashContext } from './context';
 import type { FileChangeEvent } from '../watcher/types';
@@ -314,8 +314,8 @@ export class Gildash {
     return semanticApi.getSymbolNode(this._ctx, filePath, position);
   }
 
-  getSemanticDiagnostics(filePath: string): SemanticDiagnostic[] {
-    return semanticApi.getSemanticDiagnostics(this._ctx, filePath);
+  getSemanticDiagnostics(filePath: string, options?: GetDiagnosticsOptions): SemanticDiagnostic[] {
+    return semanticApi.getSemanticDiagnostics(this._ctx, filePath, options);
   }
 
   // ─── Misc ───────────────────────────────────────────────────────

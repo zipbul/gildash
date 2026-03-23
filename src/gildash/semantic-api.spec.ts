@@ -736,7 +736,7 @@ describe('getSemanticDiagnostics', () => {
     const result = getSemanticDiagnostics(ctx, '/project/src/a.ts');
 
     expect(result).toBe(diags as any);
-    expect(gd).toHaveBeenCalledWith('/project/src/a.ts');
+    expect(gd).toHaveBeenCalledWith('/project/src/a.ts', undefined);
   });
 
   it('should resolve relative path', () => {
@@ -746,7 +746,7 @@ describe('getSemanticDiagnostics', () => {
 
     getSemanticDiagnostics(ctx, 'src/a.ts');
 
-    expect(gd).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'));
+    expect(gd).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'), undefined);
   });
 
   it('should throw when closed', () => {
@@ -757,6 +757,16 @@ describe('getSemanticDiagnostics', () => {
   it('should throw when semantic layer is null', () => {
     const ctx = makeCtx({ semanticLayer: null });
     expect(() => getSemanticDiagnostics(ctx, '/a.ts')).toThrow(GildashError);
+  });
+
+  it('should pass options to semanticLayer.getDiagnostics', () => {
+    const gd = mock(() => []);
+    const layer = makeSemanticLayer({ getDiagnostics: gd });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    getSemanticDiagnostics(ctx, '/project/src/a.ts', { preEmit: true });
+
+    expect(gd).toHaveBeenCalledWith('/project/src/a.ts', { preEmit: true });
   });
 
   it('should catch exception and throw GildashError with cause', () => {

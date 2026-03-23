@@ -20,7 +20,7 @@ export type { WatcherRole } from "./watcher/types";
 export type { ParsedFile } from "./parser/types";
 export type { FileRecord } from "./store/repositories/file.repository";
 
-export type { ResolvedType, SemanticReference, Implementation, SemanticModuleInterface, SemanticDiagnostic } from "./semantic/types";
+export type { ResolvedType, SemanticReference, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from "./semantic/types";
 export type { SymbolNode } from "./semantic/symbol-graph";
 
 export type { AnnotationSource, ExtractedAnnotation } from "./extractor/types";
