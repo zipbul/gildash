@@ -577,4 +577,41 @@ describe('extractSymbols', () => {
     const symbols = extractSymbols(parsed);
     expect(symbols).toHaveLength(0);
   });
+
+  // ─── Function overload indexing ──────────────────────────────────────
+
+  it('should extract all function overload signatures as separate symbols', () => {
+    const parsed = makeFixture(`
+      function foo(x: string): string;
+      function foo(x: number): number;
+      function foo(x: string | number): string | number { return x; }
+    `);
+    const symbols = extractSymbols(parsed);
+    const foos = symbols.filter(s => s.name === 'foo');
+    expect(foos).toHaveLength(3);
+    expect(foos[0]!.kind).toBe('function');
+    expect(foos[0]!.parameters![0]!.type).toBe('string');
+    expect(foos[1]!.parameters![0]!.type).toBe('number');
+    expect(foos[2]!.parameters![0]!.type).toBe('string | number');
+  });
+
+  it('should extract exported function overload signatures', () => {
+    const parsed = makeFixture(`
+      export function bar(x: string): string;
+      export function bar(x: number): number;
+      export function bar(x: string | number): string | number { return x; }
+    `);
+    const symbols = extractSymbols(parsed);
+    const bars = symbols.filter(s => s.name === 'bar');
+    expect(bars).toHaveLength(3);
+    expect(bars.every(s => s.isExported)).toBe(true);
+  });
+
+  it('should not create extra symbols for functions without overloads', () => {
+    const parsed = makeFixture(`
+      function single(x: string): string { return x; }
+    `);
+    const symbols = extractSymbols(parsed);
+    expect(symbols.filter(s => s.name === 'single')).toHaveLength(1);
+  });
 });
