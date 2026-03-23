@@ -107,6 +107,7 @@ async function createSemanticProject(root: string): Promise<void> {
       'export const myDog: Dog = new Dog();',
       'export const myAnimal: Animal = new Dog();',
       'export const count: number = 42;',
+      'export const maybeDog: Dog | null = null;',
     ].join('\n'),
   );
 }
@@ -526,11 +527,26 @@ describe('Gildash Semantic integration', () => {
     });
 
     it('should return false when number is not assignable to string type expression', () => {
-      // count (number) at line 18, col 13 in animals.ts
-      const countPos = g.lineColumnToPosition('src/animals.ts', 18, 13);
+      // count (number) at line 18, col 13 in animals.ts — now line 20 with maybeDog added
+      const countPos = g.lineColumnToPosition('src/animals.ts', 20, 13);
       expect(countPos).not.toBeNull();
       const result = g.isTypeAssignableToType('src/animals.ts', countPos!, 'string');
       expect(result).toBe(false);
+    });
+
+    it('should return false for union type without anyConstituent', () => {
+      // maybeDog: Dog | null at line 21
+      const pos = g.lineColumnToPosition('src/animals.ts', 21, 13);
+      expect(pos).not.toBeNull();
+      const result = g.isTypeAssignableToType('src/animals.ts', pos!, '{ bark(): void }');
+      expect(result).toBe(false);
+    });
+
+    it('should return true for union type with anyConstituent', () => {
+      const pos = g.lineColumnToPosition('src/animals.ts', 21, 13);
+      expect(pos).not.toBeNull();
+      const result = g.isTypeAssignableToType('src/animals.ts', pos!, '{ bark(): void }', { anyConstituent: true });
+      expect(result).toBe(true);
     });
   });
 

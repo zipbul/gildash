@@ -786,7 +786,7 @@ describe('isTypeAssignableToType', () => {
     const result = isTypeAssignableToType(ctx, '/project/src/a.ts', 100, 'PromiseLike<any>');
 
     expect(result).toBe(true);
-    expect(iatt).toHaveBeenCalledWith('/project/src/a.ts', 100, 'PromiseLike<any>');
+    expect(iatt).toHaveBeenCalledWith('/project/src/a.ts', 100, 'PromiseLike<any>', undefined);
   });
 
   it('should resolve relative path via projectRoot', () => {
@@ -796,7 +796,17 @@ describe('isTypeAssignableToType', () => {
 
     isTypeAssignableToType(ctx, 'src/a.ts', 100, 'Error');
 
-    expect(iatt).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'), 100, 'Error');
+    expect(iatt).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'), 100, 'Error', undefined);
+  });
+
+  it('should pass anyConstituent option to semanticLayer', () => {
+    const iatt = mock(() => true);
+    const layer = makeSemanticLayer({ isTypeAssignableToType: iatt });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    isTypeAssignableToType(ctx, '/project/src/a.ts', 100, 'PromiseLike<any>', { anyConstituent: true });
+
+    expect(iatt).toHaveBeenCalledWith('/project/src/a.ts', 100, 'PromiseLike<any>', { anyConstituent: true });
   });
 
   it('should return null when semanticLayer returns null', () => {

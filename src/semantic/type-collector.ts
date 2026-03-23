@@ -186,6 +186,7 @@ export class TypeCollector {
     filePath: string,
     position: number,
     targetTypeExpression: string,
+    options?: { anyConstituent?: boolean },
   ): boolean | null {
     const checker = this.program.getChecker();
     const tsProgram = this.program.getProgram();
@@ -214,6 +215,12 @@ export class TypeCollector {
       if (!probeDecl) return null;
 
       const targetType = probeChecker.getTypeAtLocation(probeDecl.name);
+
+      if (options?.anyConstituent && sourceType.isUnion()) {
+        return sourceType.types.some(member =>
+          probeChecker.isTypeAssignableTo(member, targetType),
+        );
+      }
       return probeChecker.isTypeAssignableTo(sourceType, targetType);
     } catch {
       return null;
