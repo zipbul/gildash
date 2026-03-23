@@ -1,5 +1,13 @@
 # @zipbul/gildash
 
+## 0.12.2
+
+### Patch Changes
+
+- [#57](https://github.com/zipbul/gildash/pull/57) [`ccd07fd`](https://github.com/zipbul/gildash/commit/ccd07fd6c27b8d88aa63be8b834f53c22ae301d0) Thanks [@parkrevil](https://github.com/parkrevil)! - fix: index function overload signatures consistently with method overloads
+
+  TSDeclareFunction nodes (function overload signatures) are now extracted as separate symbols, matching the existing behavior for method overloads in classes. Previously only the implementation signature was indexed for functions.
+
 ## 0.12.1
 
 ### Patch Changes
