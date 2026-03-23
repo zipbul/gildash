@@ -113,10 +113,26 @@ export interface SemanticExport {
 }
 
 /**
- * A single tsc semantic diagnostic for an indexed file.
+ * Options for {@link SemanticLayer.getDiagnostics}.
+ */
+export interface GetDiagnosticsOptions {
+  /**
+   * When `true`, uses `ts.getPreEmitDiagnostics()` which includes syntactic,
+   * semantic, and declaration diagnostics — equivalent to `tsc --noEmit`.
+   *
+   * When `false` (default), only semantic diagnostics are returned.
+   */
+  preEmit?: boolean;
+}
+
+/**
+ * A single tsc diagnostic for an indexed file.
  *
  * Only covers files known to the Semantic Layer (i.e. files that have been
- * indexed via `notifyFileChanged`). This is **not** equivalent to `tsc --noEmit`.
+ * indexed via `notifyFileChanged`).
+ *
+ * By default only semantic diagnostics are returned. Pass `{ preEmit: true }`
+ * to include syntactic and declaration diagnostics (equivalent to `tsc --noEmit`).
  */
 export interface SemanticDiagnostic {
   /** Absolute path of the file containing the diagnostic. */

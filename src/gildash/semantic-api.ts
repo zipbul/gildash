@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { SymbolSearchResult } from '../search/symbol-search';
 import { GildashError } from '../errors';
-import type { ResolvedType, SemanticReference, Implementation, SemanticModuleInterface, SemanticDiagnostic } from '../semantic/types';
+import type { ResolvedType, SemanticReference, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
 import type { SymbolNode } from '../semantic/symbol-graph';
 import type { GildashContext } from './context';
 
@@ -348,16 +348,17 @@ export function getSymbolNode(
 
 // ─── Diagnostics ──────────────────────────────────────────────────────
 
-/** Return tsc semantic diagnostics for an indexed file. */
+/** Return tsc diagnostics for an indexed file. */
 export function getSemanticDiagnostics(
   ctx: GildashContext,
   filePath: string,
+  options?: GetDiagnosticsOptions,
 ): SemanticDiagnostic[] {
   if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
   if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
   try {
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
-    return ctx.semanticLayer.getDiagnostics(absPath);
+    return ctx.semanticLayer.getDiagnostics(absPath, options);
   } catch (e) {
     if (e instanceof GildashError) throw e;
     throw new GildashError('semantic', 'Gildash: getSemanticDiagnostics failed', { cause: e });

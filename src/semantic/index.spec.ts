@@ -762,7 +762,79 @@ describe("SemanticLayer", () => {
     layer.dispose();
   });
 
-  // DIAG-4 [NE] getDiagnostics: disposed → throw
+  // DIAG-4 [HP] getDiagnostics: preEmit includes syntactic diagnostics
+  it("should include syntactic diagnostics when preEmit is true", () => {
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const filePath = "/project/src/syntax-err.ts";
+    // Syntactic error: duplicate modifier
+    layer.notifyFileChanged(filePath, "export export const x = 1;");
+
+    // Default (semantic only) should not catch syntactic errors
+    const semanticOnly = layer.getDiagnostics(filePath);
+    // preEmit should catch syntactic errors
+    const preEmit = layer.getDiagnostics(filePath, { preEmit: true });
+
+    expect(preEmit.length).toBeGreaterThanOrEqual(semanticOnly.length);
+    expect(preEmit.length).toBeGreaterThan(0);
+    expect(preEmit.some((d) => d.message.length > 0)).toBe(true);
+    layer.dispose();
+  });
+
+  // DIAG-5 [HP] getDiagnostics: preEmit returns same results as default for semantic errors
+  it("should return semantic errors with preEmit too", () => {
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const filePath = "/project/src/type-err.ts";
+    layer.notifyFileChanged(filePath, "const x: number = 'not a number';");
+
+    const defaultDiags = layer.getDiagnostics(filePath);
+    const preEmitDiags = layer.getDiagnostics(filePath, { preEmit: true });
+
+    // preEmit is a superset — at minimum includes the same semantic errors
+    expect(preEmitDiags.length).toBeGreaterThanOrEqual(defaultDiags.length);
+    expect(preEmitDiags.some((d) => d.code === defaultDiags[0]!.code)).toBe(true);
+    layer.dispose();
+  });
+
+  // DIAG-6 [NE] getDiagnostics: preEmit returns no file-scoped errors for valid file
+  it("should return no file-scoped diagnostics with preEmit for a valid file", () => {
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const filePath = "/project/src/valid.ts";
+    layer.notifyFileChanged(filePath, "const x: number = 42;");
+
+    const diags = layer.getDiagnostics(filePath, { preEmit: true });
+
+    // Global diagnostics (e.g. missing lib types code 2318) may appear in the
+    // fake test environment; file-scoped errors should not.
+    const fileScoped = diags.filter((d) => d.code !== 2318);
+    expect(fileScoped).toEqual([]);
+    layer.dispose();
+  });
+
+  // DIAG-7 [NE] getDiagnostics: disposed → throw
   it("should throw when getDiagnostics is called after dispose", () => {
     const result = SemanticLayer.create(TSCONFIG_PATH, {
       readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
