@@ -1,5 +1,16 @@
 # @zipbul/gildash
 
+## 0.14.0
+
+### Minor Changes
+
+- [#61](https://github.com/zipbul/gildash/pull/61) [`f2550d3`](https://github.com/zipbul/gildash/commit/f2550d3c10e794f8692d967c988ebefe69c322a5) Thanks [@parkrevil](https://github.com/parkrevil)! - feat: handle export specifiers and add memberName to SymbolSearchResult
+
+  - Fix `export { name }` specifiers marking symbols as `isExported: true`
+  - Add `memberName` field to `SymbolSearchResult` for unqualified member name access
+  - Remove deprecated `gildashError()` factory function (use `new GildashError()` directly)
+  - Add 72 test cases covering annotation-api, changelog-api, modifiers, relation types, edge cases, and batch boundaries
+
 ## 0.13.0
 
 ### Minor Changes
