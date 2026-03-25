@@ -119,4 +119,43 @@ describe('annotationSearch', () => {
       ftsQuery: undefined,
     }));
   });
+
+  // --- Filter combination tests ---
+
+  it('should pass both tag and filePath to searchByQuery when both are set', () => {
+    const repo = makeRepo();
+    annotationSearch({
+      annotationRepo: repo,
+      query: { tag: 'todo', filePath: 'src/index.ts' },
+    });
+    expect(repo.search).toHaveBeenCalledWith(expect.objectContaining({
+      tag: 'todo',
+      filePath: 'src/index.ts',
+    }));
+  });
+
+  it('should pass both tag and source to searchByQuery when both are set', () => {
+    const repo = makeRepo();
+    annotationSearch({
+      annotationRepo: repo,
+      query: { tag: 'deprecated', source: 'jsdoc' },
+    });
+    expect(repo.search).toHaveBeenCalledWith(expect.objectContaining({
+      tag: 'deprecated',
+      source: 'jsdoc',
+    }));
+  });
+
+  it('should pass tag, filePath, and symbolName to searchByQuery when all are set', () => {
+    const repo = makeRepo();
+    annotationSearch({
+      annotationRepo: repo,
+      query: { tag: 'todo', filePath: 'src/utils.ts', symbolName: 'helperFn' },
+    });
+    expect(repo.search).toHaveBeenCalledWith(expect.objectContaining({
+      tag: 'todo',
+      filePath: 'src/utils.ts',
+      symbolName: 'helperFn',
+    }));
+  });
 });

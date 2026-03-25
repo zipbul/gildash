@@ -454,4 +454,30 @@ describe('relationSearch', () => {
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.limit).toBe(Number.MAX_SAFE_INTEGER);
   });
+
+  // --- Filter combination tests ---
+
+  it('should pass both srcSymbolName and dstSymbolName to searchRelations when both are set', () => {
+    const query: RelationSearchQuery = { srcSymbolName: 'myFn', dstSymbolName: 'MyClass' };
+    relationSearch({ relationRepo: mockRepo, query });
+    const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
+    expect(opts.srcSymbolName).toBe('myFn');
+    expect(opts.dstSymbolName).toBe('MyClass');
+  });
+
+  it('should pass both srcFilePath and type to searchRelations when both are set', () => {
+    const query: RelationSearchQuery = { srcFilePath: 'src/a.ts', type: 'imports' };
+    relationSearch({ relationRepo: mockRepo, query });
+    const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
+    expect(opts.srcFilePath).toBe('src/a.ts');
+    expect(opts.type).toBe('imports');
+  });
+
+  it('should pass both dstFilePath and type to searchRelations when both are set', () => {
+    const query: RelationSearchQuery = { dstFilePath: 'src/b.ts', type: 'calls' };
+    relationSearch({ relationRepo: mockRepo, query });
+    const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
+    expect(opts.dstFilePath).toBe('src/b.ts');
+    expect(opts.type).toBe('calls');
+  });
 });

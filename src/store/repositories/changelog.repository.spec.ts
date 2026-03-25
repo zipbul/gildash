@@ -112,4 +112,36 @@ describe('ChangelogRepository', () => {
     expect(page2.length).toBe(1);
     expect(page2[0]!.symbolName).toBe('fn2');
   });
+
+  // ── batch insert boundary tests (BATCH_CHUNK_SIZE = 80) ──────────────────
+
+  it('should insert exactly 80 changelog entries in a single batch', () => {
+    const now = new Date().toISOString();
+    const rows = Array.from({ length: 80 }, (_, i) => ({
+      project: 'test', changeType: 'added', symbolName: `fn_${i}`,
+      symbolKind: 'function', filePath: 'a.ts', oldName: null,
+      oldFilePath: null, fingerprint: null, changedAt: now,
+      isFullIndex: 0, indexRunId: 'r1',
+    }));
+
+    repo.insertBatch(rows);
+
+    const results = repo.getSince({ project: 'test', since: '2000-01-01', limit: 100 });
+    expect(results.length).toBe(80);
+  });
+
+  it('should insert 81 changelog entries across two batches', () => {
+    const now = new Date().toISOString();
+    const rows = Array.from({ length: 81 }, (_, i) => ({
+      project: 'test', changeType: 'added', symbolName: `fn_${i}`,
+      symbolKind: 'function', filePath: 'a.ts', oldName: null,
+      oldFilePath: null, fingerprint: null, changedAt: now,
+      isFullIndex: 0, indexRunId: 'r1',
+    }));
+
+    repo.insertBatch(rows);
+
+    const results = repo.getSince({ project: 'test', since: '2000-01-01', limit: 100 });
+    expect(results.length).toBe(81);
+  });
 });

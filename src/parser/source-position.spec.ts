@@ -150,4 +150,42 @@ describe('getLineColumn', () => {
     const second = getLineColumn(offsets, 5);
     expect(first).toEqual(second);
   });
+
+  it('should handle CRLF line endings correctly in getLineColumn', () => {
+    const source = 'a\r\nb\r\nc';
+    const offsets = buildLineOffsets(source);
+    // offsets: [0, 3, 6] — \n at index 2 and 5
+    expect(getLineColumn(offsets, 0)).toEqual({ line: 1, column: 0 }); // 'a'
+    expect(getLineColumn(offsets, 1)).toEqual({ line: 1, column: 1 }); // '\r'
+    expect(getLineColumn(offsets, 2)).toEqual({ line: 1, column: 2 }); // '\n'
+    expect(getLineColumn(offsets, 3)).toEqual({ line: 2, column: 0 }); // 'b'
+    expect(getLineColumn(offsets, 6)).toEqual({ line: 3, column: 0 }); // 'c'
+  });
+
+  it('should return last line position when offset equals source length', () => {
+    const source = 'ab\ncd';
+    const offsets = buildLineOffsets(source);
+    // source.length = 5, last char 'd' is at offset 4
+    const pos = getLineColumn(offsets, source.length);
+    expect(pos).toEqual({ line: 2, column: 2 });
+  });
+
+  it('should return position on last line when offset exceeds source length', () => {
+    const source = 'ab\ncd';
+    const offsets = buildLineOffsets(source);
+    // offset 100 far exceeds source.length (5)
+    // binary search settles on the last line (line 2, starting at offset 3)
+    // column becomes offset - lineStart = 100 - 3 = 97
+    const pos = getLineColumn(offsets, 100);
+    expect(pos).toEqual({ line: 2, column: 97 });
+  });
+
+  it('should return line 1 with negative column when offset is negative', () => {
+    const source = 'ab\ncd';
+    const offsets = buildLineOffsets(source);
+    // negative offset: binary search settles on line 1 (offset 0)
+    // column becomes offset - lineStart = -5 - 0 = -5
+    const pos = getLineColumn(offsets, -5);
+    expect(pos).toEqual({ line: 1, column: -5 });
+  });
 });

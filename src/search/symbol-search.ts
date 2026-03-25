@@ -49,8 +49,10 @@ export interface SymbolSearchResult {
   filePath: string;
   /** Kind of the symbol (function, class, variable, etc.). */
   kind: SymbolKind;
-  /** Symbol name. */
+  /** Symbol name (qualified for members, e.g. `"ClassName.methodName"`). */
   name: string;
+  /** Unqualified member name (e.g. `"methodName"`), or `null` for top-level symbols. */
+  memberName: string | null;
   /** Source location span (start/end line and column). */
   span: { start: { line: number; column: number }; end: { line: number; column: number } };
   /** Whether the symbol is exported from its module. */
@@ -116,21 +118,25 @@ export function symbolSearch(options: {
 
   const records = symbolRepo.searchByQuery(opts);
 
-  return records.map(r => ({
-    id: r.id,
-    filePath: r.filePath,
-    kind: r.kind as SymbolKind,
-    name: r.name,
-    span: {
-      start: { line: r.startLine, column: r.startColumn },
-      end: { line: r.endLine, column: r.endColumn },
-    },
-    isExported: r.isExported === 1,
-    signature: r.signature,
-    fingerprint: r.fingerprint,
-    detail: r.detailJson ? (() => {
-      try { return JSON.parse(r.detailJson!) as Record<string, unknown>; }
-      catch { return {}; }
-    })() : {},
-  }));
+  return records.map(r => {
+    const dotIdx = r.name.indexOf('.');
+    return {
+      id: r.id,
+      filePath: r.filePath,
+      kind: r.kind as SymbolKind,
+      name: r.name,
+      memberName: dotIdx >= 0 ? r.name.slice(dotIdx + 1) : null,
+      span: {
+        start: { line: r.startLine, column: r.startColumn },
+        end: { line: r.endLine, column: r.endColumn },
+      },
+      isExported: r.isExported === 1,
+      signature: r.signature,
+      fingerprint: r.fingerprint,
+      detail: r.detailJson ? (() => {
+        try { return JSON.parse(r.detailJson!) as Record<string, unknown>; }
+        catch { return {}; }
+      })() : {},
+    };
+  });
 }

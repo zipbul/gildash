@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import { err } from '@zipbul/result';
-import { GildashError, gildashError } from '../errors';
+import { GildashError } from '../errors';
 import type { GildashContext, CoordinatorLike, WatcherLike } from './context';
 import { ProjectWatcher } from '../watcher/project-watcher';
 
@@ -275,7 +275,7 @@ describe('initializeContext', () => {
 
   it('should throw when db.open fails', async () => {
     const db = makeDb();
-    db.open = mock(() => err(gildashError('store', 'db open failed')));
+    db.open = mock(() => err(new GildashError('store', 'db open failed')));
     const opts = makeInitOptions({ dbConnectionFactory: mock(() => db) });
 
     await expect(initializeContext(opts)).rejects.toThrow(GildashError);
@@ -418,7 +418,7 @@ describe('closeContext', () => {
 
   it('should throw on watcher close error', async () => {
     const watcher = makeWatcher();
-    watcher.close = mock(async () => err(gildashError('watcher', 'close error')));
+    watcher.close = mock(async () => err(new GildashError('watcher', 'close error')));
     const ctx = makeCtx({ watcher: watcher as any });
 
     await expect(closeContext(ctx)).rejects.toThrow(GildashError);
@@ -520,7 +520,7 @@ describe('setupOwnerInfrastructure', () => {
   it('should throw when watcher start fails', async () => {
     const coordinator = makeCoordinator();
     const watcher = makeWatcher();
-    watcher.start = mock(async () => err(gildashError('watcher', 'start failed')));
+    watcher.start = mock(async () => err(new GildashError('watcher', 'start failed')));
     const ctx = makeCtx({
       coordinatorFactory: mock(() => coordinator) as any,
       watcherFactory: mock(() => watcher) as any,
@@ -847,7 +847,7 @@ describe('lifecycle state transitions', () => {
   it('should handle watcher close error during promotion rollback', async () => {
     let callCount = 0;
     const watcher = makeWatcher();
-    watcher.close = mock(async () => err(gildashError('watcher', 'close err')));
+    watcher.close = mock(async () => err(new GildashError('watcher', 'close err')));
     const coordinator = makeCoordinator();
     coordinator.fullIndex = mock(async () => { throw new Error('promotion fail'); });
     const opts = makeInitOptions({

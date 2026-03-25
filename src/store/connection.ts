@@ -4,7 +4,7 @@ import { mkdirSync, unlinkSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { drizzle, type BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite';
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
-import { gildashError, type GildashError } from '../errors';
+import { GildashError } from '../errors';
 import { DATA_DIR, DB_FILE } from '../constants';
 import * as schema from './schema';
 
@@ -65,11 +65,11 @@ export class DbConnection {
         }
         const retryResult = this.open();
         if (isErr(retryResult)) {
-          return err(gildashError('store', `Failed to recover database at ${this.dbPath}`, retryResult.data));
+          return err(new GildashError('store', `Failed to recover database at ${this.dbPath}`, { cause: retryResult.data }));
         }
         return retryResult;
       }
-      return err(gildashError('store', `Failed to open database at ${this.dbPath}`, e));
+      return err(new GildashError('store', `Failed to open database at ${this.dbPath}`, { cause: e }));
     }
   }
 
