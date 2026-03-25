@@ -58,7 +58,7 @@ export function getDependencies(
       relationRepo: ctx.relationRepo,
       project: project ?? ctx.defaultProject,
       query: { srcFilePath: filePath, type: 'imports', project: project ?? ctx.defaultProject, limit },
-    }).map(r => r.dstFilePath);
+    }).filter(r => r.dstFilePath !== null).map(r => r.dstFilePath!);
   } catch (e) {
     if (e instanceof GildashError) throw e;
     throw new GildashError('search', 'Gildash: getDependencies failed', { cause: e });

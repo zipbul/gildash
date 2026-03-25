@@ -184,14 +184,16 @@ export interface CodeRelation {
   srcFilePath: string;
   /** Source symbol name, or `null` for module-level relationships. */
   srcSymbolName: string | null;
-  /** File path of the target. */
-  dstFilePath: string;
+  /** File path of the target. `null` for external/unresolved imports. */
+  dstFilePath: string | null;
   /** Target symbol name, or `null` for module-level imports. */
   dstSymbolName: string | null;
   /** Optional JSON-encoded metadata about the relation. */
   metaJson?: string;
   /** Parsed metadata object derived from `metaJson`. */
   meta?: Record<string, unknown>;
+  /** Raw import specifier (e.g. `'lodash'`, `'./missing'`). Present for unresolved/external imports. */
+  specifier?: string;
 }
 
 export type AnnotationSource = 'jsdoc' | 'line' | 'block';

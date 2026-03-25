@@ -196,8 +196,8 @@ describe('extractImports', () => {
     expect(rel).toBeDefined();
   });
 
-  // 11. [NE] candidates empty → 0 relations
-  it('should return no relation when import source path cannot be resolved', () => {
+  // 11. [NE] candidates empty, bare specifier → external import with null dstFilePath
+  it('should return relation with null dstFilePath and specifier when bare specifier cannot be resolved', () => {
     mockResolveImport.mockReturnValue([]);
 
     const ast = fakeAst([
@@ -212,7 +212,12 @@ describe('extractImports', () => {
     ]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
 
-    expect(relations).toHaveLength(0);
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('react');
+    expect(relations[0]!.dstSymbolName).toBe('useState');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isExternal).toBe(true);
   });
 
   // 12. [NE] dynamic import sourceValue null
@@ -425,8 +430,8 @@ describe('extractImports', () => {
     expect(relations).toHaveLength(0);
   });
 
-  // 25. [NE] candidates empty
-  it('should produce no relation when re-export source path cannot be resolved', () => {
+  // 25. [NE] candidates empty, bare specifier → external re-export with null dstFilePath
+  it('should produce re-export relation with null dstFilePath and specifier when re-export source is bare specifier', () => {
     mockResolveImport.mockReturnValue([]);
 
     const ast = fakeAst([
@@ -441,7 +446,13 @@ describe('extractImports', () => {
     ]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
 
-    expect(relations).toHaveLength(0);
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('external-pkg');
+    expect(relations[0]!.type).toBe('re-exports');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isExternal).toBe(true);
+    expect(meta.isReExport).toBe(true);
   });
 
   // 26. [CO] export type { T as U } → isType + alias specifier
@@ -603,5 +614,299 @@ describe('extractImports', () => {
     const meta = JSON.parse(relations[0]!.metaJson!);
     expect(meta.isReExport).toBe(true);
     expect(meta.isType).toBe(true);
+  });
+
+  // --- EXT: external/unresolved import tracking ---
+
+  // 34. [HP] external default import
+  it('should produce relation with null dstFilePath and dstSymbolName default when external default import is used', () => {
+    mockResolveImport.mockReturnValue([]);
+
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: 'lodash' },
+        importKind: 'value',
+        specifiers: [
+          { type: 'ImportDefaultSpecifier', local: { name: '_' } },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('lodash');
+    expect(relations[0]!.dstSymbolName).toBe('default');
+    expect(relations[0]!.srcSymbolName).toBe('_');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isExternal).toBe(true);
+  });
+
+  // 35. [HP] external namespace import
+  it('should produce relation with null dstFilePath and dstSymbolName asterisk when external namespace import is used', () => {
+    mockResolveImport.mockReturnValue([]);
+
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: 'rxjs' },
+        importKind: 'value',
+        specifiers: [
+          { type: 'ImportNamespaceSpecifier', local: { name: 'Rx' } },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('rxjs');
+    expect(relations[0]!.dstSymbolName).toBe('*');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isExternal).toBe(true);
+    expect(meta.importKind).toBe('namespace');
+  });
+
+  // 36. [HP] unresolved relative import (not external)
+  it('should produce relation with isUnresolved true when relative import cannot be resolved', () => {
+    mockResolveImport.mockReturnValue([]);
+
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: './missing' },
+        importKind: 'value',
+        specifiers: [
+          { type: 'ImportSpecifier', imported: { name: 'Foo' }, local: { name: 'Foo' }, importKind: 'value' },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('./missing');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isUnresolved).toBe(true);
+    expect(meta.isExternal).toBeUndefined();
+  });
+
+  // 37. [HP] external side-effect import
+  it('should produce relation with isExternal true when side-effect import is bare specifier', () => {
+    mockResolveImport.mockReturnValue([]);
+
+    const ast = fakeAst([
+      { type: 'ImportDeclaration', source: { value: 'reflect-metadata' }, importKind: 'value', specifiers: [] },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('reflect-metadata');
+    expect(relations[0]!.srcSymbolName).toBeNull();
+    expect(relations[0]!.dstSymbolName).toBeNull();
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isExternal).toBe(true);
+  });
+
+  // 38. [HP] external export-all
+  it('should produce re-exports relation with null dstFilePath when export-all source is bare specifier', () => {
+    mockResolveImport.mockReturnValue([]);
+
+    const ast = fakeAst([
+      { type: 'ExportAllDeclaration', source: { value: '@org/pkg' }, exportKind: 'value' },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.type).toBe('re-exports');
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('@org/pkg');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isExternal).toBe(true);
+    expect(meta.isReExport).toBe(true);
+  });
+
+  // 39. [HP] dynamic import with unresolved bare specifier
+  it('should produce relation with isDynamic and isExternal when dynamic import is bare specifier', () => {
+    mockResolveImport.mockReturnValue([]);
+    mockVisit.mockImplementation((_ast: any, cb: any) => {
+      cb({ type: 'ImportExpression', source: { type: 'StringLiteral', value: 'some-pkg' } });
+    });
+    mockGetStringLiteralValue.mockReturnValue('some-pkg');
+
+    const ast = fakeAst([]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('some-pkg');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isDynamic).toBe(true);
+    expect(meta.isExternal).toBe(true);
+  });
+
+  // 40. [HP] resolved import should NOT have specifier field
+  it('should not include specifier field when import is resolved to a file path', () => {
+    mockResolveImport.mockReturnValue([RESOLVED]);
+
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: './bar' },
+        importKind: 'value',
+        specifiers: [
+          { type: 'ImportSpecifier', imported: { name: 'Foo' }, local: { name: 'Foo' }, importKind: 'value' },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBe(RESOLVED);
+    expect(relations[0]!.specifier).toBeUndefined();
+  });
+
+  // --- REQ: require() and require.resolve() ---
+
+  // 41. [HP] require('lodash') → external import
+  it('should produce import relation with isRequire and isExternal when require is used with bare specifier', () => {
+    mockResolveImport.mockReturnValue([]);
+    mockVisit.mockImplementation((_ast: any, cb: any) => {
+      cb({
+        type: 'CallExpression',
+        callee: { type: 'Identifier', name: 'require' },
+        arguments: [{ type: 'StringLiteral', value: 'lodash' }],
+      });
+    });
+    mockGetStringLiteralValue.mockReturnValue('lodash');
+
+    const ast = fakeAst([]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('lodash');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isRequire).toBe(true);
+    expect(meta.isExternal).toBe(true);
+  });
+
+  // 42. [HP] require('./local') → resolved import
+  it('should produce import relation with isRequire and resolved dstFilePath when require is used with relative path', () => {
+    mockResolveImport.mockReturnValue([RESOLVED]);
+    mockVisit.mockImplementation((_ast: any, cb: any) => {
+      cb({
+        type: 'CallExpression',
+        callee: { type: 'Identifier', name: 'require' },
+        arguments: [{ type: 'StringLiteral', value: './local' }],
+      });
+    });
+    mockGetStringLiteralValue.mockReturnValue('./local');
+
+    const ast = fakeAst([]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBe(RESOLVED);
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isRequire).toBe(true);
+    expect(meta.isExternal).toBeUndefined();
+  });
+
+  // 43. [HP] require.resolve('path') → external import with isRequireResolve
+  it('should produce import relation with isRequireResolve when require.resolve is used', () => {
+    mockResolveImport.mockReturnValue([]);
+    mockVisit.mockImplementation((_ast: any, cb: any) => {
+      cb({
+        type: 'CallExpression',
+        callee: {
+          type: 'StaticMemberExpression',
+          object: { type: 'Identifier', name: 'require' },
+          property: { name: 'resolve' },
+        },
+        arguments: [{ type: 'StringLiteral', value: 'path' }],
+      });
+    });
+    mockGetStringLiteralValue.mockReturnValue('path');
+
+    const ast = fakeAst([]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('path');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isRequire).toBe(true);
+    expect(meta.isRequireResolve).toBe(true);
+    expect(meta.isExternal).toBe(true);
+  });
+
+  // 44. [NE] require with non-string arg → no relation
+  it('should produce no relation when require has non-string argument', () => {
+    mockResolveImport.mockReturnValue([]);
+    mockVisit.mockImplementation((_ast: any, cb: any) => {
+      cb({
+        type: 'CallExpression',
+        callee: { type: 'Identifier', name: 'require' },
+        arguments: [{ type: 'Identifier', name: 'dynamicPath' }],
+      });
+    });
+    mockGetStringLiteralValue.mockReturnValue(null);
+
+    const ast = fakeAst([]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(0);
+  });
+
+  // 45. [HP] type-only external import
+  it('should produce type-references relation with isExternal true when type-only import is bare specifier', () => {
+    mockResolveImport.mockReturnValue([]);
+
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: '@types/node' },
+        importKind: 'type',
+        specifiers: [
+          { type: 'ImportSpecifier', imported: { name: 'Buffer' }, local: { name: 'Buffer' }, importKind: 'value' },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.type).toBe('type-references');
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('@types/node');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isType).toBe(true);
+    expect(meta.isExternal).toBe(true);
+  });
+
+  // 46. [HP] multiple external named imports → one relation per specifier
+  it('should produce one relation per specifier when external import has multiple named specifiers', () => {
+    mockResolveImport.mockReturnValue([]);
+
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: 'react' },
+        importKind: 'value',
+        specifiers: [
+          { type: 'ImportSpecifier', imported: { name: 'useState' }, local: { name: 'useState' }, importKind: 'value' },
+          { type: 'ImportSpecifier', imported: { name: 'useEffect' }, local: { name: 'useEffect' }, importKind: 'value' },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(2);
+    expect(relations[0]!.dstSymbolName).toBe('useState');
+    expect(relations[0]!.specifier).toBe('react');
+    expect(relations[1]!.dstSymbolName).toBe('useEffect');
+    expect(relations[1]!.specifier).toBe('react');
   });
 });

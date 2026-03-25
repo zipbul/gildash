@@ -169,8 +169,8 @@ export async function setupOwnerInfrastructure(
             .concat(repo.getByType(p, 'type-references'))
             .concat(repo.getByType(p, 're-exports')),
         )
-          .filter(r => r.srcFilePath === filePath || r.dstFilePath === filePath)
-          .map(r => ({ srcFilePath: r.srcFilePath, dstFilePath: r.dstFilePath }));
+          .filter(r => r.dstFilePath !== null && (r.srcFilePath === filePath || r.dstFilePath === filePath))
+          .map(r => ({ srcFilePath: r.srcFilePath, dstFilePath: r.dstFilePath! }));
       });
       ctx.graphCacheBuiltAt = Date.now();
     } else {

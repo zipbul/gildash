@@ -25,6 +25,8 @@ function makeRelation(src: string, dst: string): RelationRecord {
     dstFilePath: dst,
     dstSymbolName: null,
     metaJson: null,
+    specifier: null,
+    isExternal: 0,
   };
 }
 

@@ -50,6 +50,9 @@ export class DependencyGraph {
     for (const rel of relations) {
       const { srcFilePath, dstFilePath } = rel;
 
+      // Skip external/unresolved imports (null dstFilePath)
+      if (dstFilePath === null) continue;
+
       if (!this.adjacencyList.has(srcFilePath)) {
         this.adjacencyList.set(srcFilePath, new Set());
       }

@@ -15,6 +15,8 @@ function makeRelationRecord(overrides: Partial<RelationRecord> = {}): RelationRe
     dstFilePath: 'src/b.ts',
     dstSymbolName: null,
     metaJson: null,
+    specifier: null,
+    isExternal: 0,
     ...overrides,
   };
 }
@@ -441,7 +443,7 @@ describe('relationSearch', () => {
     });
     expect(results).toHaveLength(2);
     expect(results.every(r => r.type === 'imports')).toBe(true);
-    expect(results.every(r => r.dstFilePath.startsWith('lib/'))).toBe(true);
+    expect(results.every(r => r.dstFilePath?.startsWith('lib/'))).toBe(true);
   });
 
   it('should pass limit=undefined to repo when pattern is used to fetch all for app-level filtering', () => {

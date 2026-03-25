@@ -57,6 +57,13 @@
       "when": 1773878400001,
       "tag": "0007_symbol_changelog",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1774588800000,
+      "tag": "0008_external_imports",
+      "breakpoints": true
     }
   ]
 }

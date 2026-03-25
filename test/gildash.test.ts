@@ -935,7 +935,7 @@ describe('Gildash integration', () => {
 
       const addedRelations = result.changedRelations.added;
       expect(addedRelations.some(
-        r => r.type === 'imports' && r.srcFilePath.includes('app') && r.dstFilePath.includes('extra'),
+        r => r.type === 'imports' && r.srcFilePath.includes('app') && r.dstFilePath?.includes('extra'),
       )).toBe(true);
 
       await g.close();
@@ -968,7 +968,7 @@ describe('Gildash integration', () => {
 
       const removedRelations = result.changedRelations.removed;
       expect(removedRelations.some(
-        r => r.type === 'imports' && r.srcFilePath.includes('app') && r.dstFilePath.includes('extra'),
+        r => r.type === 'imports' && r.srcFilePath.includes('app') && r.dstFilePath?.includes('extra'),
       )).toBe(true);
 
       await g.close();

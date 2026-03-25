@@ -13,6 +13,8 @@ function makeImport(srcFilePath: string, dstFilePath: string): RelationRecord {
     dstFilePath,
     dstSymbolName: null,
     metaJson: null,
+    specifier: null,
+    isExternal: 0,
   };
 }
 
