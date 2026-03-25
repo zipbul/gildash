@@ -230,6 +230,20 @@ describe('RelationRepository', () => {
     expect(insertedValues?.dstProject).toBe('proj-b');
   });
 
+  it('should update dstProject when retargetRelations is called with newDstProject', () => {
+    const { db, chain } = makeDbMock();
+    const repo = new RelationRepository(db);
+
+    expect(() =>
+      repo.retargetRelations({ dstProject: 'proj-a', oldFile: 'src/old.ts', oldSymbol: 'Fn', newFile: 'src/new.ts', newSymbol: 'Fn', newDstProject: 'proj-b' }),
+    ).not.toThrow();
+    expect(chain['update']).toHaveBeenCalled();
+    expect(chain['set']).toHaveBeenCalled();
+    const setArg = (chain['set'] as { mock: { calls: any[][] } }).mock.calls[0]?.[0];
+    expect(setArg?.dstProject).toBe('proj-b');
+    expect(chain['run']).toHaveBeenCalled();
+  });
+
   it('should fallback dstProject to project when replaceFileRelations receives no dstProject field', () => {
     const { db, chain } = makeDbMock();
     const repo = new RelationRepository(db);

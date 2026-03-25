@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { GildashError, gildashError } from "./errors";
+import { GildashError } from "./errors";
 
 describe("GildashError", () => {
   it("should be an instance of Error", () => {
@@ -43,9 +43,9 @@ describe("GildashError", () => {
   });
 });
 
-describe("gildashError", () => {
+describe("new GildashError", () => {
   it("should return object with type and message and no cause property when cause is undefined", () => {
-    const result = gildashError("parse", "parse failed");
+    const result = new GildashError("parse", "parse failed");
 
     expect(result.type).toBe("parse");
     expect(result.message).toBe("parse failed");
@@ -54,37 +54,37 @@ describe("gildashError", () => {
 
   it("should include cause in result when cause is an Error instance", () => {
     const cause = new Error("root");
-    const result = gildashError("watcher", "watcher failed", cause);
+    const result = new GildashError("watcher", "watcher failed", { cause });
 
     expect(result.cause).toBe(cause);
   });
 
   it("should set cause to exact string value when cause is a string", () => {
-    const result = gildashError("store", "store failed", "string cause");
+    const result = new GildashError("store", "store failed", { cause: "string cause" });
 
     expect(result.cause).toBe("string cause");
   });
 
   it("should set cause to null when cause is null", () => {
-    const result = gildashError("index", "index failed", null);
+    const result = new GildashError("index", "index failed", { cause: null });
 
     expect(result.cause).toBeNull();
   });
 
   it("should set cause to 0 when cause is numeric zero", () => {
-    const result = gildashError("search", "search failed", 0);
+    const result = new GildashError("search", "search failed", { cause: 0 });
 
     expect(result.cause).toBe(0);
   });
 
   it("should set cause to false when cause is boolean false", () => {
-    const result = gildashError("closed", "closed", false);
+    const result = new GildashError("closed", "closed", { cause: false });
 
     expect(result.cause).toBe(false);
   });
 
   it("should set cause to empty string when cause is empty string", () => {
-    const result = gildashError("validation", "validation failed", "");
+    const result = new GildashError("validation", "validation failed", { cause: "" });
 
     expect(result.cause).toBe("");
   });
@@ -93,19 +93,19 @@ describe("gildashError", () => {
     const allTypes = ["watcher", "parse", "extract", "index", "store", "search", "closed", "validation", "close"] as const;
 
     for (const type of allTypes) {
-      const result = gildashError(type, "msg");
+      const result = new GildashError(type, "msg");
       expect(result.type).toBe(type);
     }
   });
 
   it("should reflect exact message value in returned object when message is provided", () => {
-    const result = gildashError("extract", "exact message content");
+    const result = new GildashError("extract", "exact message content");
 
     expect(result.message).toBe("exact message content");
   });
 
   it("should handle empty string message and return object with empty message when message is empty string", () => {
-    const result = gildashError("index", "");
+    const result = new GildashError("index", "");
 
     expect(result.message).toBe("");
     expect(result.type).toBe("index");
@@ -113,28 +113,28 @@ describe("gildashError", () => {
 
   it("should include empty object as cause when cause is an empty object", () => {
     const cause = {};
-    const result = gildashError("store", "failed", cause);
+    const result = new GildashError("store", "failed", { cause });
 
     expect(result.cause).toBe(cause);
   });
 
   it("should include empty array as cause when cause is an empty array", () => {
     const cause: unknown[] = [];
-    const result = gildashError("search", "failed", cause);
+    const result = new GildashError("search", "failed", { cause });
 
     expect(result.cause).toBe(cause);
   });
 
   it("should return object with no cause property when message is empty and cause is undefined", () => {
-    const result = gildashError("close", "");
+    const result = new GildashError("close", "");
 
     expect(result.message).toBe("");
     expect("cause" in result).toBe(false);
   });
 
   it("should return separate object instances with same shape when called twice with identical arguments", () => {
-    const result1 = gildashError("parse", "failed", new Error("root"));
-    const result2 = gildashError("parse", "failed", new Error("root"));
+    const result1 = new GildashError("parse", "failed", { cause: new Error("root") });
+    const result2 = new GildashError("parse", "failed", { cause: new Error("root") });
 
     expect(result1).not.toBe(result2);
     expect(result1.type).toBe(result2.type);
@@ -142,8 +142,8 @@ describe("gildashError", () => {
   });
 
   it("should produce no cause property on both results when called twice with cause undefined", () => {
-    const result1 = gildashError("watcher", "w");
-    const result2 = gildashError("watcher", "w");
+    const result1 = new GildashError("watcher", "w");
+    const result2 = new GildashError("watcher", "w");
 
     expect("cause" in result1).toBe(false);
     expect("cause" in result2).toBe(false);

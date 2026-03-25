@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { err } from '@zipbul/result';
-import { GildashError, gildashError } from '../errors';
+import { GildashError } from '../errors';
 import type { GildashContext } from './context';
 import type { ParsedFile } from '../parser/types';
 import { parseSource, batchParse, getParsedAst } from './parse-api';
@@ -75,7 +75,7 @@ describe('parseSource', () => {
   });
 
   it('should throw GildashError and skip parseCache.set when parseSourceFn returns err', () => {
-    const parseErr = err(gildashError('parse', 'syntax error'));
+    const parseErr = err(new GildashError('parse', 'syntax error'));
     const fn = mock(() => parseErr);
     const cacheSet = mock(() => {});
     const ctx = makeCtx({
@@ -175,7 +175,7 @@ describe('batchParse', () => {
   it('should report files where parseSourceFn returns err as failures', async () => {
     const readFn = mock(async () => 'code');
     const parseFn = mock((fp: string) => {
-      if (fp === '/src/bad.ts') return err(gildashError('parse', 'fail'));
+      if (fp === '/src/bad.ts') return err(new GildashError('parse', 'fail'));
       return makeParsed({ filePath: fp });
     });
     const ctx = makeCtx({ readFileFn: readFn as any, parseSourceFn: parseFn as any });
@@ -205,7 +205,7 @@ describe('batchParse', () => {
       return 'code';
     });
     const parseFn = mock((fp: string) => {
-      if (fp === '/src/parse-fail.ts') return err(gildashError('parse', 'fail'));
+      if (fp === '/src/parse-fail.ts') return err(new GildashError('parse', 'fail'));
       return parsed;
     });
     const ctx = makeCtx({ readFileFn: readFn as any, parseSourceFn: parseFn as any });

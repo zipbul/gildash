@@ -7,7 +7,7 @@
 
 import ts from "typescript";
 import { err, isErr, type Result } from "@zipbul/result";
-import { gildashError, type GildashError } from "../errors";
+import { GildashError } from "../errors";
 import { TscProgram, type TscProgramOptions } from "./tsc-program";
 import { TypeCollector } from "./type-collector";
 import { SymbolGraph, type SymbolNode } from "./symbol-graph";

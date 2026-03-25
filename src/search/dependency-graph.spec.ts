@@ -799,4 +799,107 @@ describe('DependencyGraph', () => {
     expect(calledProjects).toContain('proj-a');
     expect(calledProjects).toContain('proj-b');
   });
+
+  // ─── patchFiles ───
+
+  it('should produce same adjacency as fresh build after patching changed file', () => {
+    // Build initial graph: A→B, B→C
+    mockGetByType = mock(() => [
+      makeImport('src/a.ts', 'src/b.ts'),
+      makeImport('src/b.ts', 'src/c.ts'),
+    ]);
+    mockRepo = { getByType: mockGetByType } as IDependencyGraphRepo;
+    graph = new DependencyGraph({ relationRepo: mockRepo, project: 'test-project' });
+    graph.build();
+
+    // Patch: A now imports C instead of B
+    graph.patchFiles(
+      ['src/a.ts'],
+      [],
+      (filePath) => {
+        if (filePath === 'src/a.ts') {
+          return [{ srcFilePath: 'src/a.ts', dstFilePath: 'src/c.ts' }];
+        }
+        return [];
+      },
+    );
+
+    expect(graph.getDependencies('src/a.ts')).toEqual(['src/c.ts']);
+    expect(graph.getDependents('src/c.ts')).toContain('src/a.ts');
+    expect(graph.getDependents('src/c.ts')).toContain('src/b.ts');
+    // A no longer imports B
+    expect(graph.getDependents('src/b.ts')).not.toContain('src/a.ts');
+  });
+
+  it('should remove edges for deleted files', () => {
+    // Build graph: A→B→C
+    mockGetByType = mock(() => [
+      makeImport('src/a.ts', 'src/b.ts'),
+      makeImport('src/b.ts', 'src/c.ts'),
+    ]);
+    mockRepo = { getByType: mockGetByType } as IDependencyGraphRepo;
+    graph = new DependencyGraph({ relationRepo: mockRepo, project: 'test-project' });
+    graph.build();
+
+    // Delete B
+    graph.patchFiles([], ['src/b.ts'], () => []);
+
+    // B should be gone from the graph entirely
+    expect(graph.getDependencies('src/b.ts')).toEqual([]);
+    expect(graph.getDependents('src/b.ts')).toEqual([]);
+    // A's edge to B should be removed
+    expect(graph.getDependencies('src/a.ts')).toEqual([]);
+    // C's reverse edge from B should be removed
+    expect(graph.getDependents('src/c.ts')).toEqual([]);
+  });
+
+  it('should handle empty changedFiles and deletedFiles', () => {
+    // Build graph: A→B
+    mockGetByType = mock(() => [makeImport('src/a.ts', 'src/b.ts')]);
+    mockRepo = { getByType: mockGetByType } as IDependencyGraphRepo;
+    graph = new DependencyGraph({ relationRepo: mockRepo, project: 'test-project' });
+    graph.build();
+
+    const adjBefore = graph.getAdjacencyList();
+
+    // Patch with empty arrays
+    graph.patchFiles([], [], () => []);
+
+    const adjAfter = graph.getAdjacencyList();
+
+    expect(adjAfter).toEqual(adjBefore);
+  });
+
+  it('should handle file in both changedFiles and deletedFiles', () => {
+    // Build graph: A→B, B→C
+    mockGetByType = mock(() => [
+      makeImport('src/a.ts', 'src/b.ts'),
+      makeImport('src/b.ts', 'src/c.ts'),
+    ]);
+    mockRepo = { getByType: mockGetByType } as IDependencyGraphRepo;
+    graph = new DependencyGraph({ relationRepo: mockRepo, project: 'test-project' });
+    graph.build();
+
+    // B appears in both changedFiles and deletedFiles
+    // patchFiles first removes all edges for affected files (union of both),
+    // then deletes the deletedFiles entries, then re-adds edges for changedFiles.
+    // Since B is in deletedFiles, its node is removed. Since B is also in changedFiles,
+    // getRelationsForFile is called for B and new edges are re-added.
+    graph.patchFiles(
+      ['src/b.ts'],
+      ['src/b.ts'],
+      (filePath) => {
+        if (filePath === 'src/b.ts') {
+          return [{ srcFilePath: 'src/b.ts', dstFilePath: 'src/c.ts' }];
+        }
+        return [];
+      },
+    );
+
+    // B should be re-added because changedFiles callback provides new relations
+    expect(graph.getDependencies('src/b.ts')).toEqual(['src/c.ts']);
+    expect(graph.getDependents('src/c.ts')).toContain('src/b.ts');
+    // A's edge to B was removed (A was not in changedFiles, and B's incoming edges were cleared)
+    expect(graph.getDependencies('src/a.ts')).toEqual([]);
+  });
 });

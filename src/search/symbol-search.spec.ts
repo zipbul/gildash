@@ -350,4 +350,69 @@ describe('symbolSearch', () => {
     expect(opts.resolvedType).toBe('Promise<void>');
     expect(opts.kind).toBe('function');
   });
+
+  // ── memberName ─────────────────────────────────────────────────────────
+
+  it('should set memberName to unqualified name when record name contains a dot', () => {
+    mockSearchByQuery = mock(() => [makeSymbolRecord({ name: 'MyClass.doThing' })]);
+    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
+    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    expect(results[0]!.memberName).toBe('doThing');
+  });
+
+  it('should set memberName to null when record name has no dot', () => {
+    mockSearchByQuery = mock(() => [makeSymbolRecord({ name: 'myFn' })]);
+    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
+    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    expect(results[0]!.memberName).toBeNull();
+  });
+
+  it('should use first dot as split point when record name has multiple dots', () => {
+    mockSearchByQuery = mock(() => [makeSymbolRecord({ name: 'A.B.C' })]);
+    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
+    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    expect(results[0]!.memberName).toBe('B.C');
+  });
+
+  it('should set memberName to empty string when name ends with a dot', () => {
+    mockSearchByQuery = mock(() => [makeSymbolRecord({ name: 'Class.' })]);
+    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
+    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    expect(results[0]!.memberName).toBe('');
+  });
+
+  it('should set memberName to the part after first dot when name starts with a dot', () => {
+    mockSearchByQuery = mock(() => [makeSymbolRecord({ name: '.method' })]);
+    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
+    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    expect(results[0]!.memberName).toBe('method');
+  });
+
+  // ── filter combination tests ─────────────────────────────────────────────
+
+  it('should pass both exactName and kind to searchByQuery when exact and kind are set', () => {
+    const query: SymbolSearchQuery = { text: 'foo', exact: true, kind: 'method' };
+    symbolSearch({ symbolRepo: mockRepo, query });
+    const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
+    expect(opts.exactName).toBe('foo');
+    expect(opts.kind).toBe('method');
+    expect(opts.ftsQuery).toBeUndefined();
+  });
+
+  it('should pass both exactName and isExported to searchByQuery when exact and isExported are set', () => {
+    const query: SymbolSearchQuery = { text: 'foo', exact: true, isExported: true };
+    symbolSearch({ symbolRepo: mockRepo, query });
+    const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
+    expect(opts.exactName).toBe('foo');
+    expect(opts.isExported).toBe(true);
+    expect(opts.ftsQuery).toBeUndefined();
+  });
+
+  it('should pass both decorator and regex to searchByQuery when both are set', () => {
+    const query: SymbolSearchQuery = { decorator: 'Inject', regex: '^get' };
+    symbolSearch({ symbolRepo: mockRepo, query });
+    const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
+    expect(opts.decorator).toBe('Inject');
+    expect(opts.regex).toBe('^get');
+  });
 });

@@ -26,7 +26,7 @@ import { SemanticLayer } from '../semantic/index';
 import { AnnotationRepository } from '../store/repositories/annotation.repository';
 import { ChangelogRepository } from '../store/repositories/changelog.repository';
 import { annotationSearch as defaultAnnotationSearch } from '../search/annotation-search';
-import { GildashError, gildashError } from '../errors';
+import { GildashError } from '../errors';
 import { DATA_DIR, DB_FILE } from '../constants';
 import { invalidateGraphCache } from './graph-api';
 import type { IDependencyGraphRepo } from '../search/dependency-graph';

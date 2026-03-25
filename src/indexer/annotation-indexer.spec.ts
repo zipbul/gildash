@@ -74,4 +74,52 @@ function fn() {}
     expect(typeof row.startLine).toBe('number');
     expect(typeof row.indexedAt).toBe('string');
   });
+
+  it('should pass line comment annotations to insertBatch', () => {
+    const parsed = parse(`
+// @todo fix this later
+function fn() {}
+`);
+    const repo = makeAnnotationRepo();
+    const count = indexFileAnnotations({ parsed, project: 'p', filePath: 'a.ts', annotationRepo: repo });
+    expect(count).toBeGreaterThanOrEqual(1);
+    expect(repo.insertBatch).toHaveBeenCalled();
+
+    const [, , rows] = repo.insertBatch.mock.calls[0]!;
+    const lineRow = rows.find((r: any) => r.source === 'line');
+    expect(lineRow).toBeDefined();
+    expect(lineRow!.tag).toBe('todo');
+  });
+
+  it('should pass block comment annotations to insertBatch', () => {
+    const parsed = parse(`
+/* @note important detail */
+function fn() {}
+`);
+    const repo = makeAnnotationRepo();
+    const count = indexFileAnnotations({ parsed, project: 'p', filePath: 'a.ts', annotationRepo: repo });
+    expect(count).toBeGreaterThanOrEqual(1);
+    expect(repo.insertBatch).toHaveBeenCalled();
+
+    const [, , rows] = repo.insertBatch.mock.calls[0]!;
+    const blockRow = rows.find((r: any) => r.source === 'block');
+    expect(blockRow).toBeDefined();
+    expect(blockRow!.tag).toBe('note');
+  });
+
+  it('should handle annotation with null symbolName', () => {
+    // Annotation not followed by any symbol within the gap threshold
+    const parsed = parse(`
+// @todo orphan annotation
+`);
+    const repo = makeAnnotationRepo();
+    const count = indexFileAnnotations({ parsed, project: 'p', filePath: 'a.ts', annotationRepo: repo });
+    expect(count).toBeGreaterThanOrEqual(1);
+    expect(repo.insertBatch).toHaveBeenCalled();
+
+    const [, , rows] = repo.insertBatch.mock.calls[0]!;
+    const row = rows.find((r: any) => r.tag === 'todo');
+    expect(row).toBeDefined();
+    expect(row!.symbolName).toBeNull();
+  });
 });

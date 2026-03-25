@@ -466,4 +466,28 @@ describe('SymbolRepository', () => {
     expect(chain['where']).toHaveBeenCalled();
     expect(chain['all']).toHaveBeenCalled();
   });
+
+  // ── batch insert boundary tests (BATCH_CHUNK_SIZE = 50) ──────────────────
+
+  it('should insert exactly 50 symbols in a single batch', () => {
+    const { db, chain } = makeDbMock();
+    const repo = new SymbolRepository(db);
+    const syms = Array.from({ length: 50 }, (_, i) => makeSymRecord({ name: `fn_${i}` }));
+
+    repo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', syms);
+
+    expect(chain['insert']).toHaveBeenCalledTimes(1);
+    expect(chain['values']).toHaveBeenCalledTimes(1);
+  });
+
+  it('should insert 51 symbols across two batches', () => {
+    const { db, chain } = makeDbMock();
+    const repo = new SymbolRepository(db);
+    const syms = Array.from({ length: 51 }, (_, i) => makeSymRecord({ name: `fn_${i}` }));
+
+    repo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', syms);
+
+    expect(chain['insert']).toHaveBeenCalledTimes(2);
+    expect(chain['values']).toHaveBeenCalledTimes(2);
+  });
 });

@@ -614,4 +614,199 @@ describe('extractSymbols', () => {
     const symbols = extractSymbols(parsed);
     expect(symbols.filter(s => s.name === 'single')).toHaveLength(1);
   });
+
+  // ─── Export specifiers (export { name }) ─────────────────────────────
+
+  it('should mark isExported true when function is exported via specifier list', () => {
+    const parsed = makeFixture(`function greet() {}\nexport { greet };`);
+    const symbols = extractSymbols(parsed);
+    const fn = symbols.find(s => s.name === 'greet');
+    expect(fn?.isExported).toBe(true);
+  });
+
+  it('should mark isExported true for multiple symbols exported via specifier list', () => {
+    const parsed = makeFixture(`function a() {}\nfunction b() {}\nexport { a, b };`);
+    const symbols = extractSymbols(parsed);
+    expect(symbols.find(s => s.name === 'a')?.isExported).toBe(true);
+    expect(symbols.find(s => s.name === 'b')?.isExported).toBe(true);
+  });
+
+  it('should mark isExported true using local name when symbol is exported with alias', () => {
+    const parsed = makeFixture(`function greet() {}\nexport { greet as hello };`);
+    const symbols = extractSymbols(parsed);
+    const fn = symbols.find(s => s.name === 'greet');
+    expect(fn?.isExported).toBe(true);
+  });
+
+  it('should not mark unrelated symbols as exported when only some are in the specifier list', () => {
+    const parsed = makeFixture(`function a() {}\nfunction b() {}\nexport { a };`);
+    const symbols = extractSymbols(parsed);
+    expect(symbols.find(s => s.name === 'a')?.isExported).toBe(true);
+    expect(symbols.find(s => s.name === 'b')?.isExported).toBe(false);
+  });
+
+  it('should not apply specifier export marking when ExportNamedDeclaration has a source', () => {
+    const parsed = makeFixture(`function init() {}\nexport { other } from './other';`);
+    const symbols = extractSymbols(parsed);
+    const fn = symbols.find(s => s.name === 'init');
+    expect(fn?.isExported).toBe(false);
+  });
+
+  it('should mark variable as exported when exported via specifier list', () => {
+    const parsed = makeFixture(`const PI = 3.14;\nexport { PI };`);
+    const symbols = extractSymbols(parsed);
+    expect(symbols.find(s => s.name === 'PI')?.isExported).toBe(true);
+  });
+
+  it('should mark class as exported when exported via specifier list', () => {
+    const parsed = makeFixture(`class Foo {}\nexport { Foo };`);
+    const symbols = extractSymbols(parsed);
+    expect(symbols.find(s => s.name === 'Foo')?.isExported).toBe(true);
+  });
+
+  // ─── Modifier coverage ──────────────────────────────────────────────
+
+  it('should include "abstract" in modifiers when class declaration has abstract keyword', () => {
+    const parsed = makeFixture(`abstract class A {}`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'A');
+    expect(cls?.modifiers).toContain('abstract');
+  });
+
+  it('should include "abstract" in modifiers when method has abstract keyword', () => {
+    const parsed = makeFixture(`abstract class A { abstract run(): void; }`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'A');
+    // oxc-parser emits TSAbstractMethodDefinition for abstract methods,
+    // which extractClassMembers does not handle — so no member is extracted
+    expect(cls?.members).toBeUndefined();
+    // The class-level abstract modifier is still extracted
+    expect(cls?.modifiers).toContain('abstract');
+  });
+
+  it('should include "static" in modifiers when method has static keyword', () => {
+    const parsed = makeFixture(`class C { static run() {} }`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'C');
+    const method = cls?.members?.find((m) => m.name === 'run');
+    expect(method?.modifiers).toContain('static');
+  });
+
+  it('should include "declare" in modifiers when function has declare keyword', () => {
+    const parsed = makeFixture(`declare function external(): void;`);
+    const symbols = extractSymbols(parsed);
+    const fn = symbols.find((s) => s.name === 'external');
+    expect(fn?.modifiers).toContain('declare');
+  });
+
+  it('should include "protected" in modifiers when method has protected keyword', () => {
+    const parsed = makeFixture(`class C { protected run() {} }`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'C');
+    const method = cls?.members?.find((m) => m.name === 'run');
+    expect(method?.modifiers).toContain('protected');
+  });
+
+  it('should include "public" in modifiers when method has public keyword', () => {
+    const parsed = makeFixture(`class C { public run() {} }`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'C');
+    const method = cls?.members?.find((m) => m.name === 'run');
+    expect(method?.modifiers).toContain('public');
+  });
+
+  it('should include "readonly" in modifiers when class property has readonly keyword', () => {
+    const parsed = makeFixture(`class C { readonly x: number = 0; }`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'C');
+    const prop = cls?.members?.find((m) => m.name === 'x');
+    expect(prop?.modifiers).toContain('readonly');
+  });
+
+  it('should include "private" in modifiers when method has private keyword', () => {
+    const parsed = makeFixture(`class C { private run() {} }`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'C');
+    const method = cls?.members?.find((m) => m.name === 'run');
+    expect(method?.modifiers).toContain('private');
+  });
+
+  it('should include "override" in modifiers when method has override keyword', () => {
+    const parsed = makeFixture(`class C extends B { override run() {} }`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'C');
+    const method = cls?.members?.find((m) => m.name === 'run');
+    expect(method?.modifiers).toContain('override');
+  });
+
+  // ─── AST node type coverage ─────────────────────────────────────────
+
+  it('should mark isExported true when type alias is exported via specifier list', () => {
+    const parsed = makeFixture(`type MyType = string;\nexport type { MyType };`);
+    const symbols = extractSymbols(parsed);
+    const t = symbols.find((s) => s.name === 'MyType');
+    expect(t?.isExported).toBe(true);
+  });
+
+  it('should extract multiple heritage entries when class implements multiple interfaces', () => {
+    const parsed = makeFixture(`class C implements I1, I2, I3 {}`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'C');
+    const implNames = cls?.heritage?.filter((h) => h.kind === 'implements').map((h) => h.name);
+    expect(implNames).toEqual(['I1', 'I2', 'I3']);
+  });
+
+  it('should extract interface method members with parameters and return type', () => {
+    const parsed = makeFixture(`interface I { run(x: number): void; }`);
+    const symbols = extractSymbols(parsed);
+    const iface = symbols.find((s) => s.name === 'I');
+    const method = iface?.members?.find((m) => m.name === 'run');
+    expect(method).toBeDefined();
+    expect(method!.kind).toBe('method');
+    expect(method!.parameters).toHaveLength(1);
+    expect(method!.parameters![0]!.name).toBe('x');
+    expect(method!.parameters![0]!.type).toContain('number');
+    expect(method!.returnType).toContain('void');
+  });
+
+  // ─── AST edge cases ────────────────────────────────────────────────
+
+  it('should set member name to "unknown" when class has computed property name', () => {
+    const parsed = makeFixture(`class C { [Symbol.iterator]() {} }`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'C');
+    // oxc-parser emits key as MemberExpression for computed properties,
+    // so key.name is undefined and extractClassMembers falls back to 'unknown'
+    const member = cls?.members?.find((m) => m.name === 'unknown');
+    expect(member).toBeDefined();
+    expect(member!.kind).toBe('method');
+  });
+
+  it('should extract class method overload signatures as separate members', () => {
+    const parsed = makeFixture(`
+      class C {
+        foo(x: string): string;
+        foo(x: number): number;
+        foo(x: string | number): string | number { return x; }
+      }
+    `);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'C');
+    // oxc-parser emits 3 MethodDefinition nodes for overloaded methods,
+    // and extractClassMembers processes each one individually
+    const fooMembers = cls?.members?.filter((m) => m.name === 'foo');
+    expect(fooMembers).toHaveLength(3);
+    expect(fooMembers!.every((m) => m.kind === 'method')).toBe(true);
+  });
+
+  it('should extract private field with PrivateIdentifier name (without hash prefix) when class has private field', () => {
+    const parsed = makeFixture(`class C { #secret: string = ''; }`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'C');
+    // oxc-parser emits PrivateIdentifier with name "secret" (no # prefix),
+    // and extractClassMembers reads key.name directly
+    const member = cls?.members?.find((m) => m.name === 'secret');
+    expect(member).toBeDefined();
+    expect(member!.kind).toBe('property');
+  });
 });

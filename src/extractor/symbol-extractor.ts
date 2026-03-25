@@ -487,6 +487,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
   }
 
   const result: ExtractedSymbol[] = [];
+  const deferredExportNames = new Set<string>();
 
   for (const node of program.body) {
     let sym: ExtractedSymbol | ExtractedSymbol[] | null = null;
@@ -496,6 +497,8 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     if (type === 'ExportNamedDeclaration') {
       const n = node as unknown as {
         declaration?: unknown;
+        specifiers?: Array<{ local?: { name?: string }; exported?: { name?: string } }>;
+        source?: unknown;
         start: number;
         end: number;
       };
@@ -505,6 +508,11 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           sym.span = span(n.start, n.end);
         } else if (Array.isArray(sym)) {
           for (const s of sym) s.span = span(n.start, n.end);
+        }
+      } else if (!n.source && n.specifiers) {
+        for (const spec of n.specifiers) {
+          const localName = spec.local?.name;
+          if (localName) deferredExportNames.add(localName);
         }
       }
     } else if (type === 'ExportDefaultDeclaration') {
@@ -535,6 +543,14 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         if (!isErr(jsDocResult)) s.jsDoc = jsDocResult;
       }
       result.push(s);
+    }
+  }
+
+  if (deferredExportNames.size > 0) {
+    for (const s of result) {
+      if (!s.isExported && deferredExportNames.has(s.name)) {
+        s.isExported = true;
+      }
     }
   }
 

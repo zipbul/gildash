@@ -8,7 +8,7 @@ import { subscribe as parcelSubscribe } from "@parcel/watcher";
 type FileEvent = Parameters<SubscribeCallback>[1][number];
 type SubscribeOptions = NonNullable<Parameters<typeof parcelSubscribe>[2]>;
 import path from "node:path";
-import { gildashError, type GildashError } from "../errors";
+import { GildashError } from "../errors";
 import type { FileChangeEvent, FileChangeEventType, WatcherOptions } from "./types";
 import type { Logger } from "../gildash";
 import { DATA_DIR } from "../constants";
@@ -70,7 +70,7 @@ export class ProjectWatcher {
         this.#rootPath,
         (error, events) => {
           if (error) {
-            this.#logger.error(gildashError('watcher', 'Callback error', error));
+            this.#logger.error(new GildashError('watcher', 'Callback error', { cause: error }));
             return;
           }
 
@@ -100,7 +100,7 @@ export class ProjectWatcher {
               });
             }
           } catch (callbackError) {
-            this.#logger.error(gildashError('watcher', 'Callback error', callbackError));
+            this.#logger.error(new GildashError('watcher', 'Callback error', { cause: callbackError }));
           }
         },
         {
@@ -108,7 +108,7 @@ export class ProjectWatcher {
         },
       );
     } catch (error) {
-      return err(gildashError('watcher', 'Failed to subscribe watcher', error));
+      return err(new GildashError('watcher', 'Failed to subscribe watcher', { cause: error }));
     }
   }
 
@@ -121,7 +121,7 @@ export class ProjectWatcher {
       await this.#subscription.unsubscribe();
       this.#subscription = undefined;
     } catch (error) {
-      return err(gildashError('watcher', 'Failed to close watcher', error));
+      return err(new GildashError('watcher', 'Failed to close watcher', { cause: error }));
     }
   }
 }

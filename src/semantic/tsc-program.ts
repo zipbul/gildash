@@ -11,7 +11,7 @@
 import ts from "typescript";
 import path from "node:path";
 import { err, type Result } from "@zipbul/result";
-import { gildashError, type GildashError } from "../errors";
+import { GildashError } from "../errors";
 
 // ── DI contracts ─────────────────────────────────────────────────────────────
 
@@ -91,7 +91,7 @@ export class TscProgram {
     // 1. Read tsconfig.json content
     const configContent = readConfigFn(tsconfigPath);
     if (configContent === undefined) {
-      return err(gildashError("semantic", `tsconfig not found: ${tsconfigPath}`));
+      return err(new GildashError("semantic", `tsconfig not found: ${tsconfigPath}`));
     }
 
     // 2. Parse JSON via ts.parseJsonText (handles JSONC comments)
@@ -104,7 +104,7 @@ export class TscProgram {
       const msg = parseDiags
         .map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"))
         .join("; ");
-      return err(gildashError("semantic", `tsconfig parse error: ${msg}`));
+      return err(new GildashError("semantic", `tsconfig parse error: ${msg}`));
     }
 
     // 3. Parse config content into compilerOptions + fileNames
@@ -129,7 +129,7 @@ export class TscProgram {
         const msg = fatalErrors
           .map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"))
           .join("; ");
-        return err(gildashError("semantic", `tsconfig compile error: ${msg}`));
+        return err(new GildashError("semantic", `tsconfig compile error: ${msg}`));
       }
     }
 

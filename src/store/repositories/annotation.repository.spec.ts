@@ -100,4 +100,36 @@ describe('AnnotationRepository', () => {
     expect(results.length).toBe(1);
     expect(results[0]!.tag).toBe('todo');
   });
+
+  // ── batch insert boundary tests (BATCH_CHUNK_SIZE = 80) ──────────────────
+
+  it('should insert exactly 80 annotations in a single batch', () => {
+    const now = new Date().toISOString();
+    const rows = Array.from({ length: 80 }, (_, i) => ({
+      project: 'test', filePath: 'src/index.ts',
+      tag: 'todo', value: `item ${i}`, source: 'line',
+      symbolName: null, startLine: i + 1, startColumn: 0,
+      endLine: i + 1, endColumn: 10, indexedAt: now,
+    }));
+
+    annotationRepo.insertBatch('test', 'src/index.ts', rows);
+
+    const results = annotationRepo.search({ project: 'test', limit: 100 });
+    expect(results.length).toBe(80);
+  });
+
+  it('should insert 81 annotations across two batches', () => {
+    const now = new Date().toISOString();
+    const rows = Array.from({ length: 81 }, (_, i) => ({
+      project: 'test', filePath: 'src/index.ts',
+      tag: 'todo', value: `item ${i}`, source: 'line',
+      symbolName: null, startLine: i + 1, startColumn: 0,
+      endLine: i + 1, endColumn: 10, indexedAt: now,
+    }));
+
+    annotationRepo.insertBatch('test', 'src/index.ts', rows);
+
+    const results = annotationRepo.search({ project: 'test', limit: 100 });
+    expect(results.length).toBe(81);
+  });
 });

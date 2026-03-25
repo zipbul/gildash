@@ -1,7 +1,7 @@
 import { err, type Result } from '@zipbul/result';
 import { parse } from 'comment-parser';
 import type { JsDocBlock } from '../extractor/types';
-import { gildashError, type GildashError } from '../errors';
+import { GildashError } from '../errors';
 
 export function parseJsDoc(commentText: string): Result<JsDocBlock, GildashError> {
   try {
@@ -24,6 +24,6 @@ export function parseJsDoc(commentText: string): Result<JsDocBlock, GildashError
       })),
     };
   } catch (e) {
-    return err(gildashError('parse', 'Failed to parse JSDoc comment', e));
+    return err(new GildashError('parse', 'Failed to parse JSDoc comment', { cause: e }));
   }
 }

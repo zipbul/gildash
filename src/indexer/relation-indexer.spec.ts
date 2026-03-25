@@ -337,6 +337,78 @@ describe('indexFileRelations', () => {
     expect(rels).toEqual([]);
   });
 
+  it('should index relation with type "type-references"', () => {
+    mockExtractRelations.mockReturnValue([makeRelation({ type: 'type-references' })]);
+    mockToRelativePath.mockReturnValue('src/utils.ts');
+    const relationRepo = makeRelationRepo();
+
+    indexFileRelations({ ast: {} as any, project: PROJECT, filePath: REL_FILE, relationRepo: relationRepo as any, projectRoot: PROJECT_ROOT });
+
+    const [, , rels] = relationRepo.replaceFileRelations.mock.calls[0]!;
+    expect(rels.length).toBe(1);
+    expect(rels[0].type).toBe('type-references');
+  });
+
+  it('should index relation with type "re-exports"', () => {
+    mockExtractRelations.mockReturnValue([makeRelation({ type: 're-exports' })]);
+    mockToRelativePath.mockReturnValue('src/utils.ts');
+    const relationRepo = makeRelationRepo();
+
+    indexFileRelations({ ast: {} as any, project: PROJECT, filePath: REL_FILE, relationRepo: relationRepo as any, projectRoot: PROJECT_ROOT });
+
+    const [, , rels] = relationRepo.replaceFileRelations.mock.calls[0]!;
+    expect(rels.length).toBe(1);
+    expect(rels[0].type).toBe('re-exports');
+  });
+
+  it('should index relation with type "calls"', () => {
+    mockExtractRelations.mockReturnValue([makeRelation({ type: 'calls' })]);
+    mockToRelativePath.mockReturnValue('src/utils.ts');
+    const relationRepo = makeRelationRepo();
+
+    indexFileRelations({ ast: {} as any, project: PROJECT, filePath: REL_FILE, relationRepo: relationRepo as any, projectRoot: PROJECT_ROOT });
+
+    const [, , rels] = relationRepo.replaceFileRelations.mock.calls[0]!;
+    expect(rels.length).toBe(1);
+    expect(rels[0].type).toBe('calls');
+  });
+
+  it('should index relation with type "extends"', () => {
+    mockExtractRelations.mockReturnValue([makeRelation({ type: 'extends' })]);
+    mockToRelativePath.mockReturnValue('src/utils.ts');
+    const relationRepo = makeRelationRepo();
+
+    indexFileRelations({ ast: {} as any, project: PROJECT, filePath: REL_FILE, relationRepo: relationRepo as any, projectRoot: PROJECT_ROOT });
+
+    const [, , rels] = relationRepo.replaceFileRelations.mock.calls[0]!;
+    expect(rels.length).toBe(1);
+    expect(rels[0].type).toBe('extends');
+  });
+
+  it('should index relation with type "implements"', () => {
+    mockExtractRelations.mockReturnValue([makeRelation({ type: 'implements' })]);
+    mockToRelativePath.mockReturnValue('src/utils.ts');
+    const relationRepo = makeRelationRepo();
+
+    indexFileRelations({ ast: {} as any, project: PROJECT, filePath: REL_FILE, relationRepo: relationRepo as any, projectRoot: PROJECT_ROOT });
+
+    const [, , rels] = relationRepo.replaceFileRelations.mock.calls[0]!;
+    expect(rels.length).toBe(1);
+    expect(rels[0].type).toBe('implements');
+  });
+
+  it('should preserve metaJson when present in extracted relation', () => {
+    mockExtractRelations.mockReturnValue([makeRelation({ metaJson: '{"isReExport":true}' })]);
+    mockToRelativePath.mockReturnValue('src/utils.ts');
+    const relationRepo = makeRelationRepo();
+
+    indexFileRelations({ ast: {} as any, project: PROJECT, filePath: REL_FILE, relationRepo: relationRepo as any, projectRoot: PROJECT_ROOT });
+
+    const [, , rels] = relationRepo.replaceFileRelations.mock.calls[0]!;
+    expect(rels.length).toBe(1);
+    expect(rels[0].metaJson).toBe('{"isReExport":true}');
+  });
+
   it('should set different dstProjects per row when relations cross boundaries', () => {
     const boundaries = [{ project: 'proj-a', dir: 'apps/a' }, { project: 'proj-b', dir: 'apps/b' }];
     mockExtractRelations.mockReturnValue([
