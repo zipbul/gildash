@@ -1,6 +1,6 @@
 import type { ParsedFile } from '../parser/types';
-import type { SymbolSearchResult } from '../search/symbol-search';
-import type { SymbolKind } from '../extractor/types';
+import type { SymbolSearchResult, SymbolDetail } from '../search/symbol-search';
+import type { SymbolKind, Decorator } from '../extractor/types';
 import type { ResolvedType } from '../semantic/types';
 
 /**
@@ -54,29 +54,24 @@ export interface HeritageNode {
 /**
  * Full symbol detail including members, documentation, and type information.
  * Returned by {@link Gildash.getFullSymbol}.
+ *
+ * Fields are lifted directly from {@link SymbolDetail} for convenient access.
  */
 export interface FullSymbol extends SymbolSearchResult {
   /** Class/interface members (methods, properties, constructors, accessors). */
-  members?: Array<{
-    name: string;
-    kind: string;
-    type?: string;
-    visibility?: string;
-    isStatic?: boolean;
-    isReadonly?: boolean;
-  }>;
-  /** JSDoc comment attached to the symbol. */
-  jsDoc?: string;
-  /** Stringified parameter list (functions/methods). */
-  parameters?: string;
-  /** Stringified return type (functions/methods). */
+  members?: SymbolDetail['members'];
+  /** Parsed JSDoc comment attached to the symbol. */
+  jsDoc?: SymbolDetail['jsDoc'];
+  /** Function/method parameters. */
+  parameters?: SymbolDetail['parameters'];
+  /** Return type annotation as source text. */
   returnType?: string;
-  /** Superclass/interface names (classes/interfaces with heritage). */
-  heritage?: string[];
+  /** Heritage clauses (`extends` / `implements`). */
+  heritage?: SymbolDetail['heritage'];
   /** Decorators applied to the symbol. */
-  decorators?: Array<{ name: string; arguments?: string }>;
-  /** Stringified type parameters (generic symbols). */
-  typeParameters?: string;
+  decorators?: Decorator[];
+  /** Generic type parameter names. */
+  typeParameters?: string[];
   /** Resolved type from the Semantic Layer (available when `semantic: true`). */
   resolvedType?: ResolvedType;
 }

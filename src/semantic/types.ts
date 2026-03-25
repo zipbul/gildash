@@ -41,6 +41,12 @@ export interface ResolvedType {
    * e.g. `Promise<string>` → `[{ text: "string", ... }]`
    */
   typeArguments?: ResolvedType[];
+  /**
+   * Properties of an object type, enumerated via `checker.getPropertiesOfType()`.
+   * Only populated for non-union, non-intersection, non-primitive object types.
+   * Capped at 50 properties to avoid huge type expansions.
+   */
+  properties?: Array<{ name: string; type: ResolvedType }>;
 }
 
 /**

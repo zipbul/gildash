@@ -199,6 +199,23 @@ export function getSemanticModuleInterface(
   }
 }
 
+/** Retrieve the base types (supertypes) of a class/interface at a byte offset. */
+export function getBaseTypes(
+  ctx: GildashContext,
+  filePath: string,
+  position: number,
+): ResolvedType[] | null {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    return ctx.semanticLayer.getBaseTypes(absPath, position);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: getBaseTypes failed', { cause: e });
+  }
+}
+
 // ─── Position-based semantic API ──────────────────────────────────────
 
 /** Retrieve the resolved type at a byte offset without line/column conversion. */

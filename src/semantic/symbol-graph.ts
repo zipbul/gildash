@@ -62,7 +62,7 @@ function buildParentNode(symbol: ts.Symbol): SymbolNode {
  * @param symbol  변환할 심볼
  * @param depth   현재 재귀 깊이 (members/exports 탐색 제한)
  */
-function buildSymbolNode(symbol: InternalSymbol, depth = 0): SymbolNode {
+function buildSymbolNode(symbol: InternalSymbol, depth = 0, checker?: ts.TypeChecker): SymbolNode {
   const decl = symbol.declarations?.[0];
   const sourceFile = decl?.getSourceFile();
   const nameNode = decl
@@ -86,8 +86,14 @@ function buildSymbolNode(symbol: InternalSymbol, depth = 0): SymbolNode {
     node.parent = buildParentNode(internalSym.parent);
   }
 
+  // Dereference alias symbols (re-exports) to canonical symbols for members/exports
+  const resolved: InternalSymbol =
+    checker && !!(symbol.flags & ts.SymbolFlags.Alias)
+      ? (checker.getAliasedSymbol(symbol) as InternalSymbol)
+      : symbol;
+
   if (depth < MAX_MEMBER_DEPTH) {
-    const flags = symbol.flags;
+    const flags = resolved.flags;
     const isEnum = !!(flags & ts.SymbolFlags.Enum);
     const isNamespace = !!(
       flags &
@@ -99,25 +105,25 @@ function buildSymbolNode(symbol: InternalSymbol, depth = 0): SymbolNode {
     );
 
     // members — class/interface: symbol.members / enum: symbol.exports
-    if (isEnum && symbol.exports && symbol.exports.size > 0) {
+    if (isEnum && resolved.exports && resolved.exports.size > 0) {
       const members: SymbolNode[] = [];
-      symbol.exports.forEach((memberSym) => {
-        members.push(buildSymbolNode(memberSym, depth + 1));
+      resolved.exports.forEach((memberSym) => {
+        members.push(buildSymbolNode(memberSym, depth + 1, checker));
       });
       node.members = members;
-    } else if (isClassOrInterface && symbol.members && symbol.members.size > 0) {
+    } else if (isClassOrInterface && resolved.members && resolved.members.size > 0) {
       const members: SymbolNode[] = [];
-      symbol.members.forEach((memberSym) => {
-        members.push(buildSymbolNode(memberSym, depth + 1));
+      resolved.members.forEach((memberSym) => {
+        members.push(buildSymbolNode(memberSym, depth + 1, checker));
       });
       node.members = members;
     }
 
     // exports — namespace: symbol.exports
-    if (isNamespace && symbol.exports && symbol.exports.size > 0) {
+    if (isNamespace && resolved.exports && resolved.exports.size > 0) {
       const exports: SymbolNode[] = [];
-      symbol.exports.forEach((exportSym) => {
-        exports.push(buildSymbolNode(exportSym, depth + 1));
+      resolved.exports.forEach((exportSym) => {
+        exports.push(buildSymbolNode(exportSym, depth + 1, checker));
       });
       node.exports = exports;
     }
@@ -168,7 +174,7 @@ export class SymbolGraph {
     if (!symbol) return null;
 
     // SymbolNode 빌드 + 캐시 저장
-    const symbolNode = buildSymbolNode(symbol as InternalSymbol);
+    const symbolNode = buildSymbolNode(symbol as InternalSymbol, 0, checker);
     this.#cache.set(cacheKey, symbolNode);
 
     // filePath → keys 인덱스 갱신

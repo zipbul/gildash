@@ -33,7 +33,7 @@ function isTypeReference(type: ts.Type): type is ts.TypeReference {
  *
  * 순환 타입에 대비해 `depth`로 재귀 깊이를 제한한다.
  */
-function buildResolvedType(
+export function buildResolvedType(
   checker: ts.TypeChecker,
   type: ts.Type,
   depth = 0,
@@ -77,7 +77,39 @@ function buildResolvedType(
     );
   }
 
-  return { text, flags, isUnion, isIntersection, isGeneric, members, typeArguments };
+  // properties — object type member enumeration via checker.getPropertiesOfType()
+  let properties: Array<{ name: string; type: ResolvedType }> | undefined;
+  if (
+    depth < MAX_TYPE_DEPTH &&
+    !!(flags & ts.TypeFlags.Object) &&
+    !isUnion &&
+    !isIntersection
+  ) {
+    const props = checker.getPropertiesOfType(type);
+    if (props.length > 0 && props.length <= 50) {
+      // Find a declaration node to use as context for getTypeOfSymbolAtLocation.
+      // Prefer the property's own declaration; fall back to the type's symbol declaration.
+      const typeDeclNode =
+        (type as ts.ObjectType).symbol?.declarations?.[0];
+      properties = [];
+      for (const p of props) {
+        const declNode = p.declarations?.[0] ?? typeDeclNode;
+        if (!declNode) continue;
+        try {
+          const propType = checker.getTypeOfSymbolAtLocation(p, declNode);
+          properties.push({
+            name: p.getName(),
+            type: buildResolvedType(checker, propType, depth + 1),
+          });
+        } catch {
+          // Skip properties whose type cannot be resolved
+        }
+      }
+      if (properties.length === 0) properties = undefined;
+    }
+  }
+
+  return { text, flags, isUnion, isIntersection, isGeneric, members, typeArguments, properties };
 }
 
 // ── 선언 위치 순회 ───────────────────────────────────────────────────────────

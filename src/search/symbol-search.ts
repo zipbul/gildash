@@ -1,4 +1,4 @@
-import type { SymbolKind } from '../extractor/types';
+import type { SymbolKind, Modifier, Decorator, JsDocBlock } from '../extractor/types';
 import type { SymbolRecord } from '../store/repositories/symbol.repository';
 import { toFtsPrefixQuery } from '../store/repositories/fts-utils';
 
@@ -40,6 +40,39 @@ export interface SymbolSearchQuery {
 }
 
 /**
+ * Typed detail fields stored in the symbol's `detailJson` column.
+ *
+ * These fields match what {@link buildDetailJson} in `symbol-indexer.ts` serialises.
+ * Not every field is present on every symbol — only the fields relevant to the
+ * symbol's kind are populated.
+ */
+export interface SymbolDetail {
+  /** Function/method parameters. */
+  parameters?: Array<{ name: string; type?: string; isOptional: boolean; defaultValue?: string; decorators?: Decorator[] }>;
+  /** Return type annotation as source text. */
+  returnType?: string;
+  /** Heritage clauses (`extends` / `implements`). */
+  heritage?: Array<{ kind: 'extends' | 'implements'; name: string; typeArguments?: string[] }>;
+  /** Decorators applied to this symbol. */
+  decorators?: Decorator[];
+  /** Generic type parameter names. */
+  typeParameters?: string[];
+  /** Declaration modifiers. */
+  modifiers?: Modifier[];
+  /** Class/interface members. */
+  members?: Array<{
+    name: string;
+    kind: string;
+    type?: string;
+    visibility?: string;
+    isStatic?: boolean;
+    isReadonly?: boolean;
+  }>;
+  /** Parsed JSDoc comment associated with this symbol. */
+  jsDoc?: JsDocBlock;
+}
+
+/**
  * A single result returned by {@link symbolSearch}.
  */
 export interface SymbolSearchResult {
@@ -61,8 +94,8 @@ export interface SymbolSearchResult {
   signature: string | null;
   /** Content-hash fingerprint for change detection. */
   fingerprint: string | null;
-  /** Arbitrary detail fields stored as JSON. */
-  detail: Record<string, unknown>;
+  /** Typed detail fields parsed from the stored JSON. */
+  detail: SymbolDetail;
 }
 
 export interface ISymbolRepo {
@@ -133,7 +166,7 @@ export function symbolSearch(options: {
       signature: r.signature,
       fingerprint: r.fingerprint,
       detail: r.detailJson ? (() => {
-        try { return JSON.parse(r.detailJson!) as Record<string, unknown>; }
+        try { return JSON.parse(r.detailJson!) as SymbolDetail; }
         catch { return {}; }
       })() : {},
     };
