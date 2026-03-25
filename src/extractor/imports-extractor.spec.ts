@@ -2,8 +2,21 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 
 const mockResolveImport = mock(() => [] as string[]);
 
-const mockVisit = mock((_node: any, _cb: any) => {});
-const mockGetStringLiteralValue = mock(() => null as string | null);
+let capturedVisitorCallbacks: Record<string, Function> = {};
+let mockVisitImpl: (() => void) | null = null;
+
+class MockVisitor {
+  constructor(callbacks: Record<string, Function>) {
+    capturedVisitorCallbacks = callbacks;
+  }
+  visit(_program: any): void {
+    mockVisitImpl?.();
+  }
+}
+
+mock.module('oxc-parser', () => ({
+  Visitor: MockVisitor,
+}));
 
 import { extractImports } from './imports-extractor';
 
@@ -16,16 +29,13 @@ function fakeAst(body: any[]): any {
 
 describe('extractImports', () => {
   beforeEach(() => {
-    mock.module('../parser/ast-utils', () => ({
-      visit: mockVisit,
-      getStringLiteralValue: mockGetStringLiteralValue,
+    mock.module('oxc-parser', () => ({
+      Visitor: MockVisitor,
     }));
     mockResolveImport.mockClear();
-    mockVisit.mockClear();
-    mockGetStringLiteralValue.mockClear();
+    capturedVisitorCallbacks = {};
+    mockVisitImpl = null;
     mockResolveImport.mockReturnValue([RESOLVED]);
-    mockVisit.mockImplementation(() => {});
-    mockGetStringLiteralValue.mockReturnValue(null);
   });
 
   // 1. [HP] side-effect import
@@ -184,10 +194,9 @@ describe('extractImports', () => {
 
   // 10. [HP] dynamic import regression
   it('should produce an imports relation with isDynamic true when declaration is a dynamic import expression', () => {
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
-      cb({ type: 'ImportExpression', source: { type: 'StringLiteral', value: './dynamic' } });
-    });
-    mockGetStringLiteralValue.mockReturnValue('./dynamic');
+    mockVisitImpl = () => {
+      capturedVisitorCallbacks.ImportExpression?.({ type: 'ImportExpression', source: { type: 'Literal', value: './dynamic' } });
+    };
 
     const ast = fakeAst([]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
@@ -222,10 +231,9 @@ describe('extractImports', () => {
 
   // 12. [NE] dynamic import sourceValue null
   it('should return no relation when dynamic import source value cannot be extracted as string literal', () => {
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
-      cb({ type: 'ImportExpression', source: { type: 'Identifier', name: 'dynamicPath' } });
-    });
-    mockGetStringLiteralValue.mockReturnValue(null);
+    mockVisitImpl = () => {
+      capturedVisitorCallbacks.ImportExpression?.({ type: 'ImportExpression', source: { type: 'Identifier', name: 'dynamicPath' } });
+    };
 
     const ast = fakeAst([]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
@@ -731,10 +739,9 @@ describe('extractImports', () => {
   // 39. [HP] dynamic import with unresolved bare specifier
   it('should produce relation with isDynamic and isExternal when dynamic import is bare specifier', () => {
     mockResolveImport.mockReturnValue([]);
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
-      cb({ type: 'ImportExpression', source: { type: 'StringLiteral', value: 'some-pkg' } });
-    });
-    mockGetStringLiteralValue.mockReturnValue('some-pkg');
+    mockVisitImpl = () => {
+      capturedVisitorCallbacks.ImportExpression?.({ type: 'ImportExpression', source: { type: 'Literal', value: 'some-pkg' } });
+    };
 
     const ast = fakeAst([]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
@@ -773,14 +780,13 @@ describe('extractImports', () => {
   // 41. [HP] require('lodash') → external import
   it('should produce import relation with isRequire and isExternal when require is used with bare specifier', () => {
     mockResolveImport.mockReturnValue([]);
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
-      cb({
+    mockVisitImpl = () => {
+      capturedVisitorCallbacks.CallExpression?.({
         type: 'CallExpression',
         callee: { type: 'Identifier', name: 'require' },
-        arguments: [{ type: 'StringLiteral', value: 'lodash' }],
+        arguments: [{ type: 'Literal', value: 'lodash' }],
       });
-    });
-    mockGetStringLiteralValue.mockReturnValue('lodash');
+    };
 
     const ast = fakeAst([]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
@@ -796,14 +802,13 @@ describe('extractImports', () => {
   // 42. [HP] require('./local') → resolved import
   it('should produce import relation with isRequire and resolved dstFilePath when require is used with relative path', () => {
     mockResolveImport.mockReturnValue([RESOLVED]);
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
-      cb({
+    mockVisitImpl = () => {
+      capturedVisitorCallbacks.CallExpression?.({
         type: 'CallExpression',
         callee: { type: 'Identifier', name: 'require' },
-        arguments: [{ type: 'StringLiteral', value: './local' }],
+        arguments: [{ type: 'Literal', value: './local' }],
       });
-    });
-    mockGetStringLiteralValue.mockReturnValue('./local');
+    };
 
     const ast = fakeAst([]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
@@ -818,18 +823,18 @@ describe('extractImports', () => {
   // 43. [HP] require.resolve('path') → external import with isRequireResolve
   it('should produce import relation with isRequireResolve when require.resolve is used', () => {
     mockResolveImport.mockReturnValue([]);
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
-      cb({
+    mockVisitImpl = () => {
+      capturedVisitorCallbacks.CallExpression?.({
         type: 'CallExpression',
         callee: {
-          type: 'StaticMemberExpression',
+          type: 'MemberExpression',
+          computed: false,
           object: { type: 'Identifier', name: 'require' },
-          property: { name: 'resolve' },
+          property: { type: 'Identifier', name: 'resolve' },
         },
-        arguments: [{ type: 'StringLiteral', value: 'path' }],
+        arguments: [{ type: 'Literal', value: 'path' }],
       });
-    });
-    mockGetStringLiteralValue.mockReturnValue('path');
+    };
 
     const ast = fakeAst([]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
@@ -846,14 +851,13 @@ describe('extractImports', () => {
   // 44. [NE] require with non-string arg → no relation
   it('should produce no relation when require has non-string argument', () => {
     mockResolveImport.mockReturnValue([]);
-    mockVisit.mockImplementation((_ast: any, cb: any) => {
-      cb({
+    mockVisitImpl = () => {
+      capturedVisitorCallbacks.CallExpression?.({
         type: 'CallExpression',
         callee: { type: 'Identifier', name: 'require' },
         arguments: [{ type: 'Identifier', name: 'dynamicPath' }],
       });
-    });
-    mockGetStringLiteralValue.mockReturnValue(null);
+    };
 
     const ast = fakeAst([]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);

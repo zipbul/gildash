@@ -7,11 +7,15 @@ import type {
   ExportNamedDeclaration,
   ImportDeclarationSpecifier,
   ExportSpecifier,
+  ImportExpression,
+  CallExpression,
+  StaticMemberExpression,
+  StringLiteral,
 } from 'oxc-parser';
+import { Visitor } from 'oxc-parser';
 import type { TsconfigPaths } from '../common/tsconfig-resolver';
 import type { CodeRelation } from './types';
 import { resolveImport } from './extractor-utils';
-import { visit, getStringLiteralValue } from '../parser/ast-utils';
 
 /** Extract name from a ModuleExportName (IdentifierName | IdentifierReference | StringLiteral). */
 function moduleExportName(node: { name?: string; value?: string }): string {
@@ -163,11 +167,13 @@ export function extractImports(
     }
   }
 
-  visit(ast, (node) => {
-    // Dynamic import() expressions
-    if (node.type === 'ImportExpression') {
-      const sourceValue = getStringLiteralValue(node.source);
-      if (!sourceValue) return;
+  const visitor = new Visitor({
+    ImportExpression(node: ImportExpression) {
+      // Dynamic import() expressions
+      const source = node.source;
+      if (source.type !== 'Literal' || typeof source.value !== 'string') return;
+      const sourceValue: string = source.value;
+
       const candidates = resolveImportFn(filePath, sourceValue, tsconfigPaths);
       const resolved = candidates.length > 0 ? candidates[0]! : null;
 
@@ -185,25 +191,23 @@ export function extractImports(
         metaJson: JSON.stringify(meta),
         ...(resolved === null ? { specifier: sourceValue } : {}),
       });
-      return;
-    }
-
-    // require() and require.resolve() calls
-    if (node.type === 'CallExpression') {
-      const callee = node.callee as Record<string, unknown> | undefined;
-      if (!callee) return;
+    },
+    CallExpression(node: CallExpression) {
+      // require() and require.resolve() calls
+      const callee = node.callee;
 
       let isRequireResolve = false;
 
       if (callee.type === 'Identifier' && callee.name === 'require') {
         // require('...')
-      } else if (callee.type === 'StaticMemberExpression' || callee.type === 'MemberExpression') {
-        // require.resolve('...')
-        const obj = callee.object as Record<string, unknown> | undefined;
-        const prop = callee.property as Record<string, unknown> | undefined;
+      } else if (callee.type === 'MemberExpression' && !callee.computed) {
+        // require.resolve('...')  — StaticMemberExpression has type "MemberExpression" in ESTree
+        const memberCallee = callee as StaticMemberExpression;
+        const obj = memberCallee.object;
+        const prop = memberCallee.property;
         if (
-          obj?.type === 'Identifier' && obj.name === 'require' &&
-          prop && (prop.name === 'resolve' || prop.value === 'resolve')
+          obj.type === 'Identifier' && obj.name === 'require' &&
+          prop.name === 'resolve'
         ) {
           isRequireResolve = true;
         } else {
@@ -213,11 +217,12 @@ export function extractImports(
         return;
       }
 
-      const args = node.arguments as ReadonlyArray<Record<string, unknown>> | undefined;
-      if (!args || args.length === 0) return;
+      const args = node.arguments;
+      if (args.length === 0) return;
 
-      const sourceValue = getStringLiteralValue(args[0]);
-      if (!sourceValue) return;
+      const firstArg = args[0]!;
+      if (firstArg.type !== 'Literal' || typeof (firstArg as StringLiteral).value !== 'string') return;
+      const sourceValue: string = (firstArg as StringLiteral).value;
 
       const candidates = resolveImportFn(filePath, sourceValue, tsconfigPaths);
       const resolved = candidates.length > 0 ? candidates[0]! : null;
@@ -237,8 +242,9 @@ export function extractImports(
         metaJson: JSON.stringify(meta),
         ...(resolved === null ? { specifier: sourceValue } : {}),
       });
-    }
+    },
   });
+  visitor.visit(ast);
 
   return relations;
 }
