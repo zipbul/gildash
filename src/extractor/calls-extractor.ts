@@ -1,4 +1,5 @@
-import type { Program } from 'oxc-parser';
+import type { CallExpression, NewExpression, Node, Program } from 'oxc-parser';
+import { walk } from 'oxc-walker';
 import type { ImportReference, CodeRelation } from './types';
 import { getQualifiedName } from '../parser/ast-utils';
 
@@ -37,121 +38,100 @@ export function extractCalls(
     }
   }
 
-  function walk(node: unknown): void {
-    if (!node || typeof node !== 'object') return;
+  function handleCallOrNew(node: CallExpression | NewExpression, isNew: boolean): void {
+    const qn = getQualifiedName(node.callee);
+    const dst = resolveCallee(qn);
+    if (dst) {
+      const srcSymbolName = currentCaller();
+      const meta: Record<string, unknown> = {};
+      if (isNew) meta.isNew = true;
+      if (srcSymbolName === null) meta.scope = 'module';
 
-    if (Array.isArray(node)) {
-      for (const item of node) walk(item);
-      return;
-    }
-
-    const record = node as Record<string, unknown>;
-    const type: string = typeof record.type === 'string' ? record.type : '';
-
-    if (type === 'ClassDeclaration' || type === 'ClassExpression') {
-      const classNode = record as { id?: { name?: string }; body?: unknown };
-      const className: string = classNode.id?.name ?? 'AnonymousClass';
-      classStack.push(className);
-      walk(classNode.body);
-      classStack.pop();
-      return;
-    }
-
-    if (type === 'FunctionDeclaration') {
-      const functionNode = record as { id?: { name?: string }; body?: unknown };
-      const name: string = functionNode.id?.name ?? 'anonymous';
-      functionStack.push(name);
-      walk(functionNode.body);
-      functionStack.pop();
-      return;
-    }
-
-    if (type === 'VariableDeclarator' && (record as { init?: { type?: string } }).init && (
-      (record as { init?: { type?: string } }).init?.type === 'FunctionExpression' ||
-      (record as { init?: { type?: string } }).init?.type === 'ArrowFunctionExpression'
-    )) {
-      const declarator = record as { id?: { name?: string }; init?: { body?: unknown } };
-      const name: string = declarator.id?.name ?? 'anonymous';
-      functionStack.push(name);
-      walk(declarator.init?.body ?? declarator.init);
-      functionStack.pop();
-      return;
-    }
-
-    if (type === 'MethodDefinition' && (record as { value?: unknown }).value) {
-      const method = record as { key?: { name?: string }; value?: { body?: unknown } };
-      const className = classStack[classStack.length - 1] ?? '';
-      const methodName: string = method.key?.name ?? 'anonymous';
-      const fullName = className ? `${className}.${methodName}` : methodName;
-      functionStack.push(fullName);
-      walk(method.value?.body);
-      functionStack.pop();
-      return;
-    }
-
-    if (type === 'FunctionExpression' || type === 'ArrowFunctionExpression') {
-      const parentCaller = currentCaller();
-      const anonymousName = parentCaller ? `${parentCaller}.<anonymous>` : '<anonymous>';
-      functionStack.push(anonymousName);
-      walk((record as { body?: unknown }).body);
-      functionStack.pop();
-      return;
-    }
-
-    if (type === 'CallExpression') {
-      const call = record as { callee?: unknown; arguments?: unknown[] };
-      const qn = getQualifiedName(call.callee);
-      const dst = resolveCallee(qn);
-      if (dst) {
-        const srcSymbolName = currentCaller();
-        const meta: Record<string, unknown> = {};
-        if (srcSymbolName === null) meta.scope = 'module';
-
-        relations.push({
-          type: 'calls',
-          srcFilePath: filePath,
-          srcSymbolName,
-          dstFilePath: dst.dstFilePath,
-          dstSymbolName: dst.dstSymbolName,
-          ...(Object.keys(meta).length > 0 ? { metaJson: JSON.stringify(meta) } : {}),
-        });
-      }
-      walk(call.callee);
-      for (const arg of call.arguments ?? []) walk(arg);
-      return;
-    }
-
-    if (type === 'NewExpression') {
-      const ctorCall = record as { callee?: unknown; arguments?: unknown[] };
-      const qn = getQualifiedName(ctorCall.callee);
-      const dst = resolveCallee(qn);
-      if (dst) {
-        const srcSymbolName = currentCaller();
-        const meta: Record<string, unknown> = { isNew: true };
-        if (srcSymbolName === null) meta.scope = 'module';
-
-        relations.push({
-          type: 'calls',
-          srcFilePath: filePath,
-          srcSymbolName,
-          dstFilePath: dst.dstFilePath,
-          dstSymbolName: dst.dstSymbolName,
-          metaJson: JSON.stringify(meta),
-        });
-      }
-      for (const arg of ctorCall.arguments ?? []) walk(arg);
-      return;
-    }
-
-    for (const key of Object.keys(record)) {
-      if (key === 'loc' || key === 'start' || key === 'end' || key === 'scope') continue;
-      const child = record[key];
-      if (child && typeof child === 'object') {
-        walk(child);
-      }
+      relations.push({
+        type: 'calls',
+        srcFilePath: filePath,
+        srcSymbolName,
+        dstFilePath: dst.dstFilePath,
+        dstSymbolName: dst.dstSymbolName,
+        ...(Object.keys(meta).length > 0 ? { metaJson: JSON.stringify(meta) } : {}),
+      });
     }
   }
 
-  walk(ast);
+  function pushFunctionScope(node: Node, parent: Node | null): void {
+    if (node.type === 'FunctionDeclaration') {
+      functionStack.push(node.id?.name ?? 'anonymous');
+      return;
+    }
+
+    if (node.type === 'FunctionExpression' || node.type === 'ArrowFunctionExpression') {
+      if (parent?.type === 'VariableDeclarator') {
+        const id = parent.id;
+        const name = id.type === 'Identifier' ? id.name : 'anonymous';
+        functionStack.push(name);
+        return;
+      }
+
+      if (
+        parent?.type === 'MethodDefinition' ||
+        parent?.type === 'TSAbstractMethodDefinition'
+      ) {
+        const key = parent.key;
+        const className = classStack[classStack.length - 1] ?? '';
+        const methodName = 'name' in key ? (key.name as string) : 'anonymous';
+        const fullName = className ? `${className}.${methodName}` : methodName;
+        functionStack.push(fullName);
+        return;
+      }
+
+      const parentCaller = currentCaller();
+      const anonymousName = parentCaller ? `${parentCaller}.<anonymous>` : '<anonymous>';
+      functionStack.push(anonymousName);
+    }
+  }
+
+  walk(ast, {
+    enter(node, parent) {
+      if (node.type === 'ClassDeclaration' || node.type === 'ClassExpression') {
+        classStack.push(node.id?.name ?? 'AnonymousClass');
+        return;
+      }
+
+      if (
+        node.type === 'FunctionDeclaration' ||
+        node.type === 'FunctionExpression' ||
+        node.type === 'ArrowFunctionExpression'
+      ) {
+        pushFunctionScope(node, parent);
+        return;
+      }
+
+      if (node.type === 'CallExpression') {
+        handleCallOrNew(node, false);
+        return;
+      }
+
+      if (node.type === 'NewExpression') {
+        handleCallOrNew(node, true);
+        return;
+      }
+    },
+    leave(node) {
+      if (node.type === 'ClassDeclaration' || node.type === 'ClassExpression') {
+        classStack.pop();
+        return;
+      }
+
+      if (
+        node.type === 'FunctionDeclaration' ||
+        node.type === 'FunctionExpression' ||
+        node.type === 'ArrowFunctionExpression'
+      ) {
+        functionStack.pop();
+        return;
+      }
+    },
+  });
+
   return relations;
 }
