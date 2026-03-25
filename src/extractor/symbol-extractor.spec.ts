@@ -677,9 +677,10 @@ describe('extractSymbols', () => {
     const parsed = makeFixture(`abstract class A { abstract run(): void; }`);
     const symbols = extractSymbols(parsed);
     const cls = symbols.find((s) => s.name === 'A');
-    // oxc-parser emits TSAbstractMethodDefinition for abstract methods,
-    // which extractClassMembers does not handle — so no member is extracted
-    expect(cls?.members).toBeUndefined();
+    // oxc-parser emits TSAbstractMethodDefinition for abstract methods
+    const method = cls?.members?.find((m) => m.name === 'run');
+    expect(method).toBeDefined();
+    expect(method?.modifiers).toContain('abstract');
     // The class-level abstract modifier is still extracted
     expect(cls?.modifiers).toContain('abstract');
   });

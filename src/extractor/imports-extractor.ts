@@ -1,8 +1,24 @@
 import type { Program } from 'oxc-parser';
+import type {
+  Statement,
+  Directive,
+  ImportDeclaration,
+  ExportAllDeclaration,
+  ExportNamedDeclaration,
+  ImportDeclarationSpecifier,
+  ExportSpecifier,
+} from 'oxc-parser';
 import type { TsconfigPaths } from '../common/tsconfig-resolver';
 import type { CodeRelation } from './types';
 import { resolveImport } from './extractor-utils';
 import { visit, getStringLiteralValue } from '../parser/ast-utils';
+
+/** Extract name from a ModuleExportName (IdentifierName | IdentifierReference | StringLiteral). */
+function moduleExportName(node: { name?: string; value?: string }): string {
+  return ('name' in node && typeof node.name === 'string') ? node.name
+    : ('value' in node && typeof node.value === 'string') ? node.value
+    : 'unknown';
+}
 
 export function extractImports(
   ast: Program,
@@ -15,17 +31,19 @@ export function extractImports(
   ) => string[] = resolveImport,
 ): CodeRelation[] {
   const relations: CodeRelation[] = [];
-  const body = (ast as unknown as { body?: Array<Record<string, unknown>> }).body ?? [];
 
-  for (const node of body) {
-    if (node.type === 'ImportDeclaration') {
-      const sourcePath: string = ((node.source as { value?: string } | undefined)?.value) ?? '';
+  for (const node of ast.body) {
+    const stmtNode = node as Statement | Directive;
+
+    if (stmtNode.type === 'ImportDeclaration') {
+      const importNode = stmtNode as ImportDeclaration;
+      const sourcePath: string = importNode.source.value;
       const candidates = resolveImportFn(filePath, sourcePath, tsconfigPaths);
       if (candidates.length === 0) continue;
       const resolved = candidates[0]!;
 
-      const isType = node.importKind === 'type';
-      const specifiers = (node.specifiers as Array<Record<string, unknown>> | undefined) ?? [];
+      const isType = importNode.importKind === 'type';
+      const specifiers: readonly ImportDeclarationSpecifier[] = importNode.specifiers;
 
       if (specifiers.length === 0) {
         // side-effect import: import './foo'
@@ -41,8 +59,8 @@ export function extractImports(
         });
       } else {
         for (const spec of specifiers) {
-          const specType = spec.type as string;
-          const isSpecType = isType || (spec.importKind as string) === 'type';
+          const specType = spec.type;
+          const isSpecType = isType || (specType === 'ImportSpecifier' && spec.importKind === 'type');
           const meta: Record<string, unknown> = {};
           if (isSpecType) meta.isType = true;
 
@@ -51,15 +69,15 @@ export function extractImports(
 
           if (specType === 'ImportDefaultSpecifier') {
             dstSymbolName = 'default';
-            srcSymbolName = (spec.local as { name: string }).name;
+            srcSymbolName = spec.local.name;
           } else if (specType === 'ImportNamespaceSpecifier') {
             dstSymbolName = '*';
-            srcSymbolName = (spec.local as { name: string }).name;
+            srcSymbolName = spec.local.name;
             meta.importKind = 'namespace';
           } else {
             // ImportSpecifier
-            dstSymbolName = (spec.imported as { name: string }).name;
-            srcSymbolName = (spec.local as { name: string }).name;
+            dstSymbolName = moduleExportName(spec.imported);
+            srcSymbolName = spec.local.name;
           }
 
           relations.push({
@@ -75,13 +93,14 @@ export function extractImports(
       continue;
     }
 
-    if (node.type === 'ExportAllDeclaration' && node.source) {
-      const sourcePath: string = ((node.source as { value?: string } | undefined)?.value) ?? '';
+    if (stmtNode.type === 'ExportAllDeclaration') {
+      const exportAll = stmtNode as ExportAllDeclaration;
+      const sourcePath: string = exportAll.source.value;
       const candidates = resolveImportFn(filePath, sourcePath, tsconfigPaths);
       if (candidates.length === 0) continue;
       const resolved = candidates[0]!;
 
-      const isType = node.exportKind === 'type';
+      const isType = exportAll.exportKind === 'type';
       const meta: Record<string, unknown> = { isReExport: true };
       if (isType) meta.isType = true;
       relations.push({
@@ -95,20 +114,22 @@ export function extractImports(
       continue;
     }
 
-    if (node.type === 'ExportNamedDeclaration' && node.source) {
-      const sourcePath: string = ((node.source as { value?: string } | undefined)?.value) ?? '';
+    if (stmtNode.type === 'ExportNamedDeclaration') {
+      const exportNamed = stmtNode as ExportNamedDeclaration;
+      if (!exportNamed.source) continue;
+      const sourcePath: string = exportNamed.source.value;
       const candidates = resolveImportFn(filePath, sourcePath, tsconfigPaths);
       if (candidates.length === 0) continue;
       const resolved = candidates[0]!;
 
-      const isType = node.exportKind === 'type';
-      const specifierNodes = (node.specifiers as Array<Record<string, unknown>> | undefined) ?? [];
-      const specifiers = specifierNodes.map((s) => ({
-        local: (s.local as { name: string }).name,
-        exported: (s.exported as { name: string }).name,
+      const isType = exportNamed.exportKind === 'type';
+      const specifiers: readonly ExportSpecifier[] = exportNamed.specifiers ?? [];
+      const specData = specifiers.map((s) => ({
+        local: moduleExportName(s.local),
+        exported: moduleExportName(s.exported),
       }));
 
-      const meta: Record<string, unknown> = { isReExport: true, specifiers };
+      const meta: Record<string, unknown> = { isReExport: true, specifiers: specData };
       if (isType) meta.isType = true;
 
       relations.push({

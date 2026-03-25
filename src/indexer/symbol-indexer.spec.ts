@@ -13,7 +13,7 @@ const FILE_PATH = 'src/index.ts';
 const CONTENT_HASH = 'abc123';
 
 function makeParsedFile(): ParsedFile {
-  return { filePath: '/project/src/index.ts', program: {} as any, errors: [], comments: [], sourceText: '' };
+  return { filePath: '/project/src/index.ts', program: {} as any, errors: [], comments: [], sourceText: '', module: { hasModuleSyntax: false, staticImports: [], staticExports: [], dynamicImports: [], importMetas: [] } };
 }
 
 function makeSymbol(overrides: Partial<{

@@ -9,6 +9,7 @@ function makeParsedFile(filePath: string): ParsedFile {
     errors: [],
     comments: [],
     sourceText: '',
+    module: { hasModuleSyntax: false, staticImports: [], staticExports: [], dynamicImports: [], importMetas: [] },
   };
 }
 
