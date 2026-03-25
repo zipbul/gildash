@@ -1,4 +1,4 @@
-import type { Program } from 'oxc-parser';
+import type { Program, EcmaScriptModule } from 'oxc-parser';
 import type {
   Statement,
   Directive,
@@ -38,6 +38,7 @@ export function extractImports(
     importPath: string,
     tsconfigPaths?: TsconfigPaths,
   ) => string[] = resolveImport,
+  module?: EcmaScriptModule,
 ): CodeRelation[] {
   const relations: CodeRelation[] = [];
 
@@ -245,6 +246,69 @@ export function extractImports(
     },
   });
   visitor.visit(ast);
+
+  // Re-export pattern B/C detection using module.staticExports + staticImports
+  // Pattern B: import { X } from './other'; export { X }  — oxc sets moduleRequest on export entry
+  // Pattern C: import X from './other'; export default X  — oxc sets moduleRequest: null, must cross-ref
+  if (module) {
+    // Build import name → module source mapping for pattern C cross-reference
+    const importNameToSource = new Map<string, string>();
+    for (const imp of module.staticImports) {
+      for (const entry of imp.entries) {
+        importNameToSource.set(entry.localName.value, imp.moduleRequest.value);
+      }
+    }
+
+    // Build set of already-detected re-export source paths to avoid duplicates
+    const existingReExports = new Set<string>();
+    for (const rel of relations) {
+      if (rel.type === 're-exports' && rel.dstFilePath) {
+        existingReExports.add(rel.dstFilePath);
+      }
+    }
+
+    for (const exp of module.staticExports) {
+      for (const entry of exp.entries) {
+        let sourcePath: string | null = null;
+
+        if (entry.moduleRequest) {
+          // Pattern B: oxc already knows the source
+          sourcePath = entry.moduleRequest.value;
+        } else if (entry.localName.name) {
+          // Pattern C: cross-reference with imports
+          sourcePath = importNameToSource.get(entry.localName.name) ?? null;
+        }
+
+        if (!sourcePath) continue;
+
+        const candidates = resolveImportFn(filePath, sourcePath, tsconfigPaths);
+        const resolved = candidates.length > 0 ? candidates[0]! : null;
+
+        // Skip if we already have a re-export relation to this file (pattern A)
+        if (resolved && existingReExports.has(resolved)) continue;
+
+        const isExternal = resolved === null && isBareSpecifier(sourcePath);
+        const exportName = entry.exportName.name ?? 'default';
+        const localName = entry.localName.name ?? exportName;
+
+        const meta: Record<string, unknown> = { isReExport: true, specifiers: [{ local: localName, exported: exportName }] };
+        if (isExternal) meta.isExternal = true;
+        if (resolved === null && !isExternal) meta.isUnresolved = true;
+        if (entry.isType) meta.isType = true;
+
+        relations.push({
+          type: entry.isType ? 'type-references' : 're-exports',
+          srcFilePath: filePath,
+          srcSymbolName: null,
+          dstFilePath: resolved,
+          dstSymbolName: null,
+          metaJson: JSON.stringify(meta),
+          ...(resolved === null ? { specifier: sourcePath } : {}),
+        });
+        if (resolved) existingReExports.add(resolved);
+      }
+    }
+  }
 
   return relations;
 }

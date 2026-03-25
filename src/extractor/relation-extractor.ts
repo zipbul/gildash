@@ -1,4 +1,4 @@
-import type { Program } from 'oxc-parser';
+import type { Program, EcmaScriptModule } from 'oxc-parser';
 import type { TsconfigPaths } from '../common/tsconfig-resolver';
 import type { CodeRelation } from './types';
 import { buildImportMap, resolveImport } from './extractor-utils';
@@ -17,10 +17,11 @@ export function extractRelations(
   filePath: string,
   tsconfigPaths?: TsconfigPaths,
   resolveImportFn: ResolveImportFn = resolveImport,
+  module?: EcmaScriptModule,
 ): CodeRelation[] {
   const importMap = buildImportMap(ast, filePath, tsconfigPaths, resolveImportFn);
 
-  const imports = extractImports(ast, filePath, tsconfigPaths, resolveImportFn);
+  const imports = extractImports(ast, filePath, tsconfigPaths, resolveImportFn, module);
   const calls = extractCalls(ast, filePath, importMap);
   const heritage = extractHeritage(ast, filePath, importMap);
 

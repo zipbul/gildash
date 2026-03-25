@@ -461,7 +461,7 @@ export class IndexCoordinator {
           relations += indexFileRelations({
             ast: fd.parsed.program, project: fd.project, filePath: fd.filePath,
             relationRepo, projectRoot, tsconfigPaths,
-            knownFiles, boundaries,
+            knownFiles, boundaries, module: fd.parsed.module,
           });
           if (annotationRepo) {
             annotations += indexFileAnnotations({ parsed: fd.parsed, project: fd.project, filePath: fd.filePath, annotationRepo });
@@ -568,6 +568,7 @@ export class IndexCoordinator {
             tsconfigPaths,
             knownFiles,
             boundaries,
+            module: parsed.module,
           });
           totalSymbols += symbolRepo.getFileSymbols(project, fd.filePath).length;
         }

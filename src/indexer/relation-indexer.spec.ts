@@ -100,7 +100,7 @@ describe('indexFileRelations', () => {
 
     indexFileRelations({ ast: {} as any, project: PROJECT, filePath: REL_FILE, relationRepo: relationRepo as any, projectRoot: PROJECT_ROOT });
 
-    expect(mockExtractRelations).toHaveBeenCalledWith(expect.anything(), ABS_FILE, undefined, undefined);
+    expect(mockExtractRelations).toHaveBeenCalledWith(expect.anything(), ABS_FILE, undefined, undefined, undefined);
   });
 
   it('should call replaceFileRelations when relative filePath is computed', () => {
@@ -156,7 +156,7 @@ describe('indexFileRelations', () => {
 
     indexFileRelations({ ast: {} as any, project: PROJECT, filePath: REL_FILE, relationRepo: relationRepo as any, projectRoot: PROJECT_ROOT, tsconfigPaths });
 
-    expect(mockExtractRelations).toHaveBeenCalledWith(expect.anything(), expect.anything(), tsconfigPaths, undefined);
+    expect(mockExtractRelations).toHaveBeenCalledWith(expect.anything(), expect.anything(), tsconfigPaths, undefined, undefined);
   });
 
   it('should pass empty array to replaceFileRelations when all relations are filtered', () => {

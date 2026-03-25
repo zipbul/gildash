@@ -38,10 +38,12 @@ export interface IndexFileRelationsOptions {
   knownFiles?: Set<string>;
   /** 프로젝트 경계 목록 (dstProject 결정용) */
   boundaries?: ProjectBoundary[];
+  /** Pre-extracted module metadata for re-export pattern B/C detection. */
+  module?: import('oxc-parser').EcmaScriptModule;
 }
 
 export function indexFileRelations(opts: IndexFileRelationsOptions): number {
-  const { ast, project, filePath, relationRepo, projectRoot, tsconfigPaths, knownFiles, boundaries } = opts;
+  const { ast, project, filePath, relationRepo, projectRoot, tsconfigPaths, knownFiles, boundaries, module: moduleData } = opts;
 
   const absFilePath = toAbsolutePath(projectRoot, filePath);
 
@@ -66,7 +68,7 @@ export function indexFileRelations(opts: IndexFileRelationsOptions): number {
       }
     : undefined;
 
-  const rawRelations = extractRelations(ast, absFilePath, tsconfigPaths, customResolver);
+  const rawRelations = extractRelations(ast, absFilePath, tsconfigPaths, customResolver, moduleData);
 
   const rows: RelationDbRow[] = [];
 

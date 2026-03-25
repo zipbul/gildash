@@ -77,7 +77,7 @@ describe('extractRelations', () => {
     const relations = extractRelations(FAKE_AST, FILE, tsconfigPaths);
 
     expect(mockBuildImportMap).toHaveBeenCalledWith(FAKE_AST, FILE, tsconfigPaths, expect.any(Function));
-    expect(mockExtractImports).toHaveBeenCalledWith(FAKE_AST, FILE, tsconfigPaths, expect.any(Function));
+    expect(mockExtractImports).toHaveBeenCalledWith(FAKE_AST, FILE, tsconfigPaths, expect.any(Function), undefined);
     expect(mockExtractCalls).toHaveBeenCalledWith(FAKE_AST, FILE, SENTINEL_MAP);
     expect(mockExtractHeritage).toHaveBeenCalledWith(FAKE_AST, FILE, SENTINEL_MAP);
     const rel = relations.find((r) => r.type === 'imports');
