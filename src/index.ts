@@ -26,3 +26,8 @@ export type { SymbolNode } from "./semantic/symbol-graph";
 export type { AnnotationSource, ExtractedAnnotation } from "./extractor/types";
 export type { AnnotationSearchQuery, AnnotationSearchResult } from "./search/annotation-search";
 export type { SymbolChange, SymbolChangeType, SymbolChangeQueryOptions } from "./gildash/types";
+
+// oxc AST types for consumers
+export type { Program, Node } from 'oxc-parser';
+export { Visitor, visitorKeys } from 'oxc-parser';
+export type { VisitorObject } from 'oxc-parser';

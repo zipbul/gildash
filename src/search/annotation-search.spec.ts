@@ -26,10 +26,10 @@ describe('annotationSearch', () => {
     }));
   });
 
-  it('should use default limit of 100 when not specified', () => {
+  it('should pass limit=undefined when not specified', () => {
     const repo = makeRepo();
     annotationSearch({ annotationRepo: repo, query: {} });
-    expect(repo.search).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }));
+    expect(repo.search).toHaveBeenCalledWith(expect.objectContaining({ limit: undefined }));
   });
 
   it('should map records to AnnotationSearchResult', () => {

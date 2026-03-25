@@ -158,7 +158,7 @@ export class SymbolRepository {
     filePath?: string;
     isExported?: boolean;
     project?: string;
-    limit: number;
+    limit?: number;
     decorator?: string;
     regex?: string;
     resolvedType?: string;
@@ -187,7 +187,8 @@ export class SymbolRepository {
       .orderBy(symbols.name);
 
     if (!opts.regex) {
-      return builder.limit(opts.limit).all() as (SymbolRecord & { id: number })[];
+      const limited = opts.limit !== undefined ? builder.limit(opts.limit) : builder;
+      return limited.all() as (SymbolRecord & { id: number })[];
     }
 
     // Validate regex upfront before fetching
@@ -196,6 +197,12 @@ export class SymbolRepository {
       pattern = new RegExp(opts.regex);
     } catch {
       throw new GildashError('validation', `Invalid regex pattern: ${opts.regex}`);
+    }
+
+    // When no limit, fetch all and filter
+    if (opts.limit === undefined) {
+      const results = builder.all() as (SymbolRecord & { id: number })[];
+      return results.filter(r => pattern.test(r.name));
     }
 
     // Progressive fetch — start small, expand if needed

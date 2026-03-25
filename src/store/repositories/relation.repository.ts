@@ -152,9 +152,9 @@ export class RelationRepository {
     dstSymbolName?: string;
     type?: string;
     project?: string;
-    limit: number;
+    limit?: number;
   }): RelationRecord[] {
-    return this.db.drizzleDb
+    const builder = this.db.drizzleDb
       .select({
         project: relationsTable.project,
         type: relationsTable.type,
@@ -186,9 +186,9 @@ export class RelationRepository {
             : undefined,
           opts.type !== undefined ? eq(relationsTable.type, opts.type) : undefined,
         ),
-      )
-      .limit(opts.limit)
-      .all();
+      );
+    const limited = opts.limit !== undefined ? builder.limit(opts.limit) : builder;
+    return limited.all();
   }
 
   retargetRelations(opts: {

@@ -11,7 +11,8 @@ export function parseSource(
   parseSyncFn: typeof defaultParseSync = defaultParseSync,
 ): Result<ParsedFile, GildashError> {
   try {
-    const { program, errors, comments } = parseSyncFn(filePath, sourceText, options);
+    const mergedOptions = { preserveParens: false, ...options };
+    const { program, errors, comments } = parseSyncFn(filePath, sourceText, mergedOptions);
     return { filePath, program: program as ParsedFile['program'], errors, comments, sourceText };
   } catch (e) {
     return err(new GildashError('parse', `Failed to parse file: ${filePath}`, { cause: e }));

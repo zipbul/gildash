@@ -34,7 +34,7 @@ export interface RelationSearchQuery {
   type?: CodeRelation['type'];
   /** Limit results to this project. */
   project?: string;
-  /** Maximum number of results. Defaults to `500`. */
+  /** Maximum number of results. When omitted, no limit is applied. */
   limit?: number;
 }
 
@@ -47,7 +47,7 @@ export interface IRelationRepo {
     dstProject?: string;
     type?: string;
     project?: string;
-    limit: number;
+    limit?: number;
   }): RelationRecord[];
 }
 
@@ -72,10 +72,10 @@ export function relationSearch(options: {
   }
 
   const effectiveProject = query.project ?? project;
-  const limit = query.limit ?? 500;
+  const limit = query.limit;
 
   const usePatternFilter = !!(query.srcFilePathPattern || query.dstFilePathPattern);
-  const dbLimit = usePatternFilter ? Number.MAX_SAFE_INTEGER : limit;
+  const dbLimit = usePatternFilter ? undefined : limit;
 
   const records = relationRepo.searchRelations({
     srcFilePath: query.srcFilePath,
@@ -119,7 +119,7 @@ export function relationSearch(options: {
   }
 
   // Apply consumer limit at app level when pattern was used
-  if (usePatternFilter && results.length > limit) {
+  if (usePatternFilter && limit !== undefined && results.length > limit) {
     results = results.slice(0, limit);
   }
 

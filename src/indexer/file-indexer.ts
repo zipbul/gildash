@@ -1,6 +1,7 @@
 import { promises as fsPromises } from 'node:fs';
 import { join } from 'node:path';
 import { hashString } from '../common/hasher';
+import { normalizePath } from '../common/path-utils';
 
 export interface FileChangeRecord {
   filePath: string;
@@ -36,7 +37,8 @@ export async function detectChanges(opts: DetectChangesOptions): Promise<DetectC
 
   const ignoreGlobs = ignorePatterns.map((p) => new Bun.Glob(p));
 
-  for await (const relativePath of fsPromises.glob('**/*', { cwd: projectRoot })) {
+  for await (const rawRelativePath of fsPromises.glob('**/*', { cwd: projectRoot })) {
+    const relativePath = normalizePath(rawRelativePath);
     if (!extensions.some((ext) => relativePath.endsWith(ext))) continue;
 
     if (relativePath.startsWith('node_modules/') || relativePath.includes('/node_modules/')) continue;

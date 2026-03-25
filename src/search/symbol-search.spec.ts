@@ -120,11 +120,11 @@ describe('symbolSearch', () => {
     expect(opts.limit).toBe(10);
   });
 
-  it('should pass limit=100 to searchByQuery when query.limit is absent', () => {
+  it('should pass limit=undefined to searchByQuery when query.limit is absent', () => {
     const query: SymbolSearchQuery = {};
     symbolSearch({ symbolRepo: mockRepo, query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
-    expect(opts.limit).toBe(100);
+    expect(opts.limit).toBeUndefined();
   });
 
   it('should set result.detail to {} when detailJson is null', () => {
@@ -186,12 +186,12 @@ describe('symbolSearch', () => {
     expect(opts.limit).toBe(5);
   });
 
-  it('should return [] and call searchByQuery with limit=100 when empty query is given', () => {
+  it('should return [] and call searchByQuery with limit=undefined when empty query is given', () => {
     const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
     expect(results).toEqual([]);
     expect(mockSearchByQuery).toHaveBeenCalledTimes(1);
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
-    expect(opts.limit).toBe(100);
+    expect(opts.limit).toBeUndefined();
   });
 
   it('should return [] when symbolRepo.searchByQuery returns empty array', () => {

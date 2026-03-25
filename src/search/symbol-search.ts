@@ -20,7 +20,7 @@ export interface SymbolSearchQuery {
   isExported?: boolean;
   /** Limit results to this project. Defaults to the primary project. */
   project?: string;
-  /** Maximum number of results. Defaults to `100`. */
+  /** Maximum number of results. When omitted, no limit is applied. */
   limit?: number;
   /**
    * Filter by decorator name (LEG-1).
@@ -73,7 +73,7 @@ export interface ISymbolRepo {
     filePath?: string;
     isExported?: boolean;
     project?: string;
-    limit: number;
+    limit?: number;
     decorator?: string;
     regex?: string;
     resolvedType?: string;
@@ -93,14 +93,13 @@ export function symbolSearch(options: {
 }): SymbolSearchResult[] {
   const { symbolRepo, project, query } = options;
   const effectiveProject = query.project ?? project;
-  const limit = query.limit ?? 100;
 
   const opts: Parameters<ISymbolRepo['searchByQuery']>[0] = {
     kind: query.kind,
     filePath: query.filePath,
     isExported: query.isExported,
     project: effectiveProject,
-    limit,
+    limit: query.limit,
     resolvedType: query.resolvedType,
   };
 

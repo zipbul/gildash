@@ -1,6 +1,7 @@
 import { resolve, dirname, extname } from 'node:path';
 import type { Program } from 'oxc-parser';
 import type { TsconfigPaths } from '../common/tsconfig-resolver';
+import { normalizePath } from '../common/path-utils';
 import type { ImportReference } from './types';
 
 export function resolveImport(
@@ -29,7 +30,7 @@ export function resolveImport(
   };
 
   if (importPath.startsWith('.')) {
-    const resolved = resolve(dirname(currentFilePath), importPath);
+    const resolved = normalizePath(resolve(dirname(currentFilePath), importPath));
     return withTypeScriptCandidates(resolved);
   }
 
@@ -43,7 +44,7 @@ export function resolveImport(
         if (importPath === pattern) {
           const candidates: string[] = [];
           for (const t of targets) {
-            candidates.push(...withTypeScriptCandidates(resolve(tsconfigPaths.baseUrl, t)));
+            candidates.push(...withTypeScriptCandidates(normalizePath(resolve(tsconfigPaths.baseUrl, t))));
           }
           return candidates;
         }
@@ -60,7 +61,7 @@ export function resolveImport(
           );
           const candidates: string[] = [];
           for (const t of targets) {
-            candidates.push(...withTypeScriptCandidates(resolve(tsconfigPaths.baseUrl, t.replace('*', captured))));
+            candidates.push(...withTypeScriptCandidates(normalizePath(resolve(tsconfigPaths.baseUrl, t.replace('*', captured)))));
           }
           return candidates;
         }
