@@ -202,4 +202,23 @@ describe('extractHeritage', () => {
     expect(rel).toBeDefined();
     expect(rel?.dstSymbolName).toBe('Base');
   });
+
+  it('should extract extends relation from ClassExpression with superClass', () => {
+    MockVisitor.prototype.visit = function () {
+      capturedVisitorCallbacks.ClassExpression?.({
+        type: 'ClassExpression',
+        id: { name: 'Expr' },
+        superClass: { type: 'Identifier', name: 'Base' },
+        implements: [],
+        body: { body: [] },
+      });
+    };
+    mockGetQualifiedName.mockReturnValue({ root: 'Base', parts: [], full: 'Base' });
+
+    const relations = extractHeritage({} as any, FILE, makeImportMap());
+    const rel = relations.find((r) => r.type === 'extends' && r.srcSymbolName === 'Expr');
+
+    expect(rel).toBeDefined();
+    expect(rel?.dstSymbolName).toBe('Base');
+  });
 });
