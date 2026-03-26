@@ -96,4 +96,15 @@ describe('parseSource', () => {
     expect(r1).not.toBe(r2);
     expect(r1.program).toBe(r2.program);
   });
+
+  it('should respect user-provided preserveParens: true when explicitly set', () => {
+    mockParseSync.mockClear();
+    const filePath = '/project/src/parens.ts';
+    const sourceText = '(1 + 2)';
+    const options = { preserveParens: true };
+    parseSource(filePath, sourceText, options, mockParseSync);
+    expect(mockParseSync).toHaveBeenCalledTimes(1);
+    // User-provided preserveParens: true should override the default false
+    expect(mockParseSync).toHaveBeenCalledWith(filePath, sourceText, { preserveParens: true });
+  });
 });

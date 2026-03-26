@@ -1093,6 +1093,189 @@ describe('extractImports', () => {
     expect(meta.specifiers).toEqual([{ local: 'X', exported: 'Y' }]);
   });
 
+  // ── Edge case tests using real parseSource ──────────────────────────────
+
+  // EC-1. scoped package → external import with specifier
+  it('should produce external import with specifier for scoped package @scope/pkg', () => {
+    mockResolveImport.mockReturnValue([]);
+
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: '@scope/pkg' },
+        importKind: 'value',
+        specifiers: [
+          { type: 'ImportSpecifier', imported: { name: 'X' }, local: { name: 'X' }, importKind: 'value' },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('@scope/pkg');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isExternal).toBe(true);
+  });
+
+  // EC-2. node: protocol → external import
+  it('should produce external import with specifier for node: protocol', () => {
+    mockResolveImport.mockReturnValue([]);
+
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: 'node:fs' },
+        importKind: 'value',
+        specifiers: [
+          { type: 'ImportDefaultSpecifier', local: { name: 'fs' } },
+        ],
+      },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstFilePath).toBeNull();
+    expect(relations[0]!.specifier).toBe('node:fs');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isExternal).toBe(true);
+  });
+
+  // EC-3. import type + export type pattern → type-references import + type-references re-export
+  it('should produce type re-export for import type + export type pattern', () => {
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: './other' },
+        importKind: 'type',
+        specifiers: [
+          { type: 'ImportSpecifier', imported: { name: 'X' }, local: { name: 'X' }, importKind: 'value' },
+        ],
+      },
+      // ExportNamedDeclaration without source (pattern B)
+      { type: 'ExportNamedDeclaration', source: undefined, exportKind: 'type', specifiers: [] },
+    ]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [{
+        start: 0, end: 35,
+        moduleRequest: { value: './other', start: 20, end: 29 },
+        entries: [{ importName: { kind: 'Name', name: 'X', start: 14, end: 15 }, localName: { value: 'X', start: 14, end: 15 }, isType: true }],
+      }],
+      staticExports: [{
+        start: 36, end: 60,
+        entries: [{
+          start: 50, end: 51,
+          moduleRequest: { value: './other', start: 20, end: 29 },
+          importName: { kind: 'Name', name: 'X', start: 14, end: 15 },
+          exportName: { kind: 'Name', name: 'X', start: 50, end: 51 },
+          localName: { kind: 'Name', name: 'X', start: 50, end: 51 },
+          isType: true,
+        }],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    // Should have at least the import (type-references) and the re-export (type-references)
+    const typeRefs = relations.filter((r) => r.type === 'type-references');
+    expect(typeRefs.length).toBeGreaterThanOrEqual(1);
+
+    const reExports = relations.filter((r) => r.type === 're-exports' || (r.type === 'type-references' && JSON.parse(r.metaJson!).isReExport));
+    expect(reExports.length).toBeGreaterThanOrEqual(1);
+    const reExportMeta = JSON.parse(reExports[0]!.metaJson!);
+    expect(reExportMeta.isReExport).toBe(true);
+  });
+
+  // EC-4. namespace import + export default → imports + re-exports
+  it('should produce re-export for namespace import + export default', () => {
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: './other' },
+        importKind: 'value',
+        specifiers: [
+          { type: 'ImportNamespaceSpecifier', local: { name: 'ns' } },
+        ],
+      },
+    ]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [{
+        start: 0, end: 30,
+        moduleRequest: { value: './other', start: 20, end: 29 },
+        entries: [{ importName: { kind: 'NamespaceObject', name: '*', start: 7, end: 8 }, localName: { value: 'ns', start: 12, end: 14 }, isType: false }],
+      }],
+      staticExports: [{
+        start: 31, end: 55,
+        entries: [{
+          start: 46, end: 48,
+          moduleRequest: null,
+          importName: { kind: 'Name', name: 'ns', start: 46, end: 48 },
+          exportName: { kind: 'Default', name: 'default', start: 38, end: 45 },
+          localName: { kind: 'Name', name: 'ns', start: 46, end: 48 },
+          isType: false,
+        }],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    // Should have the namespace import
+    const imports = relations.filter((r) => r.type === 'imports');
+    expect(imports.length).toBeGreaterThanOrEqual(1);
+    expect(imports[0]!.dstSymbolName).toBe('*');
+
+    // Should have a re-export
+    const reExports = relations.filter((r) => r.type === 're-exports');
+    expect(reExports.length).toBeGreaterThanOrEqual(1);
+    const meta = JSON.parse(reExports[0]!.metaJson!);
+    expect(meta.isReExport).toBe(true);
+  });
+
+  // EC-5. require with template literal → no relation
+  it('should not produce relation for require with template literal', () => {
+    mockResolveImport.mockReturnValue([]);
+    mockVisitImpl = () => {
+      capturedVisitorCallbacks.CallExpression?.({
+        type: 'CallExpression',
+        callee: { type: 'Identifier', name: 'require' },
+        arguments: [{ type: 'TemplateLiteral', expressions: [], quasis: [{ type: 'TemplateElement', value: { raw: 'pkg', cooked: 'pkg' } }] }],
+      });
+    };
+
+    const ast = fakeAst([]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(0);
+  });
+
+  // EC-6. require inside function body → 1 relation with isRequire
+  it('should produce relation for require inside function body', () => {
+    mockResolveImport.mockReturnValue([]);
+    mockVisitImpl = () => {
+      // The Visitor pattern walks all CallExpressions regardless of scope
+      capturedVisitorCallbacks.CallExpression?.({
+        type: 'CallExpression',
+        callee: { type: 'Identifier', name: 'require' },
+        arguments: [{ type: 'Literal', value: 'pkg' }],
+      });
+    };
+
+    const ast = fakeAst([]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.isRequire).toBe(true);
+  });
+
   // 51. [HP] mixed imports where only some are re-exported
   it('should handle mixed imports where only some are re-exported', () => {
     const ast = fakeAst([

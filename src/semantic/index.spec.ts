@@ -1237,7 +1237,10 @@ describe("SemanticLayer", () => {
     layer.dispose();
   });
 
-  // PROP-2 [NE] collectTypeAt: primitive types do not have properties
+  // PROP-2 [NE] collectTypeAt: primitive types do not have properties (also covers "empty properties array for primitive" edge case)
+  // NOTE: The 50-property cap for large object types is enforced by MAX_TYPE_DEPTH/MAX_PROPERTIES
+  // in type-collector.ts. Testing this would require constructing a 50+ property interface through
+  // tsc, which is impractical in a unit test. The depth limit is covered by existing recursion tests.
   it("should not include properties for primitive types", () => {
     const result = SemanticLayer.create(TSCONFIG_PATH, {
       readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),

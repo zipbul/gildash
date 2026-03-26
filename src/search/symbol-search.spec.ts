@@ -415,4 +415,13 @@ describe('symbolSearch', () => {
     expect(opts.decorator).toBe('Inject');
     expect(opts.regex).toBe('^get');
   });
+
+  // ── Edge case tests ────────────────────────────────────────────────────
+
+  it('should pass limit=undefined to searchByQuery when regex is set without explicit limit', () => {
+    const query: SymbolSearchQuery = { regex: '^get' };
+    symbolSearch({ symbolRepo: mockRepo, query });
+    const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
+    expect(opts.limit).toBeUndefined();
+  });
 });
