@@ -10,6 +10,7 @@ import type { SourcePosition, SourceSpan } from '../parser/types';
  * - `'type'` — type alias declarations
  * - `'interface'` — interface declarations
  * - `'enum'` — enum declarations
+ * - `'namespace'` — `namespace`, `declare namespace`, and `declare module` declarations
  * - `'property'` — class properties and interface/type members
  */
 export type SymbolKind =
