@@ -913,4 +913,237 @@ describe('extractImports', () => {
     expect(relations[1]!.dstSymbolName).toBe('useEffect');
     expect(relations[1]!.specifier).toBe('react');
   });
+
+  // --- Re-export pattern B/C tests (module.staticExports cross-reference) ---
+
+  // 47. [HP] pattern B: import { X } from './other'; export { X }
+  it('should produce re-exports relation for pattern B: import then export same name', () => {
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: './other' },
+        importKind: 'value',
+        specifiers: [
+          { type: 'ImportSpecifier', imported: { name: 'X' }, local: { name: 'X' }, importKind: 'value' },
+        ],
+      },
+      // ExportNamedDeclaration without source (pattern B — no re-export in body loop)
+      { type: 'ExportNamedDeclaration', source: undefined, exportKind: 'value', specifiers: [] },
+    ]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [{
+        start: 0, end: 30,
+        moduleRequest: { value: './other', start: 20, end: 29 },
+        entries: [{ importName: { kind: 'Name', name: 'X', start: 9, end: 10 }, localName: { value: 'X', start: 9, end: 10 }, isType: false }],
+      }],
+      staticExports: [{
+        start: 31, end: 50,
+        entries: [{
+          start: 40, end: 41,
+          moduleRequest: { value: './other', start: 20, end: 29 },
+          importName: { kind: 'Name', name: 'X', start: 9, end: 10 },
+          exportName: { kind: 'Name', name: 'X', start: 40, end: 41 },
+          localName: { kind: 'Name', name: 'X', start: 40, end: 41 },
+          isType: false,
+        }],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const reExports = relations.filter((r) => r.type === 're-exports');
+    expect(reExports).toHaveLength(1);
+    expect(reExports[0]!.dstFilePath).toBe(RESOLVED);
+    const meta = JSON.parse(reExports[0]!.metaJson!);
+    expect(meta.isReExport).toBe(true);
+    expect(meta.specifiers).toEqual([{ local: 'X', exported: 'X' }]);
+  });
+
+  // 48. [HP] pattern C: import X from './other'; export default X
+  it('should produce re-exports relation for pattern C: import default then export default', () => {
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: './other' },
+        importKind: 'value',
+        specifiers: [
+          { type: 'ImportDefaultSpecifier', local: { name: 'X' } },
+        ],
+      },
+      // ExportDefaultDeclaration — not handled in the body loop as re-export
+    ]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [{
+        start: 0, end: 30,
+        moduleRequest: { value: './other', start: 20, end: 29 },
+        entries: [{ importName: { kind: 'Default', name: 'default', start: 7, end: 8 }, localName: { value: 'X', start: 7, end: 8 }, isType: false }],
+      }],
+      staticExports: [{
+        start: 31, end: 55,
+        entries: [{
+          start: 46, end: 47,
+          moduleRequest: null,
+          importName: { kind: 'Name', name: 'X', start: 46, end: 47 },
+          exportName: { kind: 'Default', name: 'default', start: 38, end: 45 },
+          localName: { kind: 'Name', name: 'X', start: 46, end: 47 },
+          isType: false,
+        }],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const reExports = relations.filter((r) => r.type === 're-exports');
+    expect(reExports).toHaveLength(1);
+    expect(reExports[0]!.dstFilePath).toBe(RESOLVED);
+    const meta = JSON.parse(reExports[0]!.metaJson!);
+    expect(meta.isReExport).toBe(true);
+    expect(meta.specifiers).toEqual([{ local: 'X', exported: 'default' }]);
+  });
+
+  // 49. [NE] no duplicate re-export when pattern A already detected same source
+  it('should not duplicate re-export when pattern A already detected same source', () => {
+    // Pattern A: export { X } from './other' — handled in body loop
+    const ast = fakeAst([
+      {
+        type: 'ExportNamedDeclaration',
+        source: { value: './other' },
+        exportKind: 'value',
+        specifiers: [
+          { type: 'ExportSpecifier', local: { name: 'X' }, exported: { name: 'X' } },
+        ],
+      },
+    ]);
+
+    // Module also reports this same re-export via staticExports
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [],
+      staticExports: [{
+        start: 0, end: 30,
+        entries: [{
+          start: 9, end: 10,
+          moduleRequest: { value: './other', start: 20, end: 29 },
+          importName: { kind: 'Name', name: 'X', start: 9, end: 10 },
+          exportName: { kind: 'Name', name: 'X', start: 9, end: 10 },
+          localName: { kind: 'Name', name: 'X', start: 9, end: 10 },
+          isType: false,
+        }],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const reExports = relations.filter((r) => r.type === 're-exports');
+    // Should be exactly 1 (from pattern A body loop), not 2
+    expect(reExports).toHaveLength(1);
+  });
+
+  // 50. [HP] pattern B with alias: import { X } from './other'; export { X as Y }
+  it('should handle pattern B with alias: exported name is Y and local name is X', () => {
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: './other' },
+        importKind: 'value',
+        specifiers: [
+          { type: 'ImportSpecifier', imported: { name: 'X' }, local: { name: 'X' }, importKind: 'value' },
+        ],
+      },
+      { type: 'ExportNamedDeclaration', source: undefined, exportKind: 'value', specifiers: [] },
+    ]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [{
+        start: 0, end: 30,
+        moduleRequest: { value: './other', start: 20, end: 29 },
+        entries: [{ importName: { kind: 'Name', name: 'X', start: 9, end: 10 }, localName: { value: 'X', start: 9, end: 10 }, isType: false }],
+      }],
+      staticExports: [{
+        start: 31, end: 55,
+        entries: [{
+          start: 40, end: 41,
+          moduleRequest: { value: './other', start: 20, end: 29 },
+          importName: { kind: 'Name', name: 'X', start: 9, end: 10 },
+          exportName: { kind: 'Name', name: 'Y', start: 40, end: 41 },
+          localName: { kind: 'Name', name: 'X', start: 40, end: 41 },
+          isType: false,
+        }],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const reExports = relations.filter((r) => r.type === 're-exports');
+    expect(reExports).toHaveLength(1);
+    const meta = JSON.parse(reExports[0]!.metaJson!);
+    expect(meta.specifiers).toEqual([{ local: 'X', exported: 'Y' }]);
+  });
+
+  // 51. [HP] mixed imports where only some are re-exported
+  it('should handle mixed imports where only some are re-exported', () => {
+    const ast = fakeAst([
+      {
+        type: 'ImportDeclaration',
+        source: { value: './other' },
+        importKind: 'value',
+        specifiers: [
+          { type: 'ImportSpecifier', imported: { name: 'A' }, local: { name: 'A' }, importKind: 'value' },
+          { type: 'ImportSpecifier', imported: { name: 'B' }, local: { name: 'B' }, importKind: 'value' },
+        ],
+      },
+      { type: 'ExportNamedDeclaration', source: undefined, exportKind: 'value', specifiers: [] },
+    ]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [{
+        start: 0, end: 35,
+        moduleRequest: { value: './other', start: 25, end: 34 },
+        entries: [
+          { importName: { kind: 'Name', name: 'A', start: 9, end: 10 }, localName: { value: 'A', start: 9, end: 10 }, isType: false },
+          { importName: { kind: 'Name', name: 'B', start: 12, end: 13 }, localName: { value: 'B', start: 12, end: 13 }, isType: false },
+        ],
+      }],
+      staticExports: [{
+        start: 36, end: 55,
+        // Only A is re-exported
+        entries: [{
+          start: 45, end: 46,
+          moduleRequest: { value: './other', start: 25, end: 34 },
+          importName: { kind: 'Name', name: 'A', start: 9, end: 10 },
+          exportName: { kind: 'Name', name: 'A', start: 45, end: 46 },
+          localName: { kind: 'Name', name: 'A', start: 45, end: 46 },
+          isType: false,
+        }],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const reExports = relations.filter((r) => r.type === 're-exports');
+    // Only A should get re-export relation, B should not
+    expect(reExports).toHaveLength(1);
+    const meta = JSON.parse(reExports[0]!.metaJson!);
+    expect(meta.specifiers).toEqual([{ local: 'A', exported: 'A' }]);
+
+    // B should only appear as an import, not re-export
+    const imports = relations.filter((r) => r.type === 'imports');
+    expect(imports.some((r) => r.dstSymbolName === 'B')).toBe(true);
+  });
 });
