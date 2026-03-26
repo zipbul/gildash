@@ -409,6 +409,49 @@ describe('indexFileRelations', () => {
     expect(rels[0].metaJson).toBe('{"isReExport":true}');
   });
 
+  it('should index relation with null dstFilePath for external imports', () => {
+    mockExtractRelations.mockReturnValue([{
+      type: 'imports',
+      srcFilePath: ABS_FILE,
+      srcSymbolName: null,
+      dstFilePath: null,
+      dstSymbolName: null,
+      metaJson: '{"isExternal":true}',
+      specifier: 'lodash',
+    }]);
+
+    const relationRepo = makeRelationRepo();
+    indexFileRelations({ ast: {} as any, project: PROJECT, filePath: REL_FILE, relationRepo: relationRepo as any, projectRoot: PROJECT_ROOT });
+
+    const rows = relationRepo.replaceFileRelations.mock.calls[0]?.[2];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].dstFilePath).toBeNull();
+    expect(rows[0].dstProject).toBeNull();
+    expect(rows[0].specifier).toBe('lodash');
+    expect(rows[0].isExternal).toBe(1);
+  });
+
+  it('should index relation with null dstFilePath and isExternal 0 for unresolved imports', () => {
+    mockExtractRelations.mockReturnValue([{
+      type: 'imports',
+      srcFilePath: ABS_FILE,
+      srcSymbolName: null,
+      dstFilePath: null,
+      dstSymbolName: null,
+      metaJson: '{"isUnresolved":true}',
+      specifier: './missing',
+    }]);
+
+    const relationRepo = makeRelationRepo();
+    indexFileRelations({ ast: {} as any, project: PROJECT, filePath: REL_FILE, relationRepo: relationRepo as any, projectRoot: PROJECT_ROOT });
+
+    const rows = relationRepo.replaceFileRelations.mock.calls[0]?.[2];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].dstFilePath).toBeNull();
+    expect(rows[0].isExternal).toBe(0);
+    expect(rows[0].specifier).toBe('./missing');
+  });
+
   it('should set different dstProjects per row when relations cross boundaries', () => {
     const boundaries = [{ project: 'proj-a', dir: 'apps/a' }, { project: 'proj-b', dir: 'apps/b' }];
     mockExtractRelations.mockReturnValue([

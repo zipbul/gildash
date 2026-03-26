@@ -183,7 +183,9 @@ describe('extractImports', () => {
   // 9. [HP] ExportNamedDeclaration regression
   it('should produce a re-exports relation with isReExport true when declaration is named re-export', () => {
     const ast = fakeAst([
-      { type: 'ExportNamedDeclaration', source: { value: './local' } },
+      { type: 'ExportNamedDeclaration', source: { value: './local' }, exportKind: 'value', specifiers: [
+        { type: 'ExportSpecifier', local: { name: 'X' }, exported: { name: 'X' } },
+      ] },
     ]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
     const rel = relations.find((r) => r.metaJson?.includes('"isReExport":true'));
@@ -377,7 +379,7 @@ describe('extractImports', () => {
   });
 
   // 21. [HP] export { A, B, C } → specifiers 3개
-  it('should include all three specifiers in metaJson when re-export has multiple named specifiers', () => {
+  it('should produce one relation per specifier when re-export has multiple named specifiers', () => {
     const ast = fakeAst([
       {
         type: 'ExportNamedDeclaration',
@@ -392,28 +394,36 @@ describe('extractImports', () => {
     ]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
 
-    expect(relations).toHaveLength(1);
-    const meta = JSON.parse(relations[0]!.metaJson!);
-    expect(meta.specifiers).toHaveLength(3);
+    expect(relations).toHaveLength(3);
+    for (const rel of relations) {
+      const meta = JSON.parse(rel.metaJson!);
+      expect(meta.isReExport).toBe(true);
+      expect(meta.specifiers).toHaveLength(1);
+    }
   });
 
-  // 22. [HP] single relation maintained for ExportNamedDeclaration
-  it('should produce exactly one relation per ExportNamedDeclaration regardless of specifier count', () => {
+  // 22. per-specifier type annotation in mixed re-exports
+  it('should classify type-only specifier as type-references and value specifier as re-exports when mixed', () => {
     const ast = fakeAst([
       {
         type: 'ExportNamedDeclaration',
         source: { value: './foo' },
         exportKind: 'value',
         specifiers: [
-          { type: 'ExportSpecifier', local: { name: 'X' }, exported: { name: 'X' } },
-          { type: 'ExportSpecifier', local: { name: 'Y' }, exported: { name: 'Y' } },
+          { type: 'ExportSpecifier', local: { name: 'X' }, exported: { name: 'X' }, exportKind: 'type' },
+          { type: 'ExportSpecifier', local: { name: 'Y' }, exported: { name: 'Y' }, exportKind: 'value' },
         ],
       },
     ]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
 
-    expect(relations).toHaveLength(1);
-    expect(JSON.parse(relations[0]!.metaJson!).isReExport).toBe(true);
+    expect(relations).toHaveLength(2);
+    const typeRel = relations.find((r) => r.type === 'type-references');
+    const valueRel = relations.find((r) => r.type === 're-exports');
+    expect(typeRel).toBeDefined();
+    expect(valueRel).toBeDefined();
+    expect(JSON.parse(typeRel!.metaJson!).specifiers[0].local).toBe('X');
+    expect(JSON.parse(valueRel!.metaJson!).specifiers[0].local).toBe('Y');
   });
 
   // 23. [HP] ExportAllDeclaration regression — no specifiers in meta
@@ -426,6 +436,29 @@ describe('extractImports', () => {
     const meta = JSON.parse(relations[0]!.metaJson!);
     expect(meta.isReExport).toBe(true);
     expect(meta.specifiers).toBeUndefined();
+  });
+
+  // 23b. ExportAllDeclaration with namespace alias — export * as ns from './mod'
+  it('should capture namespace alias in dstSymbolName when export star has exported name', () => {
+    const ast = fakeAst([
+      { type: 'ExportAllDeclaration', source: { value: './barrel' }, exportKind: 'value', exported: { name: 'ns' } },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstSymbolName).toBe('ns');
+    const meta = JSON.parse(relations[0]!.metaJson!);
+    expect(meta.namespaceAlias).toBe('ns');
+  });
+
+  it('should set dstSymbolName to null when export star has no namespace alias', () => {
+    const ast = fakeAst([
+      { type: 'ExportAllDeclaration', source: { value: './barrel' }, exportKind: 'value' },
+    ]);
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.dstSymbolName).toBeNull();
   });
 
   // 24. [NE] ExportNamedDeclaration without source → 0 relations
@@ -503,8 +536,8 @@ describe('extractImports', () => {
     expect(meta.specifiers).toEqual([{ local: 'MyType', exported: 'MyType' }]);
   });
 
-  // 28. [OR] {A,B,C} order preserved in specifiers
-  it('should preserve specifier order in metaJson specifiers array when re-export has multiple specifiers', () => {
+  // 28. [OR] {A,B,C} order preserved across per-specifier relations
+  it('should preserve specifier order across per-specifier relations when re-export has multiple specifiers', () => {
     const ast = fakeAst([
       {
         type: 'ExportNamedDeclaration',
@@ -519,10 +552,10 @@ describe('extractImports', () => {
     ]);
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
 
-    const meta = JSON.parse(relations[0]!.metaJson!);
-    expect(meta.specifiers[0].local).toBe('First');
-    expect(meta.specifiers[1].local).toBe('Second');
-    expect(meta.specifiers[2].local).toBe('Third');
+    expect(relations).toHaveLength(3);
+    expect(JSON.parse(relations[0]!.metaJson!).specifiers[0].local).toBe('First');
+    expect(JSON.parse(relations[1]!.metaJson!).specifiers[0].local).toBe('Second');
+    expect(JSON.parse(relations[2]!.metaJson!).specifiers[0].local).toBe('Third');
   });
 
   // 29. [ID] same re-export AST called twice → identical
@@ -1328,5 +1361,389 @@ describe('extractImports', () => {
     // B should only appear as an import, not re-export
     const imports = relations.filter((r) => r.type === 'imports');
     expect(imports.some((r) => r.dstSymbolName === 'B')).toBe(true);
+  });
+
+  // 52. module path: side-effect import (empty entries)
+  it('should produce imports relation for side-effect import via module.staticImports', () => {
+    mockResolveImport.mockReturnValue(['/resolved/side.ts']);
+    const ast = fakeAst([]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [{
+        start: 0, end: 20,
+        moduleRequest: { value: './side', start: 7, end: 15 },
+        entries: [],
+      }],
+      staticExports: [],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.type).toBe('imports');
+    expect(relations[0]!.dstFilePath).toBe('/resolved/side.ts');
+    expect(relations[0]!.srcSymbolName).toBeNull();
+    expect(relations[0]!.dstSymbolName).toBeNull();
+  });
+
+  // 53. module path: export * as ns from (namespace alias via staticExports)
+  it('should capture namespace alias for export star as via module.staticExports', () => {
+    mockResolveImport.mockReturnValue(['/resolved/utils.ts']);
+    const ast = fakeAst([]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [],
+      staticExports: [{
+        start: 0, end: 30,
+        entries: [{
+          start: 0, end: 30,
+          moduleRequest: { value: './utils', start: 20, end: 29 },
+          importName: { kind: 'All', name: null, start: null, end: null },
+          exportName: { kind: 'Name', name: 'ns', start: 12, end: 14 },
+          localName: { kind: 'None', name: null, start: null, end: null },
+          isType: false,
+        }],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const reExports = relations.filter((r) => r.type === 're-exports');
+    expect(reExports).toHaveLength(1);
+    expect(reExports[0]!.dstSymbolName).toBe('ns');
+    const meta = JSON.parse(reExports[0]!.metaJson!);
+    expect(meta.namespaceAlias).toBe('ns');
+    expect(meta.isReExport).toBe(true);
+  });
+
+  // --- MODULE-based path: comprehensive coverage ---
+
+  // 54. external import via module path
+  it('should produce import with isExternal in metaJson when module.staticImports has bare specifier', () => {
+    mockResolveImport.mockReturnValue([]);
+    const ast = fakeAst([]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [{
+        start: 0, end: 30,
+        moduleRequest: { value: 'lodash', start: 7, end: 15 },
+        entries: [{
+          importName: { kind: 'Name', name: 'get', start: 9, end: 12 },
+          localName: { value: 'get', start: 9, end: 12 },
+          isType: false,
+        }],
+      }],
+      staticExports: [],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const imports = relations.filter((r) => r.type === 'imports');
+    expect(imports).toHaveLength(1);
+    expect(imports[0]!.dstFilePath).toBeNull();
+    expect(imports[0]!.specifier).toBe('lodash');
+    expect(imports[0]!.dstSymbolName).toBe('get');
+    const meta = JSON.parse(imports[0]!.metaJson!);
+    expect(meta.isExternal).toBe(true);
+    expect(meta.isUnresolved).toBeUndefined();
+  });
+
+  // 55. unresolved relative import via module path
+  it('should produce import with isUnresolved in metaJson when module.staticImports has unresolved relative path', () => {
+    mockResolveImport.mockReturnValue([]);
+    const ast = fakeAst([]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [{
+        start: 0, end: 30,
+        moduleRequest: { value: './missing', start: 7, end: 18 },
+        entries: [{
+          importName: { kind: 'Name', name: 'Foo', start: 9, end: 12 },
+          localName: { value: 'Foo', start: 9, end: 12 },
+          isType: false,
+        }],
+      }],
+      staticExports: [],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const imports = relations.filter((r) => r.type === 'imports');
+    expect(imports).toHaveLength(1);
+    expect(imports[0]!.dstFilePath).toBeNull();
+    expect(imports[0]!.specifier).toBe('./missing');
+    const meta = JSON.parse(imports[0]!.metaJson!);
+    expect(meta.isUnresolved).toBe(true);
+    expect(meta.isExternal).toBeUndefined();
+  });
+
+  // 56. plain export * from via module path — no specifiers in metaJson
+  it('should produce re-export with no specifiers in metaJson when module.staticExports is export star from', () => {
+    const ast = fakeAst([]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [],
+      staticExports: [{
+        start: 0, end: 30,
+        entries: [{
+          start: 0, end: 30,
+          moduleRequest: { value: './barrel', start: 15, end: 25 },
+          importName: { kind: 'All', name: null, start: null, end: null },
+          exportName: { kind: 'None', name: null, start: null, end: null },
+          localName: { kind: 'None', name: null, start: null, end: null },
+          isType: false,
+        }],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const reExports = relations.filter((r) => r.type === 're-exports');
+    expect(reExports).toHaveLength(1);
+    expect(reExports[0]!.dstSymbolName).toBeNull();
+    const meta = JSON.parse(reExports[0]!.metaJson!);
+    expect(meta.isReExport).toBe(true);
+    expect(meta.specifiers).toBeUndefined();
+  });
+
+  // 57. per-specifier type in mixed export via module path
+  it('should produce separate relations with correct types when module.staticExports has mixed type and value entries', () => {
+    // Use different moduleRequests to avoid the existingReExports deduplication
+    (mockResolveImport as any).mockImplementation((_file: string, importPath: string) => {
+      if (importPath === './types-mod') return ['/resolved/types-mod.ts'];
+      if (importPath === './value-mod') return ['/resolved/value-mod.ts'];
+      return [RESOLVED];
+    });
+    const ast = fakeAst([]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [],
+      staticExports: [{
+        start: 0, end: 60,
+        entries: [
+          {
+            start: 0, end: 30,
+            moduleRequest: { value: './types-mod', start: 20, end: 33 },
+            importName: { kind: 'Name', name: 'T', start: 9, end: 10 },
+            exportName: { kind: 'Name', name: 'T', start: 9, end: 10 },
+            localName: { kind: 'Name', name: 'T', start: 9, end: 10 },
+            isType: true,
+          },
+          {
+            start: 31, end: 60,
+            moduleRequest: { value: './value-mod', start: 50, end: 63 },
+            importName: { kind: 'Name', name: 'V', start: 40, end: 41 },
+            exportName: { kind: 'Name', name: 'V', start: 40, end: 41 },
+            localName: { kind: 'Name', name: 'V', start: 40, end: 41 },
+            isType: false,
+          },
+        ],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const reExports = relations.filter((r) => r.metaJson?.includes('"isReExport":true'));
+    expect(reExports).toHaveLength(2);
+
+    const typeRel = reExports.find((r) => r.type === 'type-references');
+    const valueRel = reExports.find((r) => r.type === 're-exports');
+    expect(typeRel).toBeDefined();
+    expect(valueRel).toBeDefined();
+    const typeMeta = JSON.parse(typeRel!.metaJson!);
+    expect(typeMeta.isType).toBe(true);
+    expect(typeMeta.specifiers[0].local).toBe('T');
+    const valueMeta = JSON.parse(valueRel!.metaJson!);
+    expect(valueMeta.isType).toBeUndefined();
+    expect(valueMeta.specifiers[0].local).toBe('V');
+  });
+
+  // 58. export entry with no sourcePath (skip branch)
+  it('should produce 0 re-export relations when module.staticExports entry has no moduleRequest and localName not in imports', () => {
+    const ast = fakeAst([]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [],
+      staticExports: [{
+        start: 0, end: 30,
+        entries: [{
+          start: 0, end: 30,
+          moduleRequest: null,
+          importName: { kind: 'Name', name: 'localOnly', start: 9, end: 18 },
+          exportName: { kind: 'Name', name: 'localOnly', start: 9, end: 18 },
+          localName: { kind: 'Name', name: 'localOnly', start: 9, end: 18 },
+          isType: false,
+        }],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const reExports = relations.filter((r) => r.metaJson?.includes('"isReExport":true'));
+    expect(reExports).toHaveLength(0);
+  });
+
+  // 59. external re-export via module path
+  it('should produce re-export with isExternal in metaJson when module.staticExports has bare specifier moduleRequest', () => {
+    mockResolveImport.mockReturnValue([]);
+    const ast = fakeAst([]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [],
+      staticExports: [{
+        start: 0, end: 40,
+        entries: [{
+          start: 0, end: 40,
+          moduleRequest: { value: 'external-lib', start: 20, end: 34 },
+          importName: { kind: 'Name', name: 'Widget', start: 9, end: 15 },
+          exportName: { kind: 'Name', name: 'Widget', start: 9, end: 15 },
+          localName: { kind: 'Name', name: 'Widget', start: 9, end: 15 },
+          isType: false,
+        }],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const reExports = relations.filter((r) => r.metaJson?.includes('"isReExport":true'));
+    expect(reExports).toHaveLength(1);
+    expect(reExports[0]!.dstFilePath).toBeNull();
+    expect(reExports[0]!.specifier).toBe('external-lib');
+    const meta = JSON.parse(reExports[0]!.metaJson!);
+    expect(meta.isExternal).toBe(true);
+    expect(meta.isReExport).toBe(true);
+  });
+
+  // 60. multiple specifiers from same module via module path — no data loss
+  it('should produce relations for all specifiers when module.staticExports has multiple entries from same module', () => {
+    const ast = fakeAst([]);
+
+    const module = {
+      hasModuleSyntax: true,
+      staticImports: [],
+      staticExports: [{
+        start: 0, end: 50,
+        entries: [
+          {
+            start: 0, end: 15,
+            moduleRequest: { value: './mod', start: 30, end: 37 },
+            importName: { kind: 'Name', name: 'A', start: 9, end: 10 },
+            exportName: { kind: 'Name', name: 'A', start: 9, end: 10 },
+            localName: { kind: 'None', name: null, start: null, end: null },
+            isType: false,
+          },
+          {
+            start: 16, end: 30,
+            moduleRequest: { value: './mod', start: 30, end: 37 },
+            importName: { kind: 'Name', name: 'B', start: 12, end: 13 },
+            exportName: { kind: 'Name', name: 'B', start: 12, end: 13 },
+            localName: { kind: 'None', name: null, start: null, end: null },
+            isType: false,
+          },
+          {
+            start: 31, end: 45,
+            moduleRequest: { value: './mod', start: 30, end: 37 },
+            importName: { kind: 'Name', name: 'C', start: 15, end: 16 },
+            exportName: { kind: 'Name', name: 'C', start: 15, end: 16 },
+            localName: { kind: 'None', name: null, start: null, end: null },
+            isType: false,
+          },
+        ],
+      }],
+      dynamicImports: [],
+      importMetas: [],
+    };
+
+    const relations = extractImports(ast, FILE, undefined, mockResolveImport, module as any);
+
+    const reExports = relations.filter((r) => r.metaJson?.includes('"isReExport":true'));
+    // All 3 specifiers should produce relations, not just the first one
+    expect(reExports).toHaveLength(3);
+    const names = reExports.map((r) => JSON.parse(r.metaJson!).specifiers[0].local);
+    expect(names).toEqual(['A', 'B', 'C']);
+  });
+
+  // 61. real oxc-parser integration test
+  it('should produce correct relations when using real parseSync output with various import/export patterns', () => {
+    // Use real oxc-parser parseSync (not mocked — mock.module only mocks Visitor)
+    const { parseSync } = require('oxc-parser') as { parseSync: (filename: string, source: string, options?: any) => any };
+
+    const source = [
+      "import { X } from './other';",
+      "import type { T } from './types';",
+      "export * from './barrel';",
+      "export { Y as Z } from './reexport';",
+    ].join('\n');
+
+    const result = parseSync('test.ts', source);
+    const ast = result.program;
+    const mod = result.module;
+
+    // Use a custom resolver that returns predictable paths
+    const testResolver = ((_file: string, importPath: string) => {
+      if (importPath === './other') return ['/project/src/other.ts'];
+      if (importPath === './types') return ['/project/src/types.ts'];
+      if (importPath === './barrel') return ['/project/src/barrel.ts'];
+      if (importPath === './reexport') return ['/project/src/reexport.ts'];
+      return [];
+    }) as any;
+
+    const relations = extractImports(ast, '/project/src/test.ts', undefined, testResolver, mod);
+
+    // import { X } from './other'
+    const importX = relations.find((r) => r.type === 'imports' && r.dstSymbolName === 'X');
+    expect(importX).toBeDefined();
+    expect(importX!.dstFilePath).toBe('/project/src/other.ts');
+    expect(importX!.srcSymbolName).toBe('X');
+
+    // import type { T } from './types'
+    const importT = relations.find((r) => r.type === 'type-references' && r.dstSymbolName === 'T');
+    expect(importT).toBeDefined();
+    expect(importT!.dstFilePath).toBe('/project/src/types.ts');
+    const importTMeta = JSON.parse(importT!.metaJson!);
+    expect(importTMeta.isType).toBe(true);
+
+    // export * from './barrel'
+    const barrelReExport = relations.find(
+      (r) => r.dstFilePath === '/project/src/barrel.ts' && r.metaJson?.includes('"isReExport":true'),
+    );
+    expect(barrelReExport).toBeDefined();
+    expect(barrelReExport!.type).toBe('re-exports');
+    expect(barrelReExport!.dstSymbolName).toBeNull();
+    const barrelMeta = JSON.parse(barrelReExport!.metaJson!);
+    expect(barrelMeta.specifiers).toBeUndefined();
+
+    // export { Y as Z } from './reexport'
+    const namedReExport = relations.find(
+      (r) => r.dstFilePath === '/project/src/reexport.ts' && r.metaJson?.includes('"isReExport":true'),
+    );
+    expect(namedReExport).toBeDefined();
+    expect(namedReExport!.type).toBe('re-exports');
+    const namedMeta = JSON.parse(namedReExport!.metaJson!);
+    expect(namedMeta.specifiers).toEqual([{ local: 'Y', exported: 'Z' }]);
   });
 });

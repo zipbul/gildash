@@ -1,6 +1,6 @@
-# Future: Blocked by External Dependencies
+# Future: Blocked & Rejected
 
-This document tracks features that require upstream fixes before implementation.
+This document tracks features blocked by upstream dependencies and tools evaluated and rejected with evidence.
 
 ---
 
@@ -58,3 +58,25 @@ One of:
 - oxc allocator revamp: https://github.com/oxc-project/oxc/issues/20513
 - Bun 4GiB issue (closed, only fixed error handling): https://github.com/oven-sh/bun/issues/4897
 - JSC ArrayBuffer internals: https://github.com/WebKit/webkit/blob/main/Source/JavaScriptCore/runtime/ArrayBuffer.cpp
+
+---
+
+## Reviewed & Rejected
+
+### `oxc-resolver`
+
+Evaluated replacing `extractor-utils.ts` `resolveImport()` (72 lines) with `oxc-resolver`.
+
+Rejected because:
+- gildash uses a "candidate list + knownFiles cross-validation" pattern. `oxc-resolver` uses "direct filesystem access + single path return". The interfaces are fundamentally incompatible.
+- Workspace package (`@zipbul/*`) resolution triggers `exports` field issues.
+- Native dependency overhead does not justify the marginal benefit.
+
+### `ScopeTracker` (oxc-walker)
+
+Evaluated replacing calls-extractor's manual scope stack with `ScopeTracker`.
+
+Rejected because:
+- `ScopeTracker.getCurrentScope()` returns a scope index string (e.g. `"0-1-2"`), not function/class names.
+- calls-extractor needs the enclosing function name (`srcSymbolName`). ScopeTracker does not provide this.
+- `walk()` is already adopted. Only `ScopeTracker` is inapplicable.

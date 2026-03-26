@@ -20,6 +20,7 @@ export type SymbolKind =
   | 'type'
   | 'interface'
   | 'enum'
+  | 'namespace'
   | 'property';
 
 /**

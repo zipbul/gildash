@@ -270,6 +270,69 @@ describe("loadTsconfigPaths", () => {
     expect(result?.paths.get("@/*")).toEqual(["src/*"]);
   });
 
+  it("should resolve paths from extended tsconfig when child has no paths", async () => {
+    const basePath = join(PROJECT_ROOT, "tsconfig.base.json");
+    spyOn(Bun, "file").mockImplementation((p) => {
+      const s = String(p);
+      if (s === TSCONFIG_PATH) {
+        return makeBunFile({ extends: "./tsconfig.base.json" });
+      }
+      if (s === basePath) {
+        return makeBunFile({ compilerOptions: { baseUrl: ".", paths: { "@/*": ["src/*"] } } });
+      }
+      return makeBunFile(null);
+    });
+
+    const result = await loadTsconfigPaths(PROJECT_ROOT);
+
+    expect(result).not.toBeNull();
+    expect(result?.paths.get("@/*")).toEqual(["src/*"]);
+  });
+
+  it("should let child compilerOptions override parent when both define the same key", async () => {
+    const basePath = join(PROJECT_ROOT, "tsconfig.base.json");
+    spyOn(Bun, "file").mockImplementation((p) => {
+      const s = String(p);
+      if (s === TSCONFIG_PATH) {
+        return makeBunFile({ extends: "./tsconfig.base.json", compilerOptions: { paths: { "#/*": ["lib/*"] } } });
+      }
+      if (s === basePath) {
+        return makeBunFile({ compilerOptions: { baseUrl: ".", paths: { "@/*": ["src/*"] } } });
+      }
+      return makeBunFile(null);
+    });
+
+    const result = await loadTsconfigPaths(PROJECT_ROOT);
+
+    expect(result?.baseUrl).toBe(PROJECT_ROOT);
+    // Child paths override parent paths entirely (shallow merge of compilerOptions)
+    expect(result?.paths.get("#/*")).toEqual(["lib/*"]);
+    expect(result?.paths.has("@/*")).toBe(false);
+  });
+
+  it("should follow multi-level extends chain", async () => {
+    const basePath = join(PROJECT_ROOT, "tsconfig.base.json");
+    const grandparentPath = join(PROJECT_ROOT, "tsconfig.root.json");
+    spyOn(Bun, "file").mockImplementation((p) => {
+      const s = String(p);
+      if (s === TSCONFIG_PATH) {
+        return makeBunFile({ extends: "./tsconfig.base.json" });
+      }
+      if (s === basePath) {
+        return makeBunFile({ extends: "./tsconfig.root.json", compilerOptions: { paths: { "@/*": ["src/*"] } } });
+      }
+      if (s === grandparentPath) {
+        return makeBunFile({ compilerOptions: { baseUrl: "." } });
+      }
+      return makeBunFile(null);
+    });
+
+    const result = await loadTsconfigPaths(PROJECT_ROOT);
+
+    expect(result?.baseUrl).toBe(PROJECT_ROOT);
+    expect(result?.paths.get("@/*")).toEqual(["src/*"]);
+  });
+
   it("should return null when file content is invalid JSONC", async () => {
     spyOn(Bun, "file").mockImplementation((p) => {
       if (String(p) === TSCONFIG_PATH) {
@@ -281,5 +344,126 @@ describe("loadTsconfigPaths", () => {
     const result = await loadTsconfigPaths(PROJECT_ROOT);
 
     expect(result).toBeNull();
+  });
+
+  it("should not infinite loop on circular extends and return child config", async () => {
+    const basePath = join(PROJECT_ROOT, "tsconfig.base.json");
+    spyOn(Bun, "file").mockImplementation((p) => {
+      const s = String(p);
+      if (s === TSCONFIG_PATH) {
+        return makeBunFile({
+          extends: "./tsconfig.base.json",
+          compilerOptions: { paths: { "@/*": ["src/*"] } },
+        });
+      }
+      if (s === basePath) {
+        return makeBunFile({
+          extends: "./tsconfig.json",
+          compilerOptions: { baseUrl: "." },
+        });
+      }
+      return makeBunFile(null);
+    });
+
+    const result = await loadTsconfigPaths(PROJECT_ROOT);
+
+    expect(result).not.toBeNull();
+    expect(result?.paths.get("@/*")).toEqual(["src/*"]);
+    expect(result?.baseUrl).toBe(PROJECT_ROOT);
+  });
+
+  it("should return child compilerOptions when extended file does not exist", async () => {
+    spyOn(Bun, "file").mockImplementation((p) => {
+      const s = String(p);
+      if (s === TSCONFIG_PATH) {
+        return makeBunFile({
+          extends: "./nonexistent.json",
+          compilerOptions: { baseUrl: ".", paths: { "@/*": ["src/*"] } },
+        });
+      }
+      return makeBunFile(null);
+    });
+
+    const result = await loadTsconfigPaths(PROJECT_ROOT);
+
+    expect(result).not.toBeNull();
+    expect(result?.baseUrl).toBe(PROJECT_ROOT);
+    expect(result?.paths.get("@/*")).toEqual(["src/*"]);
+  });
+
+  it("should resolve extends path without .json extension by appending .json", async () => {
+    const basePath = join(PROJECT_ROOT, "tsconfig.base.json");
+    spyOn(Bun, "file").mockImplementation((p) => {
+      const s = String(p);
+      if (s === TSCONFIG_PATH) {
+        return makeBunFile({ extends: "./tsconfig.base" });
+      }
+      if (s === basePath) {
+        return makeBunFile({ compilerOptions: { baseUrl: ".", paths: { "@/*": ["src/*"] } } });
+      }
+      return makeBunFile(null);
+    });
+
+    const result = await loadTsconfigPaths(PROJECT_ROOT);
+
+    expect(result).not.toBeNull();
+    expect(result?.baseUrl).toBe(PROJECT_ROOT);
+    expect(result?.paths.get("@/*")).toEqual(["src/*"]);
+  });
+
+  it("should return partial results when extends chain exceeds maxDepth", async () => {
+    // Build a chain 7 levels deep: tsconfig.json -> l1.json -> l2.json -> ... -> l6.json
+    // maxDepth=5 means: tsconfig(5) -> l1(4) -> l2(3) -> l3(2) -> l4(1) -> l5(0=null)
+    // So l5 and l6 are unreachable. l4 has baseUrl but its parent l5 is cut off.
+    spyOn(Bun, "file").mockImplementation((p) => {
+      const s = String(p);
+      if (s === TSCONFIG_PATH) {
+        return makeBunFile({ extends: "./l1.json", compilerOptions: { paths: { "@/*": ["src/*"] } } });
+      }
+      for (let i = 1; i <= 5; i++) {
+        if (s === join(PROJECT_ROOT, `l${i}.json`)) {
+          return makeBunFile({ extends: `./l${i + 1}.json` });
+        }
+      }
+      if (s === join(PROJECT_ROOT, "l6.json")) {
+        return makeBunFile({ compilerOptions: { baseUrl: "deep" } });
+      }
+      return makeBunFile(null);
+    });
+
+    const result = await loadTsconfigPaths(PROJECT_ROOT);
+
+    // Child paths should still be available even though deep ancestor is unreachable
+    expect(result).not.toBeNull();
+    expect(result?.paths.get("@/*")).toEqual(["src/*"]);
+    // baseUrl from l6.json is unreachable due to maxDepth, so defaults to projectRoot
+    expect(result?.baseUrl).toBe(PROJECT_ROOT);
+  });
+
+  it("should shallow-merge child baseUrl with parent paths in compilerOptions", async () => {
+    const basePath = join(PROJECT_ROOT, "tsconfig.base.json");
+    spyOn(Bun, "file").mockImplementation((p) => {
+      const s = String(p);
+      if (s === TSCONFIG_PATH) {
+        return makeBunFile({
+          extends: "./tsconfig.base.json",
+          compilerOptions: { baseUrl: "src" },
+        });
+      }
+      if (s === basePath) {
+        return makeBunFile({
+          compilerOptions: { paths: { "@/*": ["lib/*"] } },
+        });
+      }
+      return makeBunFile(null);
+    });
+
+    const result = await loadTsconfigPaths(PROJECT_ROOT);
+
+    expect(result).not.toBeNull();
+    // Child baseUrl overrides (shallow merge), resolved against projectRoot
+    expect(result?.baseUrl).toBe(join(PROJECT_ROOT, "src"));
+    // Parent paths are inherited since child doesn't override paths
+    expect(result?.paths.get("@/*")).toEqual(["lib/*"]);
   });
 });

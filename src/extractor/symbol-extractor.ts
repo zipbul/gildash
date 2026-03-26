@@ -55,6 +55,39 @@ function keyName(key: OxcPropertyKey): string {
   return 'unknown';
 }
 
+/** Recursively collect all binding Identifier names from a destructuring pattern. */
+function collectBindingNames(pattern: BindingPattern): string[] {
+  if (pattern.type === 'Identifier') return [pattern.name];
+  if (pattern.type === 'ObjectPattern') {
+    const names: string[] = [];
+    for (const prop of pattern.properties) {
+      if (prop.type === 'RestElement') {
+        names.push(...collectBindingNames(prop.argument as BindingPattern));
+      } else {
+        names.push(...collectBindingNames((prop as BindingProperty).value));
+      }
+    }
+    return names;
+  }
+  if (pattern.type === 'ArrayPattern') {
+    const names: string[] = [];
+    for (const elem of pattern.elements) {
+      if (!elem) continue;
+      if (elem.type === 'RestElement') {
+        names.push(...collectBindingNames(elem.argument as BindingPattern));
+      } else {
+        names.push(...collectBindingNames(elem as BindingPattern));
+      }
+    }
+    return names;
+  }
+  // AssignmentPattern: const { a = 1 } = x → left is the binding
+  if (pattern.type === 'AssignmentPattern') {
+    return collectBindingNames(pattern.left as BindingPattern);
+  }
+  return [];
+}
+
 /** Structural shape for nodes that may carry modifier flags. */
 type ModifierBearing = {
   static?: boolean;
@@ -405,33 +438,13 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         const id = decl.id;
         const init = decl.init;
 
-        if (id.type === 'ObjectPattern') {
-          for (const prop of id.properties) {
-            if (prop.type === 'RestElement') continue;
-            const bp = prop as BindingProperty;
-            const propVal = bp.value;
-            const propName: string = ('name' in propVal && typeof propVal.name === 'string')
-              ? propVal.name
-              : keyName(bp.key);
+        if (id.type === 'ObjectPattern' || id.type === 'ArrayPattern') {
+          const names = collectBindingNames(id);
+          for (const n of names) {
             symbols.push({
               kind: 'variable' as SymbolKind,
-              name: propName,
-              span: span(prop.start, prop.end),
-              isExported,
-              modifiers: [],
-            });
-          }
-          continue;
-        }
-
-        if (id.type === 'ArrayPattern') {
-          for (const elem of id.elements) {
-            if (!elem || elem.type !== 'Identifier') continue;
-            const elemName: string = elem.name;
-            symbols.push({
-              kind: 'variable' as SymbolKind,
-              name: elemName,
-              span: span(elem.start, elem.end),
+              name: n,
+              span: span(id.start, id.end),
               isExported,
               modifiers: [],
             });
@@ -533,6 +546,19 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       };
     }
 
+    if (type === 'TSModuleDeclaration') {
+      const mod = node as { id: { name?: string; value?: string }; declare?: boolean; start: number; end: number };
+      const name: string = mod.id.name ?? mod.id.value ?? 'unknown';
+      const mods = extractModifiers(mod);
+      return {
+        kind: 'namespace' as SymbolKind,
+        name,
+        span: span(node.start, node.end),
+        isExported,
+        modifiers: mods,
+      };
+    }
+
     return null;
   }
 
@@ -570,6 +596,10 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
             : 'default';
           sym.isExported = true;
           sym.span = span(n.start, n.end);
+        } else if (!sym && 'type' in decl && (decl as { type: string }).type === 'Identifier') {
+          // export default <identifier> — mark the referenced variable as exported
+          const identName = (decl as IdentifierReference).name;
+          if (identName) deferredExportNames.add(identName);
         }
       }
     } else {
@@ -582,7 +612,8 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         declType === 'VariableDeclaration' ||
         declType === 'TSTypeAliasDeclaration' ||
         declType === 'TSInterfaceDeclaration' ||
-        declType === 'TSEnumDeclaration'
+        declType === 'TSEnumDeclaration' ||
+        declType === 'TSModuleDeclaration'
       ) {
         sym = buildSymbol(stmtNode as Declaration, false);
       }
