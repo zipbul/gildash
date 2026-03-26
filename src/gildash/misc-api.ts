@@ -110,7 +110,7 @@ export function resolveSymbol(
       if (!specifiers) continue;
       const match = specifiers.find((s) => s.exported === currentName);
       if (!match) continue;
-      nextFile = rel.dstFilePath;
+      nextFile = rel.dstFilePath ?? undefined;
       nextName = match.local;
       break;
     }
@@ -203,8 +203,8 @@ export async function getHeritageChain(
       );
 
       const children = heritageRels
-        .filter((r) => r.dstSymbolName != null)
-        .map((r) => buildNode(r.dstSymbolName!, r.dstFilePath, r.type));
+        .filter((r) => r.dstSymbolName != null && r.dstFilePath != null)
+        .map((r) => buildNode(r.dstSymbolName!, r.dstFilePath!, r.type));
 
       return { symbolName: symName, filePath: fp, kind, children };
     };

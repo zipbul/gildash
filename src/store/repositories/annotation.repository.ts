@@ -60,9 +60,9 @@ export class AnnotationRepository {
     symbolName?: string;
     source?: string;
     ftsQuery?: string;
-    limit: number;
+    limit?: number;
   }): AnnotationRecord[] {
-    return this.db.drizzleDb
+    const builder = this.db.drizzleDb
       .select()
       .from(annotations)
       .where(
@@ -76,8 +76,8 @@ export class AnnotationRepository {
             ? sql`${annotations.id} IN (SELECT rowid FROM annotations_fts WHERE annotations_fts MATCH ${opts.ftsQuery})`
             : undefined,
         ),
-      )
-      .limit(opts.limit)
-      .all() as AnnotationRecord[];
+      );
+    const limited = opts.limit !== undefined ? builder.limit(opts.limit) : builder;
+    return limited.all() as AnnotationRecord[];
   }
 }

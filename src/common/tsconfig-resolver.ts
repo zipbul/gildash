@@ -22,6 +22,51 @@ async function readConfig(configPath: string): Promise<Record<string, unknown> |
   }
 }
 
+/** Resolve a tsconfig extends value to an absolute config path. */
+function resolveExtendsPath(fromDir: string, extendsValue: string): string {
+  // Relative path: ./tsconfig.base.json
+  if (extendsValue.startsWith('.')) {
+    const resolved = path.resolve(fromDir, extendsValue);
+    return resolved.endsWith('.json') ? resolved : resolved + '.json';
+  }
+  // Bare specifier (npm package): try node_modules resolution
+  return path.resolve(fromDir, 'node_modules', extendsValue);
+}
+
+/** Read a tsconfig and recursively merge extends chain (up to maxDepth). */
+async function readConfigWithExtends(
+  configPath: string,
+  maxDepth: number = 5,
+): Promise<Record<string, unknown> | null> {
+  if (maxDepth <= 0) return null;
+
+  const config = await readConfig(configPath);
+  if (!config) return null;
+
+  const extendsValue = config.extends;
+  if (typeof extendsValue !== 'string' || !extendsValue) return config;
+
+  const parentPath = resolveExtendsPath(path.dirname(configPath), extendsValue);
+  const parentConfig = await readConfigWithExtends(parentPath, maxDepth - 1);
+  if (!parentConfig) return config;
+
+  // Merge: child compilerOptions override parent compilerOptions
+  const parentCompilerOptions =
+    typeof parentConfig.compilerOptions === 'object' && parentConfig.compilerOptions !== null
+      ? (parentConfig.compilerOptions as Record<string, unknown>)
+      : {};
+  const childCompilerOptions =
+    typeof config.compilerOptions === 'object' && config.compilerOptions !== null
+      ? (config.compilerOptions as Record<string, unknown>)
+      : {};
+
+  return {
+    ...parentConfig,
+    ...config,
+    compilerOptions: { ...parentCompilerOptions, ...childCompilerOptions },
+  };
+}
+
 export async function loadTsconfigPaths(projectRoot: string): Promise<TsconfigPaths | null> {
   if (cache.has(projectRoot)) {
     return cache.get(projectRoot) ?? null;
@@ -29,7 +74,7 @@ export async function loadTsconfigPaths(projectRoot: string): Promise<TsconfigPa
 
   const tsconfigPath = path.join(projectRoot, "tsconfig.json");
 
-  const config = await readConfig(tsconfigPath);
+  const config = await readConfigWithExtends(tsconfigPath);
   if (!config) {
     cache.set(projectRoot, null);
     return null;

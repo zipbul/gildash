@@ -42,7 +42,7 @@ function makeCtx(overrides?: Partial<GildashContext>): GildashContext {
   } as unknown as GildashContext;
 }
 
-function makeSym(name: string, detail?: Record<string, unknown>) {
+function makeSym(name: string, detail?: Record<string, unknown> | object) {
   return {
     name,
     kind: 'function',
@@ -243,12 +243,12 @@ describe('getFullSymbol', () => {
   it('should return enriched symbol with all detail fields present', () => {
     const detail = {
       members: [{ name: 'm1', kind: 'property' }],
-      jsDoc: '/** docs */',
-      parameters: '(a: number)',
+      jsDoc: { description: 'docs', tags: [] },
+      parameters: [{ name: 'a', type: 'number', isOptional: false }],
       returnType: 'void',
-      heritage: ['Base'],
-      decorators: [{ name: 'Component', args: '()' }],
-      typeParameters: '<T>',
+      heritage: [{ kind: 'extends' as const, name: 'Base' }],
+      decorators: [{ name: 'Component', arguments: ['()'] }],
+      typeParameters: ['T'],
     };
     const sym = makeSym('Foo', detail);
     const ctx = makeCtx({ symbolSearchFn: mock(() => [sym]) as any });
@@ -258,25 +258,16 @@ describe('getFullSymbol', () => {
     expect(result).not.toBeNull();
     expect(result!.name).toBe('Foo');
     expect(result!.members).toEqual(detail.members);
-    expect(result!.jsDoc).toBe('/** docs */');
-    expect(result!.parameters).toBe('(a: number)');
+    expect(result!.jsDoc).toEqual({ description: 'docs', tags: [] });
+    expect(result!.parameters).toEqual(detail.parameters);
     expect(result!.returnType).toBe('void');
-    expect(result!.heritage).toEqual(['Base']);
+    expect(result!.heritage).toEqual(detail.heritage);
     expect(result!.decorators).toEqual(detail.decorators);
-    expect(result!.typeParameters).toBe('<T>');
+    expect(result!.typeParameters).toEqual(['T']);
   });
 
-  it('should return undefined for missing or wrong-type detail fields', () => {
-    const detail = {
-      members: 'not-array',
-      jsDoc: 42,
-      parameters: {},
-      returnType: null,
-      heritage: 'not-array',
-      decorators: 'not-array',
-      typeParameters: 123,
-    };
-    const sym = makeSym('Bar', detail);
+  it('should return undefined for missing detail fields', () => {
+    const sym = makeSym('Bar', {});
     const ctx = makeCtx({ symbolSearchFn: mock(() => [sym]) as any });
 
     const result = getFullSymbol(ctx, 'Bar', 'src/a.ts');
@@ -522,9 +513,9 @@ describe('getSymbolsByFile', () => {
 describe('getModuleInterface', () => {
   it('should return exports with detail fields', () => {
     const sym = makeSym('Foo', {
-      parameters: '(x: string)',
+      parameters: [{ name: 'x', type: 'string', isOptional: false }],
       returnType: 'void',
-      jsDoc: '/** doc */',
+      jsDoc: { description: 'doc', tags: [] },
     });
     const ctx = makeCtx({ symbolSearchFn: mock(() => [sym]) as any });
 
@@ -535,7 +526,7 @@ describe('getModuleInterface', () => {
     expect(result.exports[0]!.name).toBe('Foo');
     expect(result.exports[0]!.parameters).toBe('(x: string)');
     expect(result.exports[0]!.returnType).toBe('void');
-    expect(result.exports[0]!.jsDoc).toBe('/** doc */');
+    expect(result.exports[0]!.jsDoc).toBe('doc');
   });
 
   it('should return undefined for missing optional fields', () => {

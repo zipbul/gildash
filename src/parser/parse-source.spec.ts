@@ -46,7 +46,7 @@ describe('parseSource', () => {
     const sourceText = 'function foo() {}';
     parseSource(filePath, sourceText, undefined, mockParseSync);
     expect(mockParseSync).toHaveBeenCalledTimes(1);
-    expect(mockParseSync).toHaveBeenCalledWith(filePath, sourceText, undefined);
+    expect(mockParseSync).toHaveBeenCalledWith(filePath, sourceText, { preserveParens: false });
   });
 
   it('should pass options as third argument to parseSyncFn when options are provided', () => {
@@ -55,7 +55,7 @@ describe('parseSource', () => {
     const sourceText = 'const a = 1;';
     const options = { sourceType: 'module' as const };
     parseSource(filePath, sourceText, options, mockParseSync);
-    expect(mockParseSync).toHaveBeenCalledWith(filePath, sourceText, options);
+    expect(mockParseSync).toHaveBeenCalledWith(filePath, sourceText, { preserveParens: false, ...options });
   });
 
   it('should return ParsedFile when options with lang tsx are provided', () => {
@@ -95,5 +95,16 @@ describe('parseSource', () => {
     if (isErr(r2)) throw r2.data;
     expect(r1).not.toBe(r2);
     expect(r1.program).toBe(r2.program);
+  });
+
+  it('should respect user-provided preserveParens: true when explicitly set', () => {
+    mockParseSync.mockClear();
+    const filePath = '/project/src/parens.ts';
+    const sourceText = '(1 + 2)';
+    const options = { preserveParens: true };
+    parseSource(filePath, sourceText, options, mockParseSync);
+    expect(mockParseSync).toHaveBeenCalledTimes(1);
+    // User-provided preserveParens: true should override the default false
+    expect(mockParseSync).toHaveBeenCalledWith(filePath, sourceText, { preserveParens: true });
   });
 });

@@ -8,6 +8,7 @@ import {
   getSemanticReferences,
   getImplementations,
   getSemanticModuleInterface,
+  getBaseTypes,
   getResolvedTypeAtPosition,
   getSemanticReferencesAtPosition,
   getImplementationsAtPosition,
@@ -38,6 +39,7 @@ function makeSemanticLayer(overrides?: Record<string, unknown>) {
     findImplementations: mock(() => []),
     getModuleInterface: mock(() => ({ exports: [] })),
     getSymbolNode: mock(() => null),
+    getBaseTypes: mock(() => []),
     getDiagnostics: mock(() => []),
     isTypeAssignableTo: mock(() => true),
     isTypeAssignableToType: mock(() => true),
@@ -843,6 +845,64 @@ describe('isTypeAssignableToType', () => {
 
     try {
       isTypeAssignableToType(ctx, '/a.ts', 0, 'Error');
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GildashError);
+      expect((e as GildashError).type).toBe('semantic');
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
+});
+
+// ─── getBaseTypes ─────────────────────────────────────────────────────
+
+describe('getBaseTypes', () => {
+  it('should delegate to semanticLayer.getBaseTypes with absolute path', () => {
+    const baseTypes = [{ text: 'Animal', flags: 0, isUnion: false, isIntersection: false, isGeneric: false }];
+    const gbt = mock(() => baseTypes);
+    const layer = makeSemanticLayer({ getBaseTypes: gbt });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    const result = getBaseTypes(ctx, '/project/src/a.ts', 100);
+
+    expect(result).toBe(baseTypes as any);
+    expect(gbt).toHaveBeenCalledWith('/project/src/a.ts', 100);
+  });
+
+  it('should resolve relative path via projectRoot', () => {
+    const gbt = mock(() => null);
+    const layer = makeSemanticLayer({ getBaseTypes: gbt });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    getBaseTypes(ctx, 'src/a.ts', 100);
+
+    expect(gbt).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'), 100);
+  });
+
+  it('should return null when semanticLayer returns null', () => {
+    const layer = makeSemanticLayer({ getBaseTypes: mock(() => null) });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    expect(getBaseTypes(ctx, '/a.ts', 0)).toBeNull();
+  });
+
+  it('should throw when closed', () => {
+    const ctx = makeCtx({ closed: true });
+    expect(() => getBaseTypes(ctx, '/a.ts', 0)).toThrow(GildashError);
+  });
+
+  it('should throw when semantic layer is null', () => {
+    const ctx = makeCtx({ semanticLayer: null });
+    expect(() => getBaseTypes(ctx, '/a.ts', 0)).toThrow(GildashError);
+  });
+
+  it('should catch exception and throw GildashError with cause', () => {
+    const error = new Error('base types fail');
+    const layer = makeSemanticLayer({ getBaseTypes: mock(() => { throw error; }) });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    try {
+      getBaseTypes(ctx, '/a.ts', 0);
       expect.unreachable('should have thrown');
     } catch (e) {
       expect(e).toBeInstanceOf(GildashError);

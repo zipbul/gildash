@@ -5,10 +5,6 @@ export {
   getLineColumn,
 } from './source-position';
 export {
-  isNode,
-  isNodeArray,
-  visit,
-  collectNodes,
   getNodeHeader,
   isFunctionNode,
   getNodeName,

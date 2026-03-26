@@ -314,6 +314,10 @@ export class Gildash {
     return semanticApi.getSymbolNode(this._ctx, filePath, position);
   }
 
+  getBaseTypes(filePath: string, position: number): ResolvedType[] | null {
+    return semanticApi.getBaseTypes(this._ctx, filePath, position);
+  }
+
   getSemanticDiagnostics(filePath: string, options?: GetDiagnosticsOptions): SemanticDiagnostic[] {
     return semanticApi.getSemanticDiagnostics(this._ctx, filePath, options);
   }

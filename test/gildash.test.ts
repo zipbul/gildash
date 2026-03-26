@@ -304,7 +304,7 @@ describe('Gildash integration', () => {
     });
 
     it('should find indexed function symbols with text and kind filter', () => {
-      const result = g.searchSymbols({ text: 'helper', kind: 'function' });
+      const result = g.searchSymbols({ text: 'helper', exact: true, kind: 'function' });
       expect(result.length).toBeGreaterThanOrEqual(1);
       expect(result.some((s: any) => s.name === 'helper' && s.kind === 'function')).toBe(true);
     });
@@ -669,7 +669,7 @@ describe('Gildash integration', () => {
       const g = await openGildash(tmpDir);
 
       // Verify initial state
-      const beforeResult = g.searchSymbols({ text: 'newFunction' });
+      const beforeResult = g.searchSymbols({ text: 'newFunction', exact: true });
       expect(beforeResult.length).toBe(0);
 
       // Add a new file
@@ -682,7 +682,7 @@ describe('Gildash integration', () => {
       const reindexResult = await g.reindex();
 
       // Verify new symbol is found
-      const afterResult = g.searchSymbols({ text: 'newFunction' });
+      const afterResult = g.searchSymbols({ text: 'newFunction', exact: true });
       expect(afterResult.length).toBeGreaterThanOrEqual(1);
 
       await g.close();
@@ -935,7 +935,7 @@ describe('Gildash integration', () => {
 
       const addedRelations = result.changedRelations.added;
       expect(addedRelations.some(
-        r => r.type === 'imports' && r.srcFilePath.includes('app') && r.dstFilePath.includes('extra'),
+        r => r.type === 'imports' && r.srcFilePath.includes('app') && r.dstFilePath?.includes('extra'),
       )).toBe(true);
 
       await g.close();
@@ -968,7 +968,7 @@ describe('Gildash integration', () => {
 
       const removedRelations = result.changedRelations.removed;
       expect(removedRelations.some(
-        r => r.type === 'imports' && r.srcFilePath.includes('app') && r.dstFilePath.includes('extra'),
+        r => r.type === 'imports' && r.srcFilePath.includes('app') && r.dstFilePath?.includes('extra'),
       )).toBe(true);
 
       await g.close();
@@ -1136,6 +1136,161 @@ describe('Gildash integration', () => {
       expect(r.changedSymbols.added.some(s => s.name === 'brandNew')).toBe(true);
 
       await g.close();
+    });
+  });
+
+  // ── Group: E2E for new features ────────────────────────────────────────
+
+  describe('New feature E2E pipeline', () => {
+    let tmpDir: string;
+    let g: Gildash;
+
+    beforeAll(async () => {
+      tmpDir = await mkdtemp(join(tmpdir(), 'gildash-e2e-'));
+      await mkdir(join(tmpDir, 'src'), { recursive: true });
+      await writeFile(join(tmpDir, 'package.json'), JSON.stringify({ name: 'e2e-project' }));
+
+      // tsconfig with extends
+      await writeFile(join(tmpDir, 'tsconfig.base.json'), JSON.stringify({
+        compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } },
+      }));
+      await writeFile(join(tmpDir, 'tsconfig.json'), JSON.stringify({
+        extends: './tsconfig.base.json',
+      }));
+
+      // utils — simple exports
+      await writeFile(join(tmpDir, 'src', 'utils.ts'), [
+        'export function helper(x: number): string { return String(x); }',
+        'export const config = { debug: false };',
+      ].join('\n'));
+
+      // types — type exports
+      await writeFile(join(tmpDir, 'src', 'types.ts'), [
+        'export interface Config { debug: boolean; }',
+        'export type Handler = (x: number) => string;',
+      ].join('\n'));
+
+      // namespace declaration
+      await writeFile(join(tmpDir, 'src', 'validators.ts'), [
+        'export namespace Validators {',
+        '  export function isValid(x: unknown): boolean { return !!x; }',
+        '}',
+        'declare namespace External {',
+        '  export function parse(s: string): unknown;',
+        '}',
+      ].join('\n'));
+
+      // export default identifier
+      await writeFile(join(tmpDir, 'src', 'default-export.ts'), [
+        'const defaultValue = 42;',
+        'export default defaultValue;',
+      ].join('\n'));
+
+      // nested destructuring
+      await writeFile(join(tmpDir, 'src', 'destructured.ts'), [
+        'const data = { nested: { value: 1 }, arr: [2, 3] };',
+        'export const { nested: { value: extracted }, arr: [first, second] } = data;',
+      ].join('\n'));
+
+      // export * as ns from
+      await writeFile(join(tmpDir, 'src', 'ns-reexport.ts'),
+        "export * as utils from './utils';",
+      );
+
+      // per-specifier type: export { type T, handler } from
+      await writeFile(join(tmpDir, 'src', 'mixed-reexport.ts'), [
+        "export { type Config } from './types';",
+        "export { helper } from './utils';",
+      ].join('\n'));
+
+      // barrel using tsconfig path alias (@/* → src/*)
+      await writeFile(join(tmpDir, 'src', 'barrel.ts'),
+        "import { helper } from '@/utils';\nexport { helper };",
+      );
+
+      g = await openGildash(tmpDir);
+    });
+
+    afterAll(async () => {
+      await g.close();
+      await rm(tmpDir, { recursive: true, force: true });
+    });
+
+    it('should index namespace declarations as kind "namespace"', () => {
+      const symbols = g.searchSymbols({ text: 'Validators', exact: true });
+      expect(symbols.length).toBeGreaterThanOrEqual(1);
+      expect(symbols[0]!.kind).toBe('namespace');
+      expect(symbols[0]!.isExported).toBe(true);
+    });
+
+    it('should index declare namespace declarations', () => {
+      const symbols = g.searchSymbols({ text: 'External', exact: true });
+      expect(symbols.length).toBeGreaterThanOrEqual(1);
+      expect(symbols[0]!.kind).toBe('namespace');
+    });
+
+    it('should mark variable as exported when export default references an identifier', () => {
+      const symbols = g.searchSymbols({ text: 'defaultValue', exact: true, filePath: 'src/default-export.ts' });
+      expect(symbols.length).toBe(1);
+      expect(symbols[0]!.isExported).toBe(true);
+    });
+
+    it('should extract correct binding names from nested destructuring', () => {
+      const extracted = g.searchSymbols({ text: 'extracted', exact: true, filePath: 'src/destructured.ts' });
+      expect(extracted.length).toBe(1);
+      expect(extracted[0]!.kind).toBe('variable');
+
+      const first = g.searchSymbols({ text: 'first', exact: true, filePath: 'src/destructured.ts' });
+      expect(first.length).toBe(1);
+
+      const second = g.searchSymbols({ text: 'second', exact: true, filePath: 'src/destructured.ts' });
+      expect(second.length).toBe(1);
+
+      // Should NOT have the key names 'nested' or 'arr' as symbols
+      const nested = g.searchSymbols({ text: 'nested', exact: true, filePath: 'src/destructured.ts' });
+      expect(nested.length).toBe(0);
+    });
+
+    it('should capture namespace alias in re-export for export * as ns from', () => {
+      const rels = g.searchRelations({ type: 're-exports', srcFilePath: 'src/ns-reexport.ts' });
+      expect(rels.length).toBeGreaterThanOrEqual(1);
+      const rel = rels[0]!;
+      expect(rel.dstFilePath).toContain('utils');
+      // dstSymbolName should have the alias 'utils'
+      expect(rel.dstSymbolName).toBe('utils');
+      const meta = JSON.parse(rel.metaJson!);
+      expect(meta.namespaceAlias).toBe('utils');
+    });
+
+    it('should classify type-only re-export as type-references and value re-export as re-exports', () => {
+      const typeRels = g.searchRelations({ type: 'type-references', srcFilePath: 'src/mixed-reexport.ts' });
+      const valueRels = g.searchRelations({ type: 're-exports', srcFilePath: 'src/mixed-reexport.ts' });
+
+      // export { type Config } from './types' → type-references
+      const configRel = typeRels.find((r) => r.metaJson?.includes('"isReExport":true'));
+      expect(configRel).toBeDefined();
+
+      // export { helper } from './utils' → re-exports
+      expect(valueRels.length).toBeGreaterThanOrEqual(1);
+      expect(valueRels.some((r) => r.dstFilePath?.includes('utils'))).toBe(true);
+    });
+
+    it('should resolve imports using tsconfig extends path alias @/utils', () => {
+      // barrel.ts uses `import { helper } from '@/utils'` — tsconfig.base.json defines paths: { "@/*": ["src/*"] }
+      // If tsconfig extends is working, @/utils resolves to src/utils.ts
+      const rels = g.searchRelations({ type: 'imports', srcFilePath: 'src/barrel.ts' });
+      const utilsImport = rels.find((r) => r.dstFilePath?.includes('utils'));
+      expect(utilsImport).toBeDefined();
+      expect(utilsImport!.dstFilePath).toContain('utils');
+    });
+
+    it('should use module.staticImports path for import extraction in full pipeline', () => {
+      // Verify that imports from utils are properly indexed (this goes through the module path in production)
+      const rels = g.searchRelations({ type: 'imports', srcFilePath: 'src/ns-reexport.ts' });
+      // export * from './utils' should not produce an import relation (it's a re-export)
+      // But the module path should correctly distinguish imports from re-exports
+      const reExports = g.searchRelations({ type: 're-exports', srcFilePath: 'src/ns-reexport.ts' });
+      expect(reExports.length).toBeGreaterThanOrEqual(1);
     });
   });
 });

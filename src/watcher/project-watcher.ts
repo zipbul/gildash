@@ -9,6 +9,7 @@ type FileEvent = Parameters<SubscribeCallback>[1][number];
 type SubscribeOptions = NonNullable<Parameters<typeof parcelSubscribe>[2]>;
 import path from "node:path";
 import { GildashError } from "../errors";
+import { normalizePath } from "../common/path-utils";
 import type { FileChangeEvent, FileChangeEventType, WatcherOptions } from "./types";
 import type { Logger } from "../gildash";
 import { DATA_DIR } from "../constants";
@@ -27,10 +28,6 @@ const WATCHER_IGNORE_GLOBS: readonly string[] = [
 ];
 
 const CONFIG_FILE_NAMES = new Set(["package.json", "tsconfig.json"]);
-
-function normalizePath(value: string): string {
-  return value.replaceAll("\\", "/");
-}
 
 function mapEventType(type: FileEvent["type"]): FileChangeEventType {
   if (type === "update") {

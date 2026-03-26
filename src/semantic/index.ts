@@ -9,10 +9,11 @@ import ts from "typescript";
 import { err, isErr, type Result } from "@zipbul/result";
 import { GildashError } from "../errors";
 import { TscProgram, type TscProgramOptions } from "./tsc-program";
-import { TypeCollector } from "./type-collector";
+import { TypeCollector, buildResolvedType } from "./type-collector";
 import { SymbolGraph, type SymbolNode } from "./symbol-graph";
 import { ReferenceResolver } from "./reference-resolver";
 import { ImplementationFinder } from "./implementation-finder";
+import { findNodeAtPosition } from "./ast-node-utils";
 import type {
   ResolvedType,
   SemanticReference,
@@ -197,61 +198,86 @@ export class SemanticLayer {
     return this.#symbolGraph.get(filePath, position);
   }
 
+  // ── Base types (inheritance chain) ──────────────────────────────────────
+
+  /**
+   * Return the base types (supertypes) of the class/interface at the given position.
+   *
+   * Uses `checker.getBaseTypes()` which only works on interface/class types.
+   * Returns `null` if the type at position is not a class or interface.
+   */
+  getBaseTypes(filePath: string, position: number): ResolvedType[] | null {
+    this.#assertNotDisposed();
+
+    const tsProgram = this.#program.getProgram();
+    const sourceFile = tsProgram.getSourceFile(filePath);
+    if (!sourceFile) return null;
+
+    const node = findNodeAtPosition(sourceFile, position);
+    if (!node) return null;
+
+    const checker = this.#program.getChecker();
+    const type = checker.getTypeAtLocation(node);
+
+    // getBaseTypes only works on InterfaceType (class & interface)
+    if (
+      !(type.flags & ts.TypeFlags.Object) ||
+      !((type as ts.ObjectType).objectFlags & ts.ObjectFlags.ClassOrInterface)
+    ) {
+      return null;
+    }
+
+    const baseTypes = checker.getBaseTypes(type as ts.InterfaceType);
+    if (!baseTypes || baseTypes.length === 0) return [];
+
+    return baseTypes.map((bt) => buildResolvedType(checker, bt));
+  }
+
   // ── Module interface ────────────────────────────────────────────────────
 
   getModuleInterface(filePath: string): SemanticModuleInterface {
     this.#assertNotDisposed();
 
-    const typeMap = this.#typeCollector.collectFile(filePath);
     const exports: SemanticExport[] = [];
 
-    // AST에서 export 선언을 탐색
     const tsProgram = this.#program.getProgram();
     const sourceFile = tsProgram.getSourceFile(filePath);
     if (!sourceFile) return { filePath, exports };
 
-    function visit(node: ts.Node): void {
-      // export const/let/var — VariableStatement 레벨에서 export 체크
-      if (ts.isVariableStatement(node) && hasExportModifier(node)) {
-        for (const decl of node.declarationList.declarations) {
-          if (ts.isIdentifier(decl.name)) {
-            const nameStartPos = decl.name.getStart(sourceFile!);
-            const resolvedType = typeMap.get(nameStartPos) ?? null;
-            exports.push({
-              name: decl.name.text,
-              kind: "const",
-              resolvedType,
-            });
+    const checker = this.#program.getChecker();
+    const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
+
+    if (moduleSymbol) {
+      // Use checker.getExportsOfModule() — catches indirect exports, re-exports,
+      // and `export =` that AST walking misses.
+      const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
+
+      for (const exportSym of exportedSymbols) {
+        const name = exportSym.getName();
+
+        // Classify the export kind from its declaration
+        const decl = exportSym.declarations?.[0];
+        let kind = "unknown";
+        if (decl) {
+          kind = classifyDeclKind(decl);
+          // Variable declarations are children of VariableDeclarationList -> VariableStatement
+          if (kind === "unknown" && ts.isExportAssignment(decl)) {
+            kind = "const";
           }
         }
-        return; // 자식 노드 재방문 불필요
-      }
 
-      // export function / class / interface / type / enum
-      if (
-        (ts.isFunctionDeclaration(node) ||
-          ts.isClassDeclaration(node) ||
-          ts.isInterfaceDeclaration(node) ||
-          ts.isTypeAliasDeclaration(node) ||
-          ts.isEnumDeclaration(node)) &&
-        hasExportModifier(node) &&
-        node.name
-      ) {
-        const nameNode = node.name;
-        const nameStartPos = nameNode.getStart(sourceFile!);
-        const resolvedType = typeMap.get(nameStartPos) ?? null;
-        exports.push({
-          name: nameNode.text,
-          kind: classifyDeclKind(node),
-          resolvedType,
-        });
-        return;
-      }
+        // Build resolved type via checker
+        let resolvedType: ResolvedType | null = null;
+        try {
+          const type = checker.getTypeOfSymbolAtLocation(exportSym, decl ?? sourceFile);
+          resolvedType = buildResolvedType(checker, type);
+        } catch {
+          // Type resolution failure — leave as null
+        }
 
-      ts.forEachChild(node, visit);
+        exports.push({ name, kind, resolvedType });
+      }
     }
-
-    visit(sourceFile);
 
     return { filePath, exports };
   }

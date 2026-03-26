@@ -233,6 +233,14 @@ describe('extractSymbols', () => {
     expect(def?.isExported).toBe(true);
   });
 
+  it('should mark referenced variable as exported when export default references an identifier', () => {
+    const parsed = makeFixture(`const x = 42;\nexport default x;`);
+    const symbols = extractSymbols(parsed);
+    const x = symbols.find((s) => s.name === 'x');
+    expect(x).toBeDefined();
+    expect(x?.isExported).toBe(true);
+  });
+
   it('should return same symbol count when called repeatedly with the same ParsedFile', () => {
     const parsed = makeFixture(`function a() {} function b() {}`);
     const r1 = extractSymbols(parsed);
@@ -483,17 +491,50 @@ describe('extractSymbols', () => {
     expect(symbols[0]!.name).toBe('b');
   });
 
-  it('should extract no symbols when ArrayPattern contains only RestElement without Identifier elements', () => {
+  it('should extract rest binding name when ArrayPattern contains only RestElement', () => {
     const parsed = makeFixture(`const [...rest] = arr;`);
     const symbols = extractSymbols(parsed);
-    expect(symbols).toHaveLength(0);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]!.name).toBe('rest');
   });
 
-  it('should extract only Identifier elements when ArrayPattern mixes Identifier with RestElement', () => {
+  it('should extract both Identifier and RestElement bindings from ArrayPattern', () => {
     const parsed = makeFixture(`const [a, ...rest] = arr;`);
     const symbols = extractSymbols(parsed);
+    expect(symbols).toHaveLength(2);
+    expect(symbols.map((s) => s.name)).toEqual(['a', 'rest']);
+  });
+
+  it('should extract deeply nested binding names from ObjectPattern with nested ObjectPattern and ArrayPattern', () => {
+    const parsed = makeFixture(`export const { a: { b: c }, d: [e, f] } = something;`);
+    const symbols = extractSymbols(parsed);
+    expect(symbols.map((s) => s.name)).toEqual(['c', 'e', 'f']);
+    for (const s of symbols) expect(s.isExported).toBe(true);
+  });
+
+  it('should extract binding name from AssignmentPattern with default value in destructuring', () => {
+    const parsed = makeFixture(`const { x = 10 } = obj;`);
+    const symbols = extractSymbols(parsed);
     expect(symbols).toHaveLength(1);
-    expect(symbols[0]!.name).toBe('a');
+    expect(symbols[0]!.name).toBe('x');
+  });
+
+  it('should extract namespace declaration as kind "namespace"', () => {
+    const parsed = makeFixture(`export namespace MyNS { export function hello() {} }`);
+    const symbols = extractSymbols(parsed);
+    const ns = symbols.find((s) => s.name === 'MyNS');
+    expect(ns).toBeDefined();
+    expect(ns?.kind).toBe('namespace');
+    expect(ns?.isExported).toBe(true);
+  });
+
+  it('should extract non-exported namespace declaration', () => {
+    const parsed = makeFixture(`namespace Internal {}`);
+    const symbols = extractSymbols(parsed);
+    const ns = symbols.find((s) => s.name === 'Internal');
+    expect(ns).toBeDefined();
+    expect(ns?.kind).toBe('namespace');
+    expect(ns?.isExported).toBe(false);
   });
 
   it('should leave jsDoc undefined when another AST statement intervenes between the JSDoc comment and the symbol', () => {
@@ -677,9 +718,10 @@ describe('extractSymbols', () => {
     const parsed = makeFixture(`abstract class A { abstract run(): void; }`);
     const symbols = extractSymbols(parsed);
     const cls = symbols.find((s) => s.name === 'A');
-    // oxc-parser emits TSAbstractMethodDefinition for abstract methods,
-    // which extractClassMembers does not handle — so no member is extracted
-    expect(cls?.members).toBeUndefined();
+    // oxc-parser emits TSAbstractMethodDefinition for abstract methods
+    const method = cls?.members?.find((m) => m.name === 'run');
+    expect(method).toBeDefined();
+    expect(method?.modifiers).toContain('abstract');
     // The class-level abstract modifier is still extracted
     expect(cls?.modifiers).toContain('abstract');
   });
@@ -808,5 +850,87 @@ describe('extractSymbols', () => {
     const member = cls?.members?.find((m) => m.name === 'secret');
     expect(member).toBeDefined();
     expect(member!.kind).toBe('property');
+  });
+
+  // ─── Destructuring edge cases ───────────────────────────────────────
+
+  it('should extract both named and rest bindings when ObjectPattern has RestElement', () => {
+    const parsed = makeFixture(`export const { a, ...rest } = obj;`);
+    const symbols = extractSymbols(parsed);
+    const names = symbols.map((s) => s.name);
+    expect(names).toEqual(['a', 'rest']);
+  });
+
+  it('should extract binding names when ArrayPattern elements have AssignmentPattern defaults', () => {
+    const parsed = makeFixture(`const [x = 1, y = 2] = arr;`);
+    const symbols = extractSymbols(parsed);
+    const names = symbols.map((s) => s.name);
+    expect(names).toEqual(['x', 'y']);
+  });
+
+  it('should extract deepest binding name when ObjectPattern has 3+ levels of nesting', () => {
+    const parsed = makeFixture(`const { a: { b: { c } } } = obj;`);
+    const symbols = extractSymbols(parsed);
+    const names = symbols.map((s) => s.name);
+    expect(names).toEqual(['c']);
+  });
+
+  it('should extract binding names when ObjectPattern is nested inside ArrayPattern', () => {
+    const parsed = makeFixture(`const [{ a, b }] = arr;`);
+    const symbols = extractSymbols(parsed);
+    const names = symbols.map((s) => s.name);
+    expect(names).toEqual(['a', 'b']);
+  });
+
+  it('should extract binding names when ArrayPattern is nested inside ArrayPattern', () => {
+    const parsed = makeFixture(`const [[a, b]] = arr;`);
+    const symbols = extractSymbols(parsed);
+    const names = symbols.map((s) => s.name);
+    expect(names).toEqual(['a', 'b']);
+  });
+
+  // ─── Export default referencing declarations ────────────────────────
+
+  it('should mark function as exported when export default references a function declaration', () => {
+    const parsed = makeFixture(`function foo() {}\nexport default foo;`);
+    const symbols = extractSymbols(parsed);
+    const foo = symbols.find((s) => s.name === 'foo');
+    expect(foo).toBeDefined();
+    expect(foo!.isExported).toBe(true);
+  });
+
+  it('should mark class as exported when export default references a class declaration', () => {
+    const parsed = makeFixture(`class Bar {}\nexport default Bar;`);
+    const symbols = extractSymbols(parsed);
+    const bar = symbols.find((s) => s.name === 'Bar');
+    expect(bar).toBeDefined();
+    expect(bar!.isExported).toBe(true);
+  });
+
+  it('should not crash when export default references a non-existent identifier', () => {
+    const parsed = makeFixture(`export default unknownIdent;`);
+    const symbols = extractSymbols(parsed);
+    // unknownIdent is not declared in this file, so no symbol is created for it.
+    // The deferredExportNames set will contain 'unknownIdent' but no symbol matches.
+    expect(symbols).toHaveLength(0);
+  });
+
+  // ─── Namespace declarations ─────────────────────────────────────────
+
+  it('should extract declare namespace as kind "namespace" with declare modifier', () => {
+    const parsed = makeFixture(`declare namespace Foo { export function bar(): void; }`);
+    const symbols = extractSymbols(parsed);
+    const ns = symbols.find((s) => s.name === 'Foo');
+    expect(ns).toBeDefined();
+    expect(ns!.kind).toBe('namespace');
+    expect(ns!.modifiers).toContain('declare');
+  });
+
+  it('should extract module with string literal name as kind "namespace"', () => {
+    const parsed = makeFixture(`declare module "myModule" { export function bar(): void; }`);
+    const symbols = extractSymbols(parsed);
+    const ns = symbols.find((s) => s.name === 'myModule');
+    expect(ns).toBeDefined();
+    expect(ns!.kind).toBe('namespace');
   });
 });

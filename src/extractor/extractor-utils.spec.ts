@@ -180,6 +180,48 @@ describe('resolveImport', () => {
     expect(result).toEqual(['/project/lib/utils.ts']);
   });
 
+  it('should generate candidates from all targets when wildcard alias has multiple targets', () => {
+    let callCount = 0;
+    mockResolve.mockImplementation((_base: string, target: string) => {
+      callCount++;
+      return `/project/${target}`;
+    });
+    mockExtname.mockReturnValue('');
+
+    const tsconfigPaths = {
+      baseUrl: '/project',
+      paths: new Map([['@/*', ['src/*', 'lib/*']]]),
+    };
+    const result = resolveImport('/project/app/index.ts', '@/utils', tsconfigPaths);
+
+    // 8 candidates per target × 2 targets = 16
+    expect(result).toHaveLength(16);
+    expect(result).toContain('/project/src/utils.ts');
+    expect(result).toContain('/project/lib/utils.ts');
+    expect(result).toContain('/project/src/utils/index.ts');
+    expect(result).toContain('/project/lib/utils/index.ts');
+  });
+
+  it('should generate candidates from all targets when exact alias has multiple targets', () => {
+    let callCount = 0;
+    mockResolve.mockImplementation((_base: string, target: string) => {
+      callCount++;
+      return `/project/${target}`;
+    });
+    mockExtname.mockReturnValue('');
+
+    const tsconfigPaths = {
+      baseUrl: '/project',
+      paths: new Map([['@root', ['src/index', 'lib/index']]]),
+    };
+    const result = resolveImport('/project/app/index.ts', '@root', tsconfigPaths);
+
+    // 8 candidates per target × 2 targets = 16
+    expect(result).toHaveLength(16);
+    expect(result).toContain('/project/src/index.ts');
+    expect(result).toContain('/project/lib/index.ts');
+  });
+
   it('should include both .ts and /index.ts candidates when relative import has no extension', () => {
     mockDirname.mockReturnValue('/project/src');
     mockResolve.mockReturnValue('/project/src/utils');

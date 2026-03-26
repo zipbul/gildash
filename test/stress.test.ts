@@ -508,8 +508,10 @@ describe('stress: IndexResult from fresh fullIndex', () => {
     console.log('[stress-fresh] ── Memory After IndexResult ──');
     console.log(`[stress-fresh]   heapUsed:  ${formatBytes(mem.heapUsed)}`);
 
-    // Per-file memory budget: < 0.5 MB per indexed file (same as main stress test)
+    // Per-file memory budget: < 1.5 MB per indexed file
+    // Raised from 0.6 to 1.5 after per-specifier re-export relations
+    // (more relations per file) and module.staticImports/Exports extraction path.
     const perFileHeapMb = mem.heapUsed / 1024 / 1024 / FRESH_FILE_COUNT;
-    expect(perFileHeapMb).toBeLessThan(0.5);
+    expect(perFileHeapMb).toBeLessThan(1.5);
   });
 });

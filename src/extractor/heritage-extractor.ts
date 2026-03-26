@@ -1,6 +1,7 @@
-import type { Program } from 'oxc-parser';
+import type { Program, Class, TSInterfaceDeclaration, TSInterfaceHeritage, TSClassImplements } from 'oxc-parser';
+import { Visitor } from 'oxc-parser';
 import type { ImportReference, CodeRelation } from './types';
-import { visit, getQualifiedName } from '../parser/ast-utils';
+import { getQualifiedName } from '../parser/ast-utils';
 
 export function extractHeritage(
   ast: Program,
@@ -9,29 +10,8 @@ export function extractHeritage(
 ): CodeRelation[] {
   const relations: CodeRelation[] = [];
 
-  visit(ast, (node) => {
-    if (node.type === 'TSInterfaceDeclaration') {
-      const interfaceName: string = ((node.id as { name?: string } | undefined)?.name) ?? 'AnonymousInterface';
-      const interfaces = (node.extends as unknown[] | undefined) ?? [];
-      for (const item of interfaces) {
-        const expr = (item as { expression?: unknown }).expression ?? item;
-        const qn = getQualifiedName(expr);
-        if (!qn) continue;
-        const rel = resolveHeritageDst(qn, filePath, importMap);
-        relations.push({
-          type: 'extends',
-          srcFilePath: filePath,
-          srcSymbolName: interfaceName,
-          ...rel,
-        });
-      }
-      return;
-    }
-
-    if (node.type !== 'ClassDeclaration' && node.type !== 'ClassExpression') return;
-
-    const className: string =
-      ((node.id as { name?: string } | undefined)?.name) ?? 'AnonymousClass';
+  function processClass(node: Class): void {
+    const className: string = node.id?.name ?? 'AnonymousClass';
 
     if (node.superClass) {
       const qn = getQualifiedName(node.superClass);
@@ -46,10 +26,9 @@ export function extractHeritage(
       }
     }
 
-    const impls = (node.implements as unknown[] | undefined) ?? [];
+    const impls: readonly TSClassImplements[] = node.implements ?? [];
     for (const impl of impls) {
-      const expr = (impl as { expression?: unknown }).expression ?? impl;
-      const qn = getQualifiedName(expr);
+      const qn = getQualifiedName(impl.expression);
       if (!qn) continue;
       const rel = resolveHeritageDst(qn, filePath, importMap);
       relations.push({
@@ -59,7 +38,32 @@ export function extractHeritage(
         ...rel,
       });
     }
+  }
+
+  const visitor = new Visitor({
+    TSInterfaceDeclaration(node: TSInterfaceDeclaration) {
+      const interfaceName: string = node.id.name ?? 'AnonymousInterface';
+      const heritages: readonly TSInterfaceHeritage[] = node.extends;
+      for (const item of heritages) {
+        const qn = getQualifiedName(item.expression);
+        if (!qn) continue;
+        const rel = resolveHeritageDst(qn, filePath, importMap);
+        relations.push({
+          type: 'extends',
+          srcFilePath: filePath,
+          srcSymbolName: interfaceName,
+          ...rel,
+        });
+      }
+    },
+    ClassDeclaration(node: Class) {
+      processClass(node);
+    },
+    ClassExpression(node: Class) {
+      processClass(node);
+    },
   });
+  visitor.visit(ast);
 
   return relations;
 }

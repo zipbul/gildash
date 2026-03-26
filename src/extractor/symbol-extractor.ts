@@ -6,82 +6,98 @@ import type {
   Modifier,
   Heritage,
   Parameter,
-  Decorator,
+  Decorator as ExtractorDecorator,
 } from './types';
+import type {
+  Span,
+  Statement,
+  Directive,
+  Declaration,
+  ExportNamedDeclaration,
+  ExportDefaultDeclaration,
+  Function as OxcFunction,
+  Class as OxcClass,
+  VariableDeclaration,
+  TSTypeAliasDeclaration,
+  TSInterfaceDeclaration,
+  TSEnumDeclaration,
+  TSTypeAnnotation,
+  Decorator as OxcDecorator,
+  ParamPattern,
+  TSParameterProperty,
+  FormalParameterRest,
+  ClassElement,
+  MethodDefinition,
+  PropertyDefinition,
+  TSSignature,
+  TSMethodSignature,
+  TSPropertySignature,
+  TSEnumMember,
+  TSClassImplements,
+  TSInterfaceHeritage,
+  TSTypeParameterDeclaration,
+  PropertyKey as OxcPropertyKey,
+  BindingPattern,
+  BindingProperty,
+  ArrowFunctionExpression,
+  CallExpression as OxcCallExpression,
+  IdentifierReference,
+  Argument,
+} from 'oxc-parser';
 import { buildLineOffsets, getLineColumn } from '../parser/source-position';
 import { parseJsDoc } from '../parser/jsdoc-parser';
 import { isErr } from '@zipbul/result';
 
-type OxcSpan = { start: number; end: number };
+/** Extract the name string from an oxc PropertyKey node. */
+function keyName(key: OxcPropertyKey): string {
+  if ('name' in key && typeof key.name === 'string') return key.name;
+  if ('value' in key && typeof key.value === 'string') return key.value;
+  return 'unknown';
+}
 
-type OxcTypeAnn = OxcSpan & { typeAnnotation?: OxcSpan };
+/** Recursively collect all binding Identifier names from a destructuring pattern. */
+function collectBindingNames(pattern: BindingPattern): string[] {
+  if (pattern.type === 'Identifier') return [pattern.name];
+  if (pattern.type === 'ObjectPattern') {
+    const names: string[] = [];
+    for (const prop of pattern.properties) {
+      if (prop.type === 'RestElement') {
+        names.push(...collectBindingNames(prop.argument as BindingPattern));
+      } else {
+        names.push(...collectBindingNames((prop as BindingProperty).value));
+      }
+    }
+    return names;
+  }
+  if (pattern.type === 'ArrayPattern') {
+    const names: string[] = [];
+    for (const elem of pattern.elements) {
+      if (!elem) continue;
+      if (elem.type === 'RestElement') {
+        names.push(...collectBindingNames(elem.argument as BindingPattern));
+      } else {
+        names.push(...collectBindingNames(elem as BindingPattern));
+      }
+    }
+    return names;
+  }
+  // AssignmentPattern: const { a = 1 } = x → left is the binding
+  if (pattern.type === 'AssignmentPattern') {
+    return collectBindingNames(pattern.left as BindingPattern);
+  }
+  return [];
+}
 
-type OxcDeco = OxcSpan & {
-  expression?: OxcSpan & {
-    type?: string;
-    callee?: { name?: string; property?: { name?: string } };
-    arguments?: OxcSpan[];
-    name?: string;
-  };
-};
-
-type OxcParam = OxcSpan & {
-  type?: string;
-  name?: string;
-  optional?: boolean;
-  typeAnnotation?: OxcTypeAnn;
-  decorators?: OxcDeco[];
-  parameter?: OxcParam;
-  argument?: OxcParam & { name?: string };
-  left?: OxcParam;
-  right?: OxcSpan;
-  pattern?: { name?: string };
-};
-
-type OxcModNode = {
+/** Structural shape for nodes that may carry modifier flags. */
+type ModifierBearing = {
   static?: boolean;
   abstract?: boolean;
-  readonly?: boolean;
+  readonly?: boolean | null;
   override?: boolean;
   declare?: boolean;
   const?: boolean;
-  accessibility?: string;
+  accessibility?: string | null;
   async?: boolean;
-};
-
-type OxcMember = OxcSpan & OxcModNode & {
-  type?: string;
-  key?: { name?: string };
-  value?: OxcSpan & OxcModNode & { params?: OxcParam[]; returnType?: OxcTypeAnn };
-  kind?: string;
-  params?: OxcParam[];
-  returnType?: OxcTypeAnn;
-  typeAnnotation?: OxcTypeAnn;
-};
-
-type OxcNode = OxcSpan & OxcModNode & {
-  type?: string;
-  name?: string;
-  id?: { name?: string };
-  params?: OxcParam[];
-  returnType?: OxcTypeAnn;
-  typeAnnotation?: OxcTypeAnn;
-  body?: {
-    body?: OxcMember[];
-    members?: Array<OxcSpan & { id?: { name?: string; value?: string } }>;
-  };
-  decorators?: OxcDeco[];
-  typeParameters?: { params?: Array<{ name?: { name?: string } }> };
-  superClass?: OxcSpan;
-  implements?: Array<OxcSpan & { expression?: OxcSpan }>;
-  extends?: Array<OxcSpan & { expression?: OxcSpan }>;
-  declarations?: Array<OxcSpan & {
-    id?: OxcNode & {
-      properties?: Array<OxcSpan & { value?: { name?: string }; key?: { name?: string } }>;
-      elements?: Array<(OxcSpan & { type?: string; name?: string }) | null>;
-    };
-    init?: OxcNode;
-  }>;
 };
 
 export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
@@ -95,7 +111,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
 
   // Pre-sort statement starts for intervenor check
   const stmtStarts = program.body
-    .map((s) => (s as { start?: number }).start ?? 0)
+    .map((s) => s.start)
     .sort((a, b) => a - b);
 
   function span(start: number, end: number): SourceSpan {
@@ -141,66 +157,92 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     return `/*${best.value}*/`;
   }
 
-  function typeText(typeAnnotation: OxcTypeAnn | null | undefined): string | undefined {
+  function typeText(typeAnnotation: TSTypeAnnotation | Span | null | undefined): string | undefined {
     if (!typeAnnotation) return undefined;
-    const inner = typeAnnotation.typeAnnotation ?? typeAnnotation;
+    const inner = ('typeAnnotation' in typeAnnotation && typeAnnotation.typeAnnotation)
+      ? typeAnnotation.typeAnnotation as Span
+      : typeAnnotation;
     return sourceText.slice(inner.start, inner.end);
   }
 
-  function extractDecorators(decorators: OxcDeco[]): Decorator[] {
+  function extractDecorators(decorators: readonly OxcDecorator[]): ExtractorDecorator[] {
     if (!decorators || decorators.length === 0) return [];
     return decorators.map((d) => {
       const expr = d.expression;
-      if (!expr) return { name: 'unknown' };
       if (expr.type === 'CallExpression') {
-        const name = expr.callee?.name ?? expr.callee?.property?.name ?? 'unknown';
-        const args = (expr.arguments ?? []).map((a: OxcSpan) => sourceText.slice(a.start, a.end));
-        return { name, arguments: args.length > 0 ? args : undefined };
+        const callExpr = expr as OxcCallExpression;
+        const callee = callExpr.callee;
+        const calleeName =
+          ('name' in callee && typeof callee.name === 'string')
+            ? callee.name
+            : ('property' in callee && callee.property && typeof (callee.property as { name?: string }).name === 'string')
+              ? (callee.property as { name: string }).name
+              : 'unknown';
+        const args = callExpr.arguments.map((a: Argument) => sourceText.slice(a.start, a.end));
+        return { name: calleeName, arguments: args.length > 0 ? args : undefined };
       }
-      if (expr.type === 'Identifier') return { name: expr.name ?? 'unknown' };
+      if (expr.type === 'Identifier') return { name: (expr as IdentifierReference).name ?? 'unknown' };
       return { name: sourceText.slice(expr.start, expr.end) };
     });
   }
 
-  function extractParam(p: OxcParam): Parameter {
-    const inner = p.type === 'TSParameterProperty' ? p.parameter : p;
-
-    if (inner?.type === 'RestElement') {
-      const argName: string = inner.argument?.name ?? 'unknown';
+  function extractParam(p: ParamPattern): Parameter {
+    if (p.type === 'TSParameterProperty') {
+      const tsp = p as TSParameterProperty;
+      return extractParamFromBinding(tsp.parameter, tsp.parameter.decorators);
+    }
+    if (p.type === 'RestElement') {
+      const rest = p as FormalParameterRest;
+      const arg = rest.argument;
+      const argName: string = ('name' in arg && typeof arg.name === 'string') ? arg.name : 'unknown';
       const name = `...${argName}`;
-      const typeAnn = inner.typeAnnotation;
+      const typeAnn = rest.typeAnnotation;
       const type = typeAnn ? typeText(typeAnn) : undefined;
       const param: Parameter = { name, isOptional: false };
       if (type) param.type = type;
       return param;
     }
+    // FormalParameter = { decorators?: Array<Decorator> } & BindingPattern
+    const fp = p as BindingPattern & { decorators?: OxcDecorator[] };
+    return extractParamFromBinding(fp, fp.decorators);
+  }
 
-    if (inner?.type === 'AssignmentPattern') {
+  function extractParamFromBinding(
+    inner: BindingPattern,
+    decorators?: readonly OxcDecorator[],
+  ): Parameter {
+    if (inner.type === 'AssignmentPattern') {
       const left = inner.left;
       const right = inner.right;
-      const name: string = left?.name ?? 'unknown';
-      const typeAnn = left?.typeAnnotation;
+      const name: string = ('name' in left && typeof left.name === 'string') ? left.name : 'unknown';
+      const typeAnn = ('typeAnnotation' in left) ? left.typeAnnotation as TSTypeAnnotation | null : null;
       const type = typeAnn ? typeText(typeAnn) : undefined;
-      const defaultValue: string = sourceText.slice(right!.start, right!.end);
-      const decos = extractDecorators(left?.decorators ?? []);
+      const defaultValue: string = sourceText.slice(right.start, right.end);
+      const leftDecos = ('decorators' in left && Array.isArray(left.decorators)) ? left.decorators as OxcDecorator[] : [];
+      const decos = extractDecorators(leftDecos);
       const param: Parameter = { name, isOptional: true, defaultValue };
       if (type) param.type = type;
       if (decos.length > 0) param.decorators = decos;
       return param;
     }
 
-    const name: string = inner?.name ?? inner?.pattern?.name ?? 'unknown';
-    const optional: boolean = !!(inner?.optional);
-    const typeAnn = inner?.typeAnnotation;
+    // BindingIdentifier | ObjectPattern | ArrayPattern
+    const name: string = ('name' in inner && typeof inner.name === 'string')
+      ? inner.name
+      : ('pattern' in inner && inner.pattern && typeof (inner.pattern as { name?: string }).name === 'string')
+        ? (inner.pattern as { name: string }).name
+        : 'unknown';
+    const optional: boolean = !!('optional' in inner && inner.optional);
+    const typeAnn = ('typeAnnotation' in inner) ? inner.typeAnnotation as TSTypeAnnotation | null : null;
     const type = typeAnn ? typeText(typeAnn) : undefined;
-    const decos = extractDecorators(inner?.decorators ?? []);
+    const decos = extractDecorators(decorators ?? []);
     const param: Parameter = { name, isOptional: optional };
     if (type) param.type = type;
     if (decos.length > 0) param.decorators = decos;
     return param;
   }
 
-  function extractModifiers(node: OxcModNode, fn?: OxcModNode): Modifier[] {
+  function extractModifiers(node: ModifierBearing, fn?: ModifierBearing): Modifier[] {
     const mods: Modifier[] = [];
     if (fn?.async) mods.push('async');
     if (node.static) mods.push('static');
@@ -216,38 +258,49 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     return mods;
   }
 
-  function classHeritage(node: OxcNode): Heritage[] {
+  function extractTypeParams(tp: TSTypeParameterDeclaration | null | undefined): string[] | undefined {
+    if (!tp) return undefined;
+    const names = tp.params.flatMap((p) => {
+      const n = p.name.name;
+      return n ? [n] : [];
+    });
+    return names.length > 0 ? names : undefined;
+  }
+
+  function classHeritage(node: OxcClass): Heritage[] {
     const heritage: Heritage[] = [];
     if (node.superClass) {
       const name = sourceText.slice(node.superClass.start, node.superClass.end);
       heritage.push({ kind: 'extends', name });
     }
-    const impls = node.implements ?? [];
+    const impls: readonly TSClassImplements[] = node.implements ?? [];
     for (const impl of impls) {
-      const expr = impl.expression ?? impl;
+      const expr = impl.expression;
       const name = sourceText.slice(expr.start, expr.end);
       heritage.push({ kind: 'implements', name });
     }
     return heritage;
   }
 
-  function interfaceHeritage(node: OxcNode): Heritage[] {
+  function interfaceHeritage(node: TSInterfaceDeclaration): Heritage[] {
     const heritage: Heritage[] = [];
-    for (const ext of (node.extends ?? [])) {
-      const expr = ext.expression ?? ext;
+    const exts: readonly TSInterfaceHeritage[] = node.extends;
+    for (const ext of exts) {
+      const expr = ext.expression;
       const name = sourceText.slice(expr.start, expr.end);
       heritage.push({ kind: 'extends', name });
     }
     return heritage;
   }
 
-  function extractClassMembers(bodyNodes: OxcMember[]): ExtractedSymbol[] {
+  function extractClassMembers(bodyNodes: readonly ClassElement[]): ExtractedSymbol[] {
     const members: ExtractedSymbol[] = [];
     for (const m of bodyNodes) {
-      if (m.type === 'MethodDefinition') {
-        const name: string = m.key?.name ?? 'unknown';
-        const fnValue = m.value;
-        const rawKind: string = m.kind ?? 'method';
+      if (m.type === 'MethodDefinition' || m.type === 'TSAbstractMethodDefinition') {
+        const md = m as MethodDefinition;
+        const name: string = keyName(md.key);
+        const fnValue = md.value;
+        const rawKind: string = md.kind;
         const methodKind =
           rawKind === 'constructor'
             ? 'constructor'
@@ -256,9 +309,12 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
               : rawKind === 'set'
                 ? 'setter'
                 : 'method';
-        const mods = extractModifiers(m, fnValue);
-        const params = (fnValue?.params ?? []).map(extractParam);
-        const returnType = typeText(fnValue?.returnType);
+        const mods = extractModifiers(md, fnValue);
+        if (m.type === 'TSAbstractMethodDefinition' && !mods.includes('abstract')) {
+          mods.push('abstract');
+        }
+        const params = fnValue.params.map(extractParam);
+        const returnType = typeText(fnValue.returnType);
         const s: ExtractedSymbol = {
           kind: 'method',
           name,
@@ -270,9 +326,13 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           returnType,
         };
         members.push(s);
-      } else if (m.type === 'PropertyDefinition') {
-        const name: string = m.key?.name ?? 'unknown';
-        const mods = extractModifiers(m);
+      } else if (m.type === 'PropertyDefinition' || m.type === 'TSAbstractPropertyDefinition') {
+        const pd = m as PropertyDefinition;
+        const name: string = keyName(pd.key);
+        const mods = extractModifiers(pd);
+        if (m.type === 'TSAbstractPropertyDefinition' && !mods.includes('abstract')) {
+          mods.push('abstract');
+        }
         const s: ExtractedSymbol = {
           kind: 'property',
           name,
@@ -286,13 +346,14 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     return members;
   }
 
-  function extractInterfaceMembers(bodyNodes: OxcMember[]): ExtractedSymbol[] {
+  function extractInterfaceMembers(bodyNodes: readonly TSSignature[]): ExtractedSymbol[] {
     const members: ExtractedSymbol[] = [];
     for (const m of bodyNodes) {
       if (m.type === 'TSMethodSignature') {
-        const name: string = m.key?.name ?? 'unknown';
-        const params = (m.params ?? []).map(extractParam);
-        const returnType = typeText(m.returnType);
+        const ms = m as TSMethodSignature;
+        const name: string = keyName(ms.key);
+        const params = ms.params.map(extractParam);
+        const returnType = typeText(ms.returnType);
         members.push({
           kind: 'method',
           name,
@@ -304,14 +365,15 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           returnType,
         });
       } else if (m.type === 'TSPropertySignature') {
-        const name: string = m.key?.name ?? 'unknown';
-        const typeAnn = typeText(m.typeAnnotation);
+        const ps = m as TSPropertySignature;
+        const name: string = keyName(ps.key);
+        const typeAnn = typeText(ps.typeAnnotation);
         const s: ExtractedSymbol = {
           kind: 'property',
           name,
           span: span(m.start, m.end),
           isExported: false,
-          modifiers: m.readonly ? ['readonly'] : [],
+          modifiers: ps.readonly ? ['readonly'] : [],
           returnType: typeAnn,
         };
         members.push(s);
@@ -320,17 +382,19 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     return members;
   }
 
-  function buildSymbol(node: OxcNode, isExported: boolean): ExtractedSymbol | ExtractedSymbol[] | null {
-    const type: string = node.type ?? '';
+  function buildSymbol(node: Declaration, isExported: boolean): ExtractedSymbol | ExtractedSymbol[] | null {
+    const type: string = node.type;
 
-    if (type === 'FunctionDeclaration' || type === 'TSDeclareFunction') {
-      const name: string = node.id?.name ?? 'default';
-      const params = (node.params ?? []).map(extractParam);
-      const returnType = typeText(node.returnType);
-      const mods = extractModifiers(node, node);
-      const decos = extractDecorators(node.decorators ?? []);
-      const typeParameters: string[] | undefined =
-        node.typeParameters?.params?.flatMap((p: { name?: { name?: string } }) => { const n = p.name?.name; return n ? [n] : []; }) || undefined;
+    if (type === 'FunctionDeclaration' || type === 'FunctionExpression' || type === 'TSDeclareFunction' || type === 'TSEmptyBodyFunctionExpression') {
+      const fn = node as OxcFunction;
+      const name: string = fn.id?.name ?? 'default';
+      const params = fn.params.map(extractParam);
+      const returnType = typeText(fn.returnType);
+      const mods = extractModifiers(fn, fn);
+      // Function decorators are a stage 3 proposal; @oxc-project/types doesn't declare them,
+      // but the parser may emit them at runtime. Access via cast for forward-compatibility.
+      const decos = extractDecorators((fn as unknown as { decorators?: OxcDecorator[] }).decorators ?? []);
+      const typeParameters = extractTypeParams(fn.typeParameters);
       const sym: ExtractedSymbol = {
         kind: 'function',
         name,
@@ -346,13 +410,13 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     }
 
     if (type === 'ClassDeclaration' || type === 'ClassExpression') {
-      const name: string = node.id?.name ?? 'default';
-      const heritage = classHeritage(node);
-      const members = extractClassMembers(node.body?.body ?? []);
-      const decos = extractDecorators(node.decorators ?? []);
-      const mods = extractModifiers(node, node);
-      const typeParameters: string[] | undefined =
-        node.typeParameters?.params?.flatMap((p: { name?: { name?: string } }) => { const n = p.name?.name; return n ? [n] : []; }) || undefined;
+      const cls = node as OxcClass;
+      const name: string = cls.id?.name ?? 'default';
+      const heritage = classHeritage(cls);
+      const members = extractClassMembers(cls.body.body);
+      const decos = extractDecorators(cls.decorators);
+      const mods = extractModifiers(cls);
+      const typeParameters = extractTypeParams(cls.typeParameters);
       const sym: ExtractedSymbol = {
         kind: 'class',
         name,
@@ -368,18 +432,19 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     }
 
     if (type === 'VariableDeclaration') {
+      const varDecl = node as VariableDeclaration;
       const symbols: ExtractedSymbol[] = [];
-      for (const decl of node.declarations ?? []) {
+      for (const decl of varDecl.declarations) {
         const id = decl.id;
         const init = decl.init;
 
-        if (id?.type === 'ObjectPattern') {
-          for (const prop of id.properties ?? []) {
-            const propName: string = prop.value?.name ?? prop.key?.name ?? 'unknown';
+        if (id.type === 'ObjectPattern' || id.type === 'ArrayPattern') {
+          const names = collectBindingNames(id);
+          for (const n of names) {
             symbols.push({
               kind: 'variable' as SymbolKind,
-              name: propName,
-              span: span(prop.start ?? decl.start, prop.end ?? decl.end),
+              name: n,
+              span: span(id.start, id.end),
               isExported,
               modifiers: [],
             });
@@ -387,34 +452,22 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           continue;
         }
 
-        if (id?.type === 'ArrayPattern') {
-          for (const elem of id.elements ?? []) {
-            if (!elem || elem.type !== 'Identifier') continue;
-            const elemName: string = elem.name ?? 'unknown';
-            symbols.push({
-              kind: 'variable' as SymbolKind,
-              name: elemName,
-              span: span(elem.start ?? decl.start, elem.end ?? decl.end),
-              isExported,
-              modifiers: [],
-            });
-          }
-          continue;
-        }
-
-        const name: string = id?.name ?? 'unknown';
+        const name: string = ('name' in id && typeof id.name === 'string') ? id.name : 'unknown';
         let kind: SymbolKind = 'variable';
         let params: Parameter[] | undefined;
         let returnType: string | undefined;
 
-        if (
-          init?.type === 'FunctionExpression' ||
-          init?.type === 'ArrowFunctionExpression'
-        ) {
-          kind = 'function';
-          const rawParams = init.params ?? [];
-          params = rawParams.map(extractParam);
-          returnType = typeText(init.returnType);
+        if (init) {
+          if (
+            init.type === 'FunctionExpression' ||
+            init.type === 'ArrowFunctionExpression'
+          ) {
+            kind = 'function';
+            const fnInit = init as OxcFunction | ArrowFunctionExpression;
+            const rawParams = fnInit.params;
+            params = rawParams.map(extractParam);
+            returnType = typeText(fnInit.returnType);
+          }
         }
         const mods: Modifier[] = [];
         symbols.push({
@@ -433,7 +486,8 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     }
 
     if (type === 'TSTypeAliasDeclaration') {
-      const name: string = node.id?.name ?? 'unknown';
+      const ta = node as TSTypeAliasDeclaration;
+      const name: string = ta.id.name;
       return {
         kind: 'type',
         name,
@@ -444,11 +498,11 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     }
 
     if (type === 'TSInterfaceDeclaration') {
-      const name: string = node.id?.name ?? 'unknown';
-      const heritage = interfaceHeritage(node);
-      const members = extractInterfaceMembers(node.body?.body ?? []);
-      const typeParameters: string[] | undefined =
-        node.typeParameters?.params?.flatMap((p: { name?: { name?: string } }) => { const n = p.name?.name; return n ? [n] : []; }) || undefined;
+      const iface = node as TSInterfaceDeclaration;
+      const name: string = iface.id.name;
+      const heritage = interfaceHeritage(iface);
+      const members = extractInterfaceMembers(iface.body.body);
+      const typeParameters = extractTypeParams(iface.typeParameters);
       const sym: ExtractedSymbol = {
         kind: 'interface',
         name,
@@ -463,16 +517,25 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     }
 
     if (type === 'TSEnumDeclaration') {
-      const name: string = node.id?.name ?? 'unknown';
-      const mods = extractModifiers(node);
-      const rawMembers: Array<OxcSpan & { id?: { name?: string; value?: string } }> = node.body?.members ?? [];
-      const members: ExtractedSymbol[] = rawMembers.map((m) => ({
-        kind: 'property' as SymbolKind,
-        name: m.id?.name ?? m.id?.value ?? 'unknown',
-        span: span(m.start, m.end),
-        isExported: false,
-        modifiers: [],
-      }));
+      const enumDecl = node as TSEnumDeclaration;
+      const name: string = enumDecl.id.name;
+      const mods = extractModifiers(enumDecl);
+      const rawMembers: readonly TSEnumMember[] = enumDecl.body.members;
+      const members: ExtractedSymbol[] = rawMembers.map((m) => {
+        const memberId = m.id;
+        const memberName: string = ('name' in memberId && typeof memberId.name === 'string')
+          ? memberId.name
+          : ('value' in memberId && typeof memberId.value === 'string')
+            ? memberId.value
+            : 'unknown';
+        return {
+          kind: 'property' as SymbolKind,
+          name: memberName,
+          span: span(m.start, m.end),
+          isExported: false,
+          modifiers: [],
+        };
+      });
       return {
         kind: 'enum',
         name,
@@ -480,6 +543,19 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         isExported,
         modifiers: mods,
         members: members.length > 0 ? members : undefined,
+      };
+    }
+
+    if (type === 'TSModuleDeclaration') {
+      const mod = node as { id: { name?: string; value?: string }; declare?: boolean; start: number; end: number };
+      const name: string = mod.id.name ?? mod.id.value ?? 'unknown';
+      const mods = extractModifiers(mod);
+      return {
+        kind: 'namespace' as SymbolKind,
+        name,
+        span: span(node.start, node.end),
+        isExported,
+        modifiers: mods,
       };
     }
 
@@ -491,19 +567,12 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
 
   for (const node of program.body) {
     let sym: ExtractedSymbol | ExtractedSymbol[] | null = null;
-    const record = node as unknown as Record<string, unknown>;
-    const type: string = typeof record.type === 'string' ? record.type : '';
+    const stmtNode = node as Statement | Directive;
 
-    if (type === 'ExportNamedDeclaration') {
-      const n = node as unknown as {
-        declaration?: unknown;
-        specifiers?: Array<{ local?: { name?: string }; exported?: { name?: string } }>;
-        source?: unknown;
-        start: number;
-        end: number;
-      };
+    if (stmtNode.type === 'ExportNamedDeclaration') {
+      const n = stmtNode as ExportNamedDeclaration;
       if (n.declaration) {
-        sym = buildSymbol(n.declaration as OxcNode, true);
+        sym = buildSymbol(n.declaration, true);
         if (sym && !Array.isArray(sym)) {
           sym.span = span(n.start, n.end);
         } else if (Array.isArray(sym)) {
@@ -511,32 +580,48 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         }
       } else if (!n.source && n.specifiers) {
         for (const spec of n.specifiers) {
-          const localName = spec.local?.name;
+          const local = spec.local;
+          const localName = 'name' in local ? local.name : local.value;
           if (localName) deferredExportNames.add(localName);
         }
       }
-    } else if (type === 'ExportDefaultDeclaration') {
-      const n = node as unknown as {
-        declaration?: { id?: { name?: string } } & Record<string, unknown>;
-        start: number;
-        end: number;
-      };
+    } else if (stmtNode.type === 'ExportDefaultDeclaration') {
+      const n = stmtNode as ExportDefaultDeclaration;
       const decl = n.declaration;
       if (decl) {
-        sym = buildSymbol(decl as unknown as OxcNode, true);
+        sym = buildSymbol(decl as Declaration, true);
         if (sym && !Array.isArray(sym)) {
-          sym.name = decl.id?.name ?? 'default';
+          sym.name = ('id' in decl && decl.id && typeof (decl.id as { name?: string }).name === 'string')
+            ? (decl.id as { name: string }).name
+            : 'default';
           sym.isExported = true;
           sym.span = span(n.start, n.end);
+        } else if (!sym && 'type' in decl && (decl as { type: string }).type === 'Identifier') {
+          // export default <identifier> — mark the referenced variable as exported
+          const identName = (decl as IdentifierReference).name;
+          if (identName) deferredExportNames.add(identName);
         }
       }
     } else {
-      sym = buildSymbol(node as unknown as OxcNode, false);
+      // Only attempt to build symbols from Declaration nodes
+      const declType = stmtNode.type;
+      if (
+        declType === 'FunctionDeclaration' ||
+        declType === 'TSDeclareFunction' ||
+        declType === 'ClassDeclaration' ||
+        declType === 'VariableDeclaration' ||
+        declType === 'TSTypeAliasDeclaration' ||
+        declType === 'TSInterfaceDeclaration' ||
+        declType === 'TSEnumDeclaration' ||
+        declType === 'TSModuleDeclaration'
+      ) {
+        sym = buildSymbol(stmtNode as Declaration, false);
+      }
     }
 
     const syms: ExtractedSymbol[] = Array.isArray(sym) ? sym : sym ? [sym] : [];
     for (const s of syms) {
-      const nodeStart = (node as { start?: number }).start ?? 0;
+      const nodeStart = node.start;
       const jsdocText = findJsDocComment(nodeStart);
       if (jsdocText) {
         const jsDocResult = parseJsDoc(jsdocText);

@@ -471,8 +471,9 @@ describe('RelationRepository', () => {
     expect(relationRepo.getOutgoing('test-project', 'src/index.ts')).toEqual([]);
   });
 
-  it('should cascade-delete relations when dst file is deleted', () => {
+  it('should delete incoming relations when deleteIncomingRelations is called before file deletion', () => {
     relationRepo.replaceFileRelations('test-project', 'src/index.ts', [makeRelationRecord({ dstFilePath: 'src/utils.ts' })]);
+    relationRepo.deleteIncomingRelations('test-project', 'src/utils.ts');
     fileRepo.deleteFile('test-project', 'src/utils.ts');
     expect(relationRepo.getIncoming({ dstProject: 'test-project', dstFilePath: 'src/utils.ts' })).toEqual([]);
   });

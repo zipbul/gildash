@@ -13,6 +13,7 @@ function makeParsed(overrides?: Partial<ParsedFile>): ParsedFile {
     errors: [],
     comments: [],
     sourceText: 'const a = 1;',
+    module: { hasModuleSyntax: false, staticImports: [], staticExports: [], dynamicImports: [], importMetas: [] },
     ...overrides,
   };
 }

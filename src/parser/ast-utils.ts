@@ -1,49 +1,5 @@
 import type { QualifiedName } from '../extractor/types';
 
-const SKIP_KEYS = new Set(['loc', 'start', 'end', 'scope']);
-
-export function isNode(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-export function isNodeArray(value: unknown): value is ReadonlyArray<unknown> {
-  return Array.isArray(value);
-}
-
-export function visit(
-  node: unknown,
-  callback: (node: Record<string, unknown>) => void,
-): void {
-  if (!node || typeof node !== 'object') return;
-
-  if (Array.isArray(node)) {
-    for (const item of node) visit(item, callback);
-    return;
-  }
-
-  const record = node as Record<string, unknown>;
-  callback(record);
-
-  for (const key of Object.keys(record)) {
-    if (SKIP_KEYS.has(key)) continue;
-    const child = record[key];
-    if (child && typeof child === 'object') {
-      visit(child, callback);
-    }
-  }
-}
-
-export function collectNodes(
-  root: unknown,
-  predicate: (node: Record<string, unknown>) => boolean,
-): Record<string, unknown>[] {
-  const results: Record<string, unknown>[] = [];
-  visit(root, (node) => {
-    if (predicate(node)) results.push(node);
-  });
-  return results;
-}
-
 export function getNodeHeader(
   node: Record<string, unknown>,
   parent?: Record<string, unknown> | null,

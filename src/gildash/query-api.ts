@@ -132,13 +132,13 @@ export function getFullSymbol(
     const d = sym.detail;
     const full: FullSymbol = {
       ...sym,
-      members: Array.isArray(d.members) ? (d.members as FullSymbol['members']) : undefined,
-      jsDoc: typeof d.jsDoc === 'string' ? d.jsDoc : undefined,
-      parameters: typeof d.parameters === 'string' ? d.parameters : undefined,
-      returnType: typeof d.returnType === 'string' ? d.returnType : undefined,
-      heritage: Array.isArray(d.heritage) ? (d.heritage as string[]) : undefined,
-      decorators: Array.isArray(d.decorators) ? (d.decorators as FullSymbol['decorators']) : undefined,
-      typeParameters: typeof d.typeParameters === 'string' ? d.typeParameters : undefined,
+      members: d.members,
+      jsDoc: d.jsDoc,
+      parameters: d.parameters,
+      returnType: d.returnType,
+      heritage: d.heritage,
+      decorators: d.decorators,
+      typeParameters: d.typeParameters,
     };
     if (ctx.semanticLayer) {
       try {
@@ -233,9 +233,11 @@ export function getModuleInterface(
     const exports = symbols.map((s) => ({
       name: s.name,
       kind: s.kind,
-      parameters: (s.detail.parameters as string | undefined) ?? undefined,
-      returnType: (s.detail.returnType as string | undefined) ?? undefined,
-      jsDoc: (s.detail.jsDoc as string | undefined) ?? undefined,
+      parameters: s.detail.parameters
+        ? `(${s.detail.parameters.map(p => `${p.name}${p.isOptional ? '?' : ''}: ${p.type ?? 'unknown'}`).join(', ')})`
+        : undefined,
+      returnType: s.detail.returnType ?? undefined,
+      jsDoc: s.detail.jsDoc?.description ?? undefined,
     }));
     return { filePath, exports };
   } catch (e) {

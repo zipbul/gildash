@@ -7,7 +7,7 @@ import type { RelationRecord } from '../store/repositories/relation.repository';
  * as stored in the relation index.
  */
 export interface StoredCodeRelation extends CodeRelation {
-  dstProject: string;
+  dstProject: string | null;
 }
 
 /**
@@ -34,8 +34,12 @@ export interface RelationSearchQuery {
   type?: CodeRelation['type'];
   /** Limit results to this project. */
   project?: string;
-  /** Maximum number of results. Defaults to `500`. */
+  /** Maximum number of results. When omitted, no limit is applied. */
   limit?: number;
+  /** Filter by raw import specifier. */
+  specifier?: string;
+  /** Filter by external package flag. */
+  isExternal?: boolean;
 }
 
 export interface IRelationRepo {
@@ -47,7 +51,9 @@ export interface IRelationRepo {
     dstProject?: string;
     type?: string;
     project?: string;
-    limit: number;
+    specifier?: string;
+    isExternal?: boolean;
+    limit?: number;
   }): RelationRecord[];
 }
 
@@ -72,10 +78,10 @@ export function relationSearch(options: {
   }
 
   const effectiveProject = query.project ?? project;
-  const limit = query.limit ?? 500;
+  const limit = query.limit;
 
   const usePatternFilter = !!(query.srcFilePathPattern || query.dstFilePathPattern);
-  const dbLimit = usePatternFilter ? Number.MAX_SAFE_INTEGER : limit;
+  const dbLimit = usePatternFilter ? undefined : limit;
 
   const records = relationRepo.searchRelations({
     srcFilePath: query.srcFilePath,
@@ -85,6 +91,8 @@ export function relationSearch(options: {
     dstProject: query.dstProject,
     type: query.type,
     project: effectiveProject,
+    specifier: query.specifier,
+    isExternal: query.isExternal,
     limit: dbLimit,
   });
 
@@ -106,6 +114,7 @@ export function relationSearch(options: {
       dstProject: r.dstProject,
       metaJson: r.metaJson ?? undefined,
       meta,
+      ...(r.specifier != null ? { specifier: r.specifier } : {}),
     };
   });
 
@@ -114,12 +123,12 @@ export function relationSearch(options: {
     const dstGlob = query.dstFilePathPattern ? new Bun.Glob(query.dstFilePathPattern) : null;
     results = results.filter(r =>
       (!srcGlob || srcGlob.match(r.srcFilePath)) &&
-      (!dstGlob || dstGlob.match(r.dstFilePath))
+      (!dstGlob || r.dstFilePath === null || dstGlob.match(r.dstFilePath))
     );
   }
 
   // Apply consumer limit at app level when pattern was used
-  if (usePatternFilter && results.length > limit) {
+  if (usePatternFilter && limit !== undefined && results.length > limit) {
     results = results.slice(0, limit);
   }
 

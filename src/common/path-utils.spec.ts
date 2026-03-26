@@ -1,5 +1,27 @@
 import { describe, expect, it } from "bun:test";
-import { toAbsolutePath, toRelativePath } from "./path-utils";
+import { normalizePath, toAbsolutePath, toRelativePath } from "./path-utils";
+
+describe("normalizePath", () => {
+  it("should replace backslashes with forward slashes", () => {
+    expect(normalizePath("src\\main.ts")).toBe("src/main.ts");
+  });
+
+  it("should leave forward slashes unchanged", () => {
+    expect(normalizePath("src/main.ts")).toBe("src/main.ts");
+  });
+
+  it("should handle mixed separators", () => {
+    expect(normalizePath("src\\utils/helpers\\index.ts")).toBe("src/utils/helpers/index.ts");
+  });
+
+  it("should return empty string when given empty string", () => {
+    expect(normalizePath("")).toBe("");
+  });
+
+  it("should normalize Windows absolute paths", () => {
+    expect(normalizePath("C:\\Users\\dev\\project\\src\\main.ts")).toBe("C:/Users/dev/project/src/main.ts");
+  });
+});
 
 describe("toRelativePath", () => {
   it("should return forward-slash normalized relative path when inside root", () => {

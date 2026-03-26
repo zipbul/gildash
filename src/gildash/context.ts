@@ -106,6 +106,7 @@ export type SemanticLayerLike = Pick<
   | 'isTypeAssignableToType'
   | 'getModuleInterface'
   | 'getSymbolNode'
+  | 'getBaseTypes'
   | 'getDiagnostics'
   | 'notifyFileChanged'
   | 'notifyFileDeleted'

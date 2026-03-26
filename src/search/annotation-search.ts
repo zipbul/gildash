@@ -29,7 +29,7 @@ export interface IAnnotationRepo {
     symbolName?: string;
     source?: string;
     ftsQuery?: string;
-    limit: number;
+    limit?: number;
   }): AnnotationRecord[];
 }
 
@@ -40,7 +40,6 @@ export function annotationSearch(options: {
 }): AnnotationSearchResult[] {
   const { annotationRepo, project, query } = options;
   const effectiveProject = query.project ?? project;
-  const limit = query.limit ?? 100;
 
   let ftsQuery: string | undefined;
   if (query.text) {
@@ -55,7 +54,7 @@ export function annotationSearch(options: {
     symbolName: query.symbolName,
     source: query.source,
     ftsQuery,
-    limit,
+    limit: query.limit,
   });
 
   return records.map((r) => ({

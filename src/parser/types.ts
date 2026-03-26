@@ -1,4 +1,4 @@
-import type { Program, Comment, OxcError } from 'oxc-parser';
+import type { Program, Comment, OxcError, EcmaScriptModule } from 'oxc-parser';
 
 export interface SourcePosition {
   line: number;
@@ -34,4 +34,6 @@ export interface ParsedFile {
   comments: readonly Comment[];
   /** Raw source text that was parsed. */
   sourceText: string;
+  /** Pre-extracted ESM module metadata (imports, exports, dynamic imports). */
+  module: EcmaScriptModule;
 }

@@ -79,19 +79,19 @@ export interface IndexResult {
     added: Array<{
       type: string;
       srcFilePath: string;
-      dstFilePath: string;
+      dstFilePath: string | null;
       srcSymbolName: string | null;
       dstSymbolName: string | null;
-      dstProject: string;
+      dstProject: string | null;
       metaJson: string | null;
     }>;
     removed: Array<{
       type: string;
       srcFilePath: string;
-      dstFilePath: string;
+      dstFilePath: string | null;
       srcSymbolName: string | null;
       dstSymbolName: string | null;
-      dstProject: string;
+      dstProject: string | null;
       metaJson: string | null;
     }>;
   };
@@ -124,6 +124,7 @@ export interface IndexCoordinatorOptions {
     replaceFileRelations(project: string, filePath: string, relations: ReadonlyArray<Partial<RelationRecord>>): void;
     retargetRelations(opts: { dstProject: string; oldFile: string; oldSymbol: string | null; newFile: string; newSymbol: string | null; newDstProject?: string }): void;
     deleteFileRelations(project: string, filePath: string): void;
+    deleteIncomingRelations(dstProject: string, dstFilePath: string): void;
     getOutgoing(project: string, srcFilePath: string): RelationRecord[];
   };
   annotationRepo?: {
@@ -357,7 +358,7 @@ export class IndexCoordinator {
 
     // Relation before-snapshot: collect outgoing relations for affected files
     const relationKey = (r: RelationRecord) =>
-      `${r.type}|${r.srcFilePath}|${r.dstFilePath}|${r.srcSymbolName ?? ''}|${r.dstSymbolName ?? ''}|${hashString(r.metaJson ?? '')}`;
+      `${r.type}|${r.srcFilePath}|${r.dstFilePath ?? ''}|${r.srcSymbolName ?? ''}|${r.dstSymbolName ?? ''}|${hashString(r.metaJson ?? '')}`;
     const beforeRelations = new Map<string, RelationRecord>();
 
     if (useTransaction) {
@@ -390,6 +391,7 @@ export class IndexCoordinator {
         const project = resolveFileProject(filePath, this.opts.boundaries);
         symbolRepo.deleteFileSymbols(project, filePath);
         relationRepo.deleteFileRelations(project, filePath);
+        relationRepo.deleteIncomingRelations(project, filePath);
         if (annotationRepo) annotationRepo.deleteFileAnnotations(project, filePath);
         fileRepo.deleteFile(project, filePath);
       }
@@ -459,7 +461,7 @@ export class IndexCoordinator {
           relations += indexFileRelations({
             ast: fd.parsed.program, project: fd.project, filePath: fd.filePath,
             relationRepo, projectRoot, tsconfigPaths,
-            knownFiles, boundaries,
+            knownFiles, boundaries, module: fd.parsed.module,
           });
           if (annotationRepo) {
             annotations += indexFileAnnotations({ parsed: fd.parsed, project: fd.project, filePath: fd.filePath, annotationRepo });
@@ -517,6 +519,7 @@ export class IndexCoordinator {
           const project = resolveFileProject(filePath, boundaries);
           symbolRepo.deleteFileSymbols(project, filePath);
           relationRepo.deleteFileRelations(project, filePath);
+          relationRepo.deleteIncomingRelations(project, filePath);
           if (annotationRepo) annotationRepo.deleteFileAnnotations(project, filePath);
           fileRepo.deleteFile(project, filePath);
         }
@@ -565,6 +568,7 @@ export class IndexCoordinator {
             tsconfigPaths,
             knownFiles,
             boundaries,
+            module: parsed.module,
           });
           totalSymbols += symbolRepo.getFileSymbols(project, fd.filePath).length;
         }

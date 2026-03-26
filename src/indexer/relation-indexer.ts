@@ -11,10 +11,12 @@ export interface RelationDbRow {
   type: string;
   srcFilePath: string;
   srcSymbolName: string | null;
-  dstProject: string;
-  dstFilePath: string;
+  dstProject: string | null;
+  dstFilePath: string | null;
   dstSymbolName: string | null;
   metaJson: string | null;
+  specifier: string | null;
+  isExternal: number;
 }
 
 interface RelationRepoPart {
@@ -36,10 +38,12 @@ export interface IndexFileRelationsOptions {
   knownFiles?: Set<string>;
   /** 프로젝트 경계 목록 (dstProject 결정용) */
   boundaries?: ProjectBoundary[];
+  /** Pre-extracted module metadata for re-export pattern B/C detection. */
+  module?: import('oxc-parser').EcmaScriptModule;
 }
 
 export function indexFileRelations(opts: IndexFileRelationsOptions): number {
-  const { ast, project, filePath, relationRepo, projectRoot, tsconfigPaths, knownFiles, boundaries } = opts;
+  const { ast, project, filePath, relationRepo, projectRoot, tsconfigPaths, knownFiles, boundaries, module: moduleData } = opts;
 
   const absFilePath = toAbsolutePath(projectRoot, filePath);
 
@@ -60,15 +64,39 @@ export function indexFileRelations(opts: IndexFileRelationsOptions): number {
             if (knownFiles.has(`${project}::${rel}`)) return [c];
           }
         }
-        return []; // knownFiles에 없으면 빈 배열 → relation 미생성
+        return []; // knownFiles에 없으면 빈 배열 → unresolved/external로 처리됨
       }
     : undefined;
 
-  const rawRelations = extractRelations(ast, absFilePath, tsconfigPaths, customResolver);
+  const rawRelations = extractRelations(ast, absFilePath, tsconfigPaths, customResolver, moduleData);
 
   const rows: RelationDbRow[] = [];
 
   for (const rel of rawRelations) {
+    // External/unresolved imports have null dstFilePath
+    if (rel.dstFilePath === null) {
+      const relSrc = toRelativePath(projectRoot, rel.srcFilePath);
+      let meta: Record<string, unknown> | undefined;
+      if (rel.metaJson) {
+        try { meta = JSON.parse(rel.metaJson) as Record<string, unknown>; } catch { /* ignore */ }
+      }
+      const isExternal = meta?.isExternal === true;
+
+      rows.push({
+        project,
+        type: rel.type,
+        srcFilePath: relSrc,
+        srcSymbolName: rel.srcSymbolName ?? null,
+        dstProject: null,
+        dstFilePath: null,
+        dstSymbolName: rel.dstSymbolName ?? null,
+        metaJson: rel.metaJson ?? null,
+        specifier: rel.specifier ?? null,
+        isExternal: isExternal ? 1 : 0,
+      });
+      continue;
+    }
+
     const relDst = toRelativePath(projectRoot, rel.dstFilePath);
 
     if (relDst.startsWith('..')) continue;
@@ -89,6 +117,8 @@ export function indexFileRelations(opts: IndexFileRelationsOptions): number {
       dstFilePath: relDst,
       dstSymbolName: rel.dstSymbolName ?? null,
       metaJson: rel.metaJson ?? null,
+      specifier: rel.specifier ?? null,
+      isExternal: 0,
     });
   }
 

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { DATA_DIR } from "../constants";
+import { normalizePath } from "./path-utils";
 
 /**
  * A discovered sub-project within the indexed project root.
@@ -23,7 +24,7 @@ export async function discoverProjects(projectRoot: string): Promise<ProjectBoun
     cwd: projectRoot,
     exclude: DISCOVERY_EXCLUDE,
   })) {
-    const packageDir = path.dirname(relativePackageJson).replaceAll("\\", "/");
+    const packageDir = normalizePath(path.dirname(relativePackageJson));
     const packagePath = path.join(projectRoot, relativePackageJson);
     const content = await Bun.file(packagePath).json();
 
@@ -47,7 +48,7 @@ export function resolveFileProject(
   boundaries: ProjectBoundary[],
   rootProject = "default",
 ): string {
-  const normalizedFilePath = filePath.replaceAll("\\", "/");
+  const normalizedFilePath = normalizePath(filePath);
   for (const boundary of boundaries) {
     if (boundary.dir === ".") {
       return boundary.project;

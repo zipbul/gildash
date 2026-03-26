@@ -7,11 +7,26 @@ export interface RelationRecord {
   type: string;
   srcFilePath: string;
   srcSymbolName: string | null;
-  dstProject: string;
-  dstFilePath: string;
+  dstProject: string | null;
+  dstFilePath: string | null;
   dstSymbolName: string | null;
   metaJson: string | null;
+  specifier: string | null;
+  isExternal: number;
 }
+
+const RELATION_SELECT = {
+  project: relationsTable.project,
+  type: relationsTable.type,
+  srcFilePath: relationsTable.srcFilePath,
+  srcSymbolName: relationsTable.srcSymbolName,
+  dstProject: relationsTable.dstProject,
+  dstFilePath: relationsTable.dstFilePath,
+  dstSymbolName: relationsTable.dstSymbolName,
+  metaJson: relationsTable.metaJson,
+  specifier: relationsTable.specifier,
+  isExternal: relationsTable.isExternal,
+} as const;
 
 export class RelationRepository {
   constructor(private readonly db: DbConnection) {}
@@ -35,10 +50,12 @@ export class RelationRepository {
           type: rel.type ?? 'unknown',
           srcFilePath: rel.srcFilePath ?? srcFilePath,
           srcSymbolName: rel.srcSymbolName ?? null,
-          dstProject: rel.dstProject ?? project,
-          dstFilePath: rel.dstFilePath ?? '',
+          dstProject: rel.dstProject ?? (rel.dstFilePath != null ? project : null),
+          dstFilePath: rel.dstFilePath ?? null,
           dstSymbolName: rel.dstSymbolName ?? null,
           metaJson: rel.metaJson ?? null,
+          specifier: rel.specifier ?? null,
+          isExternal: rel.isExternal ?? 0,
         }).run();
       }
     });
@@ -47,16 +64,7 @@ export class RelationRepository {
   getOutgoing(project: string, srcFilePath: string, srcSymbolName?: string): RelationRecord[] {
     if (srcSymbolName !== undefined) {
       return this.db.drizzleDb
-        .select({
-          project: relationsTable.project,
-          type: relationsTable.type,
-          srcFilePath: relationsTable.srcFilePath,
-          srcSymbolName: relationsTable.srcSymbolName,
-          dstProject: relationsTable.dstProject,
-          dstFilePath: relationsTable.dstFilePath,
-          dstSymbolName: relationsTable.dstSymbolName,
-          metaJson: relationsTable.metaJson,
-        })
+        .select(RELATION_SELECT)
         .from(relationsTable)
         .where(
           and(
@@ -72,16 +80,7 @@ export class RelationRepository {
     }
 
     return this.db.drizzleDb
-      .select({
-        project: relationsTable.project,
-        type: relationsTable.type,
-        srcFilePath: relationsTable.srcFilePath,
-        srcSymbolName: relationsTable.srcSymbolName,
-        dstProject: relationsTable.dstProject,
-        dstFilePath: relationsTable.dstFilePath,
-        dstSymbolName: relationsTable.dstSymbolName,
-        metaJson: relationsTable.metaJson,
-      })
+      .select(RELATION_SELECT)
       .from(relationsTable)
       .where(
         and(
@@ -95,16 +94,7 @@ export class RelationRepository {
   getIncoming(opts: { dstProject: string; dstFilePath: string }): RelationRecord[] {
     const { dstProject, dstFilePath } = opts;
     return this.db.drizzleDb
-      .select({
-        project: relationsTable.project,
-        type: relationsTable.type,
-        srcFilePath: relationsTable.srcFilePath,
-        srcSymbolName: relationsTable.srcSymbolName,
-        dstProject: relationsTable.dstProject,
-        dstFilePath: relationsTable.dstFilePath,
-        dstSymbolName: relationsTable.dstSymbolName,
-        metaJson: relationsTable.metaJson,
-      })
+      .select(RELATION_SELECT)
       .from(relationsTable)
       .where(
         and(
@@ -117,16 +107,7 @@ export class RelationRepository {
 
   getByType(project: string, type: string): RelationRecord[] {
     return this.db.drizzleDb
-      .select({
-        project: relationsTable.project,
-        type: relationsTable.type,
-        srcFilePath: relationsTable.srcFilePath,
-        srcSymbolName: relationsTable.srcSymbolName,
-        dstProject: relationsTable.dstProject,
-        dstFilePath: relationsTable.dstFilePath,
-        dstSymbolName: relationsTable.dstSymbolName,
-        metaJson: relationsTable.metaJson,
-      })
+      .select(RELATION_SELECT)
       .from(relationsTable)
       .where(
         and(
@@ -144,6 +125,13 @@ export class RelationRepository {
       .run();
   }
 
+  deleteIncomingRelations(dstProject: string, dstFilePath: string): void {
+    this.db.drizzleDb
+      .delete(relationsTable)
+      .where(and(eq(relationsTable.dstProject, dstProject), eq(relationsTable.dstFilePath, dstFilePath)))
+      .run();
+  }
+
   searchRelations(opts: {
     srcFilePath?: string;
     srcSymbolName?: string;
@@ -152,19 +140,12 @@ export class RelationRepository {
     dstSymbolName?: string;
     type?: string;
     project?: string;
-    limit: number;
+    specifier?: string;
+    isExternal?: boolean;
+    limit?: number;
   }): RelationRecord[] {
-    return this.db.drizzleDb
-      .select({
-        project: relationsTable.project,
-        type: relationsTable.type,
-        srcFilePath: relationsTable.srcFilePath,
-        srcSymbolName: relationsTable.srcSymbolName,
-        dstProject: relationsTable.dstProject,
-        dstFilePath: relationsTable.dstFilePath,
-        dstSymbolName: relationsTable.dstSymbolName,
-        metaJson: relationsTable.metaJson,
-      })
+    const builder = this.db.drizzleDb
+      .select(RELATION_SELECT)
       .from(relationsTable)
       .where(
         and(
@@ -185,10 +166,12 @@ export class RelationRepository {
             ? eq(relationsTable.dstSymbolName, opts.dstSymbolName)
             : undefined,
           opts.type !== undefined ? eq(relationsTable.type, opts.type) : undefined,
+          opts.specifier !== undefined ? eq(relationsTable.specifier, opts.specifier) : undefined,
+          opts.isExternal !== undefined ? eq(relationsTable.isExternal, opts.isExternal ? 1 : 0) : undefined,
         ),
-      )
-      .limit(opts.limit)
-      .all();
+      );
+    const limited = opts.limit !== undefined ? builder.limit(opts.limit) : builder;
+    return limited.all();
   }
 
   retargetRelations(opts: {

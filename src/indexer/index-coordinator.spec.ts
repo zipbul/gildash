@@ -46,6 +46,7 @@ function makeRelationRepo() {
     replaceFileRelations: mock((p: any, f: any, r: any) => {}),
     retargetRelations: mock((opts: any) => {}),
     deleteFileRelations: mock((p: any, f: any) => {}),
+    deleteIncomingRelations: mock((p: any, f: any) => {}),
     getOutgoing: mock((p: any, f: any): any[] => []),
   };
 }

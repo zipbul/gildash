@@ -15,6 +15,8 @@ function makeRelationRecord(overrides: Partial<RelationRecord> = {}): RelationRe
     dstFilePath: 'src/b.ts',
     dstSymbolName: null,
     metaJson: null,
+    specifier: null,
+    isExternal: 0,
     ...overrides,
   };
 }
@@ -92,11 +94,11 @@ describe('relationSearch', () => {
     expect(opts.limit).toBe(50);
   });
 
-  it('should pass limit=500 to searchRelations when query.limit is absent', () => {
+  it('should pass limit=undefined to searchRelations when query.limit is absent', () => {
     const query: RelationSearchQuery = {};
     relationSearch({ relationRepo: mockRepo, query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
-    expect(opts.limit).toBe(500);
+    expect(opts.limit).toBeUndefined();
   });
 
   it('should set result.srcSymbolName=null when record.srcSymbolName is null', () => {
@@ -127,11 +129,11 @@ describe('relationSearch', () => {
     expect(results[0]!.metaJson).toBeUndefined();
   });
 
-  it('should call searchRelations with limit=500 and no filters when empty query is given', () => {
+  it('should call searchRelations with limit=undefined and no filters when empty query is given', () => {
     const results = relationSearch({ relationRepo: mockRepo, query: {} });
     expect(results).toEqual([]);
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
-    expect(opts.limit).toBe(500);
+    expect(opts.limit).toBeUndefined();
   });
 
   it('should pass all filters to searchRelations when all query fields are provided', () => {
@@ -441,10 +443,10 @@ describe('relationSearch', () => {
     });
     expect(results).toHaveLength(2);
     expect(results.every(r => r.type === 'imports')).toBe(true);
-    expect(results.every(r => r.dstFilePath.startsWith('lib/'))).toBe(true);
+    expect(results.every(r => r.dstFilePath?.startsWith('lib/'))).toBe(true);
   });
 
-  it('should pass MAX_SAFE_INTEGER as limit to repo when pattern is used', () => {
+  it('should pass limit=undefined to repo when pattern is used to fetch all for app-level filtering', () => {
     mockSearchRelations = mock(() => []);
     mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
     relationSearch({
@@ -452,7 +454,7 @@ describe('relationSearch', () => {
       query: { srcFilePathPattern: 'src/**', limit: 10 },
     });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
-    expect(opts.limit).toBe(Number.MAX_SAFE_INTEGER);
+    expect(opts.limit).toBeUndefined();
   });
 
   // --- Filter combination tests ---
