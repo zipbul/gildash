@@ -673,7 +673,9 @@ export class IndexCoordinator {
       }
 
       // 2. Additional move detection from rename-detector's removed (intra/cross-file move)
+      const alreadyMoved = new Set(movedEntries.map(m => `${m.oldFilePath}::${m.name}`));
       for (const rem of renameResult.removed) {
+        if (alreadyMoved.has(`${rem.filePath}::${rem.name}`)) continue;
         const snap = beforeSnapshot.get(`${rem.filePath}::${rem.name}`);
         const fp = snap?.fingerprint;
         if (!fp) continue;
