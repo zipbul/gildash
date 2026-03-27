@@ -6,8 +6,12 @@ import type { RelationRecord } from '../store/repositories/relation.repository';
  * A {@link CodeRelation} enriched with the destination project identifier
  * as stored in the relation index.
  */
-export interface StoredCodeRelation extends CodeRelation {
+export interface StoredCodeRelation extends Omit<CodeRelation, 'specifier'> {
   dstProject: string | null;
+  /** Whether this relation targets an external (bare specifier) package. */
+  isExternal: boolean;
+  /** The raw import specifier string (e.g. `'lodash'`, `'./missing'`). `null` when the import was resolved to a file. */
+  specifier: string | null;
 }
 
 /**
@@ -112,9 +116,10 @@ export function relationSearch(options: {
       dstFilePath: r.dstFilePath,
       dstSymbolName: r.dstSymbolName,
       dstProject: r.dstProject,
+      isExternal: r.isExternal === 1,
+      specifier: r.specifier,
       metaJson: r.metaJson ?? undefined,
       meta,
-      ...(r.specifier != null ? { specifier: r.specifier } : {}),
     };
   });
 
