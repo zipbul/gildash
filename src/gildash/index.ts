@@ -70,6 +70,11 @@ export type { GildashInternalOptions } from './lifecycle';
  * (e.g. `'src/utils.ts'`). The `project` parameter defaults to the primary
  * project (first discovered boundary) when omitted.
  *
+ * **Path guarantee:** All file paths returned by gildash APIs (`filePath`,
+ * `srcFilePath`, `dstFilePath`, `originalFilePath`, etc.) use forward slash
+ * (`/`) as separator, regardless of platform. Consumers may safely omit
+ * platform-specific path normalization.
+ *
  * Create an instance with the static {@link Gildash.open} factory.
  * Always call {@link Gildash.close} when done to release resources.
  */

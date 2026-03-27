@@ -27,6 +27,9 @@ export type { AnnotationSource, ExtractedAnnotation } from "./extractor/types";
 export type { AnnotationSearchQuery, AnnotationSearchResult } from "./search/annotation-search";
 export type { SymbolChange, SymbolChangeType, SymbolChangeQueryOptions } from "./gildash/types";
 
+// Path utilities for consumers
+export { normalizePath } from './common/path-utils';
+
 // Internal parser utilities for consumers
 export { buildLineOffsets, getLineColumn } from './parser/source-position';
 export type { SourcePosition, SourceSpan } from './parser/types';

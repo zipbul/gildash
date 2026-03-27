@@ -482,4 +482,31 @@ describe('relationSearch', () => {
     expect(opts.dstFilePath).toBe('src/b.ts');
     expect(opts.type).toBe('calls');
   });
+
+  it('should map isExternal from number 1 to boolean true in result', () => {
+    mockSearchRelations.mockReturnValue([
+      makeRelationRecord({ isExternal: 1, specifier: 'lodash', dstFilePath: null }),
+    ]);
+    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    expect(results[0]!.isExternal).toBe(true);
+    expect(results[0]!.specifier).toBe('lodash');
+  });
+
+  it('should map isExternal from number 0 to boolean false in result', () => {
+    mockSearchRelations.mockReturnValue([
+      makeRelationRecord({ isExternal: 0, specifier: null }),
+    ]);
+    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    expect(results[0]!.isExternal).toBe(false);
+    expect(results[0]!.specifier).toBeNull();
+  });
+
+  it('should include specifier as null for resolved imports in result', () => {
+    mockSearchRelations.mockReturnValue([
+      makeRelationRecord({ dstFilePath: 'src/utils.ts', specifier: null, isExternal: 0 }),
+    ]);
+    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    expect(results[0]!.specifier).toBeNull();
+    expect(results[0]!.dstFilePath).toBe('src/utils.ts');
+  });
 });
