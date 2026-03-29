@@ -1,5 +1,21 @@
 # @zipbul/gildash
 
+## 0.16.2
+
+### Patch Changes
+
+- [#70](https://github.com/zipbul/gildash/pull/70) [`64f2ed8`](https://github.com/zipbul/gildash/commit/64f2ed8c3a4ff13ab71769d82391aa63ca96c71a) Thanks [@parkrevil](https://github.com/parkrevil)! - fix: correct PID recycling false positive, span precision for multi-declarator exports and destructuring, project key desync on boundary refresh
+
+  - Fix PID recycling check in `acquireWatcherRole`: the condition `owner.pid !== pid` was always true for reader processes, causing any reader with `instanceId` to immediately take over from a healthy owner. Changed to `owner.pid === pid` so recycling detection only fires when the OS actually recycled the PID to the calling process. This restores the single-writer guarantee for multi-process deployments.
+  - Fix `ExportNamedDeclaration` handler: stop overwriting individual declarator spans with the parent export statement span for multi-declarator exports (`export const a = …, b = …`). Each symbol now retains its precise source position in the database.
+  - Fix `collectBindingNames`: return `{name, start, end}` instead of bare strings so each destructured variable (`const { a, b } = x`) gets its own identifier span instead of sharing the pattern's span.
+  - Fix project key desync on `package.json` name change: trigger `fullIndex` (like `tsconfig.json`) and propagate updated boundaries to `GildashContext` via `onBoundariesChanged` callback, preventing stale query results and orphaned records.
+
+- [#70](https://github.com/zipbul/gildash/pull/70) [`64f2ed8`](https://github.com/zipbul/gildash/commit/64f2ed8c3a4ff13ab71769d82391aa63ca96c71a) Thanks [@parkrevil](https://github.com/parkrevil)! - fix: deduplicate movedSymbols in incremental indexing, add integration tests
+
+  - Fix duplicate entries in `IndexResult.movedSymbols` during incremental indexing. The `deletedSymbols` loop and `renameResult.removed` loop could both match the same symbol by fingerprint, producing duplicates and redundant `retargetRelations` calls.
+  - Add `test/incremental.test.ts` (21 integration tests) covering: incremental rename/move detection with real files, changelog recording for rename/move, monorepo cross-project relation indexing, external import (`isExternal`/`specifier`) indexing, and Gildash facade-level search for external/cross-project relations.
+
 ## 0.16.1
 
 ### Patch Changes
