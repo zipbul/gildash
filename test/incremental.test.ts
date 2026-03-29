@@ -777,17 +777,19 @@ describe('Gildash facade: monorepo cross-project searchRelations', () => {
     await rm(monoTmpDir, { recursive: true, force: true });
   });
 
-  it('should return cross-project dstProject via searchRelations', () => {
-    const rels = g.searchRelations({
+  it('should return cross-project dstProject via searchAllRelations', () => {
+    // searchRelations uses defaultProject (first boundary), which may not be @m/app.
+    // searchAllRelations queries across all projects.
+    const allRels = g.searchAllRelations({
       srcFilePath: 'packages/app/src/main.ts',
       type: 'imports',
     });
-    const crossRel = rels.find(r => r.dstFilePath?.includes('lib'));
+    const crossRel = allRels.find(r => r.dstFilePath?.includes('lib'));
     expect(crossRel).toBeDefined();
     expect(crossRel!.dstProject).toBe('@m/lib');
   });
 
-  it('should return cross-project relations via searchAllRelations', () => {
+  it('should include cross-project imports when searching all relations without srcFilePath filter', () => {
     const allRels = g.searchAllRelations({ type: 'imports' });
     const crossRel = allRels.find(
       r => r.srcFilePath === 'packages/app/src/main.ts' && r.dstFilePath?.includes('lib'),
