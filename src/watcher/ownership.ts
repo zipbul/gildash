@@ -60,9 +60,9 @@ export function acquireWatcherRole(
     const heartbeatAgeSeconds = Math.floor((now() - toEpochMs(owner.heartbeat_at)) / 1000);
     const pidAlive = isAlive(owner.pid);
 
-    // PID recycling check: if PID is alive but instance_id doesn't match,
-    // the OS recycled the PID to an unrelated process
-    if (pidAlive && instanceId && owner.instance_id && owner.instance_id !== instanceId && owner.pid !== pid) {
+    // PID recycling check: the caller has the SAME PID as the stored owner,
+    // but a different instance_id — the OS recycled the PID to this process
+    if (pidAlive && instanceId && owner.instance_id && owner.instance_id !== instanceId && owner.pid === pid) {
       db.replaceOwner(pid, instanceId);
       return "owner";
     }

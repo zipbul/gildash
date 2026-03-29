@@ -55,31 +55,37 @@ function keyName(key: OxcPropertyKey): string {
   return 'unknown';
 }
 
-/** Recursively collect all binding Identifier names from a destructuring pattern. */
-function collectBindingNames(pattern: BindingPattern): string[] {
-  if (pattern.type === 'Identifier') return [pattern.name];
+interface BindingInfo {
+  name: string;
+  start: number;
+  end: number;
+}
+
+/** Recursively collect all binding Identifier names (with positions) from a destructuring pattern. */
+function collectBindingNames(pattern: BindingPattern): BindingInfo[] {
+  if (pattern.type === 'Identifier') return [{ name: pattern.name, start: pattern.start, end: pattern.end }];
   if (pattern.type === 'ObjectPattern') {
-    const names: string[] = [];
+    const bindings: BindingInfo[] = [];
     for (const prop of pattern.properties) {
       if (prop.type === 'RestElement') {
-        names.push(...collectBindingNames(prop.argument as BindingPattern));
+        bindings.push(...collectBindingNames(prop.argument as BindingPattern));
       } else {
-        names.push(...collectBindingNames((prop as BindingProperty).value));
+        bindings.push(...collectBindingNames((prop as BindingProperty).value));
       }
     }
-    return names;
+    return bindings;
   }
   if (pattern.type === 'ArrayPattern') {
-    const names: string[] = [];
+    const bindings: BindingInfo[] = [];
     for (const elem of pattern.elements) {
       if (!elem) continue;
       if (elem.type === 'RestElement') {
-        names.push(...collectBindingNames(elem.argument as BindingPattern));
+        bindings.push(...collectBindingNames(elem.argument as BindingPattern));
       } else {
-        names.push(...collectBindingNames(elem as BindingPattern));
+        bindings.push(...collectBindingNames(elem as BindingPattern));
       }
     }
-    return names;
+    return bindings;
   }
   // AssignmentPattern: const { a = 1 } = x → left is the binding
   if (pattern.type === 'AssignmentPattern') {
@@ -439,12 +445,12 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         const init = decl.init;
 
         if (id.type === 'ObjectPattern' || id.type === 'ArrayPattern') {
-          const names = collectBindingNames(id);
-          for (const n of names) {
+          const bindings = collectBindingNames(id);
+          for (const binding of bindings) {
             symbols.push({
               kind: 'variable' as SymbolKind,
-              name: n,
-              span: span(id.start, id.end),
+              name: binding.name,
+              span: span(binding.start, binding.end),
               isExported,
               modifiers: [],
             });
@@ -575,8 +581,6 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         sym = buildSymbol(n.declaration, true);
         if (sym && !Array.isArray(sym)) {
           sym.span = span(n.start, n.end);
-        } else if (Array.isArray(sym)) {
-          for (const s of sym) s.span = span(n.start, n.end);
         }
       } else if (!n.source && n.specifiers) {
         for (const spec of n.specifiers) {

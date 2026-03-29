@@ -145,6 +145,7 @@ export interface IndexCoordinatorOptions {
   };
   parseSourceFn?: typeof parseSource;
   discoverProjectsFn?: typeof discoverProjects;
+  onBoundariesChanged?: (boundaries: ProjectBoundary[]) => void;
   logger?: Logger;
 }
 
@@ -209,7 +210,12 @@ export class IndexCoordinator {
       const discover = this.opts.discoverProjectsFn ?? discoverProjects;
       this.boundariesRefresh = discover(this.opts.projectRoot).then((b) => {
         this.opts.boundaries = b;
+        this.opts.onBoundariesChanged?.(b);
       });
+      this.fullIndex().catch((err) => {
+        this.logger.error('[IndexCoordinator] fullIndex failed after package.json change:', err);
+      });
+      return;
     }
 
     this.pendingEvents.push(event);

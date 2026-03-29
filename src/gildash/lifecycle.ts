@@ -149,6 +149,10 @@ export async function setupOwnerInfrastructure(
         relationRepo: ctx.relationRepo,
         annotationRepo: (ctx.annotationRepo as AnnotationRepository | null) ?? undefined,
         changelogRepo: ctx.changelogRepo ?? undefined,
+        onBoundariesChanged: (b) => {
+          ctx.boundaries = b;
+          ctx.defaultProject = b[0]?.project ?? path.basename(ctx.projectRoot);
+        },
         logger: ctx.logger,
       });
 

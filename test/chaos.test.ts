@@ -308,24 +308,22 @@ describe("chaos: watcher ownership", () => {
 
   // ── Scenario 4: PID recycling ─────────────────────────────────────────
   describe("PID recycling", () => {
-    it("should detect PID recycling via mismatched instance_id and promote new caller", () => {
-      const OLD_OWNER_PID = 5000;
-      const NEW_CALLER_PID = 6000;
+    it("should detect PID recycling when caller has the same PID but different instance_id", () => {
+      const RECYCLED_PID = 5000;
 
       // Original owner acquires with instance_id
-      acquireWatcherRole(db, OLD_OWNER_PID, {
+      acquireWatcherRole(db, RECYCLED_PID, {
         now: clockAt(nowMs),
         isAlive: () => true,
         staleAfterSeconds: STALE_THRESHOLD,
         instanceId: "uuid-A",
       });
-      expect(db.row?.pid).toBe(OLD_OWNER_PID);
+      expect(db.row?.pid).toBe(RECYCLED_PID);
       expect(db.row?.instance_id).toBe("uuid-A");
 
-      // Owner "dies", OS recycles PID 5000 to an unrelated process.
-      // A new caller (PID 6000) with instance_id "uuid-B" attempts to acquire.
-      // isAlive returns true for OLD_OWNER_PID because the OS recycled that PID.
-      const role = acquireWatcherRole(db, NEW_CALLER_PID, {
+      // Owner dies, OS recycles PID 5000 to a new Gildash process.
+      // New process (same PID, different instanceId) detects recycling immediately.
+      const role = acquireWatcherRole(db, RECYCLED_PID, {
         now: clockAt(nowMs + 5_000),
         isAlive: () => true,
         staleAfterSeconds: STALE_THRESHOLD,
@@ -333,11 +331,35 @@ describe("chaos: watcher ownership", () => {
       });
 
       expect(role).toBe("owner");
-      expect(db.row?.pid).toBe(NEW_CALLER_PID);
+      expect(db.row?.pid).toBe(RECYCLED_PID);
       expect(db.row?.instance_id).toBe("uuid-B");
     });
 
-    it("should fall back to stale heartbeat check when same PID re-acquires with different instance_id", () => {
+    it("should not trigger PID recycling when caller has a different PID", () => {
+      const OWNER_PID = 5000;
+      const READER_PID = 6000;
+
+      acquireWatcherRole(db, OWNER_PID, {
+        now: clockAt(nowMs),
+        isAlive: () => true,
+        staleAfterSeconds: STALE_THRESHOLD,
+        instanceId: "uuid-A",
+      });
+
+      // Reader at a different PID — PID recycling check requires same PID,
+      // so this falls through to heartbeat check (fresh → reader).
+      const role = acquireWatcherRole(db, READER_PID, {
+        now: clockAt(nowMs + 5_000),
+        isAlive: () => true,
+        staleAfterSeconds: STALE_THRESHOLD,
+        instanceId: "uuid-B",
+      });
+
+      expect(role).toBe("reader");
+      expect(db.row?.pid).toBe(OWNER_PID);
+    });
+
+    it("should detect PID recycling immediately when same PID re-acquires with different instance_id", () => {
       const RECYCLED_PID = 5000;
 
       // Original owner acquires with instance_id "uuid-A"
@@ -348,9 +370,9 @@ describe("chaos: watcher ownership", () => {
         instanceId: "uuid-A",
       });
 
-      // Same PID but different instance_id — the PID recycling branch
-      // requires owner.pid !== pid, so this falls through to heartbeat check.
-      // Heartbeat is still fresh, so this returns reader.
+      // Same PID but different instance_id — the OS recycled this PID.
+      // PID recycling check detects this and promotes immediately,
+      // even though the heartbeat is still fresh.
       const role = acquireWatcherRole(db, RECYCLED_PID, {
         now: clockAt(nowMs + 5_000),
         isAlive: () => true,
@@ -358,10 +380,9 @@ describe("chaos: watcher ownership", () => {
         instanceId: "uuid-B",
       });
 
-      // The same PID is treated as "our own row" — not a recycled PID scenario
-      expect(role).toBe("reader");
+      expect(role).toBe("owner");
       expect(db.row?.pid).toBe(RECYCLED_PID);
-      expect(db.row?.instance_id).toBe("uuid-A");
+      expect(db.row?.instance_id).toBe("uuid-B");
     });
 
     it("should promote same PID with different instance_id only when heartbeat is stale", () => {
@@ -543,11 +564,12 @@ describe("chaos: watcher ownership", () => {
       expect(roleA).toBe("owner");
 
       // Reader B sees Reader A alive, stays reader
-      // (no instanceId to avoid triggering PID recycling detection against Reader A)
+      // instanceId is safe — PID recycling only triggers for same PID
       const roleB = acquireWatcherRole(db, 3000, {
         now: clockAt(nowMs + 5_000),
         isAlive: () => true,
         staleAfterSeconds: STALE_THRESHOLD,
+        instanceId: "reader-b",
       });
       expect(roleB).toBe("reader");
 
@@ -556,6 +578,7 @@ describe("chaos: watcher ownership", () => {
         now: clockAt(nowMs + 5_000),
         isAlive: () => true,
         staleAfterSeconds: STALE_THRESHOLD,
+        instanceId: "reader-c",
       });
       expect(roleC).toBe("reader");
 
@@ -587,7 +610,7 @@ describe("chaos: watcher ownership", () => {
       expect(role).toBe("reader");
     });
 
-    it("should let first reader take ownership via PID recycling detection, others stay reader", () => {
+    it("should not let readers at different PIDs trigger PID recycling detection", () => {
       const db = createFakeStore();
       acquireWatcherRole(db, 1000, {
         now: clockAt(nowMs),
@@ -596,23 +619,23 @@ describe("chaos: watcher ownership", () => {
         instanceId: "orig-uuid",
       });
 
-      // PID 1000 is alive but belongs to a different process (different instance_id)
-      // Reader A detects recycling and takes over
+      // Reader A at PID 2000 — different PID from owner (1000), so PID recycling
+      // check does not fire. Owner is alive + heartbeat fresh → reader.
       const roleA = acquireWatcherRole(db, 2000, {
         now: clockAt(nowMs + 5_000),
         isAlive: () => true,
         staleAfterSeconds: STALE_THRESHOLD,
         instanceId: "reader-a-uuid",
       });
-      expect(roleA).toBe("owner");
-      expect(db.selectOwner()?.instance_id).toBe("reader-a-uuid");
+      expect(roleA).toBe("reader");
+      expect(db.selectOwner()?.pid).toBe(1000);
 
-      // Reader B sees Reader A as the new alive owner with fresh heartbeat
-      // (no instanceId to avoid triggering PID recycling detection against Reader A)
+      // Reader B also stays reader — instanceId is safe with different PIDs
       const roleB = acquireWatcherRole(db, 3000, {
         now: clockAt(nowMs + 5_500),
         isAlive: () => true,
         staleAfterSeconds: STALE_THRESHOLD,
+        instanceId: "reader-b-uuid",
       });
       expect(roleB).toBe("reader");
     });
@@ -635,7 +658,7 @@ describe("chaos: watcher ownership", () => {
       expect(role).toBe("reader");
     });
 
-    it("should remain reader when heartbeat age equals exactly stale threshold", () => {
+    it("should promote when heartbeat age equals exactly stale threshold", () => {
       const db = createFakeStore();
       acquireWatcherRole(db, 1000, {
         now: clockAt(nowMs),
@@ -652,17 +675,15 @@ describe("chaos: watcher ownership", () => {
         instance_id: "owner-uuid",
       };
 
-      // At exact boundary: ownership logic uses < (not <=) for staleness
+      // At exact boundary: heartbeatAgeSeconds(60) < staleAfterSeconds(60) is false,
+      // so the owner is considered stale and the reader promotes.
       const role = acquireWatcherRole(db, 2000, {
         now: clockAt(checkTime),
         isAlive: () => true,
         staleAfterSeconds: STALE_THRESHOLD,
         instanceId: "reader-uuid",
       });
-      // The exact boundary behavior depends on implementation (<= vs <)
-      // This test documents the actual behavior
-      expect(typeof role).toBe("string");
-      expect(["owner", "reader"]).toContain(role);
+      expect(role).toBe("owner");
     });
 
     it("should promote reader to owner when owner releases between checks", () => {
