@@ -30,6 +30,7 @@ const {
   closeContext,
   setupOwnerInfrastructure,
   registerSignalHandlers,
+  applyBoundariesChange,
   HEARTBEAT_INTERVAL_MS,
   HEALTHCHECK_INTERVAL_MS,
   MAX_HEALTHCHECK_RETRIES,
@@ -532,9 +533,11 @@ describe('setupOwnerInfrastructure', () => {
   it('should set timer for heartbeat in watchMode', async () => {
     const coordinator = makeCoordinator();
     const watcher = makeWatcher();
+    const updateHeartbeatFn = mock(() => {});
     const ctx = makeCtx({
       coordinatorFactory: mock(() => coordinator) as any,
       watcherFactory: mock(() => watcher) as any,
+      updateHeartbeatFn,
     });
 
     await setupOwnerInfrastructure(ctx, { isWatchMode: true });
@@ -543,6 +546,12 @@ describe('setupOwnerInfrastructure', () => {
       expect.any(Function),
       HEARTBEAT_INTERVAL_MS,
     );
+
+    // Invoke the captured heartbeat callback to cover the timer body
+    const heartbeatCb = capturedIntervalCallbacks[0];
+    expect(heartbeatCb).toBeDefined();
+    heartbeatCb!();
+    expect(updateHeartbeatFn).toHaveBeenCalledTimes(1);
   });
 
   it('should create ProjectWatcher when no watcherFactory is provided', async () => {
@@ -559,6 +568,30 @@ describe('setupOwnerInfrastructure', () => {
     expect(startSpy).toHaveBeenCalledTimes(1);
     expect(coordinator.fullIndex).toHaveBeenCalledTimes(1);
     startSpy.mockRestore();
+  });
+
+  it('should update ctx.boundaries and ctx.defaultProject via applyBoundariesChange', () => {
+    const ctx = makeCtx({
+      boundaries: [{ dir: '.', project: 'old-name' }] as any,
+      defaultProject: 'old-name',
+    });
+
+    applyBoundariesChange(ctx, [{ dir: '.', project: 'new-name' }]);
+
+    expect(ctx.defaultProject).toBe('new-name');
+    expect(ctx.boundaries[0]?.project).toBe('new-name');
+  });
+
+  it('should fall back to projectRoot basename when boundaries are empty', () => {
+    const ctx = makeCtx({
+      boundaries: [{ dir: '.', project: 'old-name' }] as any,
+      defaultProject: 'old-name',
+    });
+
+    applyBoundariesChange(ctx, []);
+
+    expect(ctx.defaultProject).toBe('project'); // basename of '/test/project'
+    expect(ctx.boundaries).toEqual([]);
   });
 
   it('should call semanticLayer.notifyFileDeleted on delete event', async () => {

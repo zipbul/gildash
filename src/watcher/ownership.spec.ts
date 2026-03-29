@@ -247,8 +247,8 @@ describe("acquireWatcherRole", () => {
     expect(role).toBe("reader");
   });
 
-  it("should return owner when PID is alive but instance_id does not match (PID recycling)", () => {
-    const db = createFakeDb({ pid: 7, heartbeat_at: new Date().toISOString(), instance_id: "old-uuid" });
+  it("should detect PID recycling when same PID re-acquires with different instance_id", () => {
+    const db = createFakeDb({ pid: 100, heartbeat_at: new Date().toISOString(), instance_id: "old-uuid" });
 
     const role = acquireWatcherRole(db, 100, {
       now: () => Date.now(),
@@ -260,6 +260,21 @@ describe("acquireWatcherRole", () => {
     expect(role).toBe("owner");
     expect(db.row?.pid).toBe(100);
     expect(db.replaceOwner).toHaveBeenCalledTimes(1);
+  });
+
+  it("should return reader when different PID has mismatched instance_id but owner is alive", () => {
+    const db = createFakeDb({ pid: 7, heartbeat_at: new Date().toISOString(), instance_id: "old-uuid" });
+
+    const role = acquireWatcherRole(db, 100, {
+      now: () => Date.now(),
+      isAlive: () => true,
+      staleAfterSeconds: 90,
+      instanceId: "new-uuid",
+    });
+
+    expect(role).toBe("reader");
+    expect(db.row?.pid).toBe(7);
+    expect(db.replaceOwner).not.toHaveBeenCalled();
   });
 
   it("should return reader when PID is alive and instance_id matches (same process)", () => {
@@ -276,7 +291,7 @@ describe("acquireWatcherRole", () => {
     expect(db.row?.pid).toBe(7);
   });
 
-  it("should not treat PID recycling when caller PID is the same as owner PID", () => {
+  it("should promote when same PID has different instance_id (PID was recycled)", () => {
     const db = createFakeDb({ pid: 100, heartbeat_at: new Date().toISOString(), instance_id: "old-uuid" });
 
     const role = acquireWatcherRole(db, 100, {
@@ -286,9 +301,9 @@ describe("acquireWatcherRole", () => {
       instanceId: "new-uuid",
     });
 
-    // Same PID means this is our own row, not a recycled PID
-    expect(role).toBe("reader");
-    expect(db.replaceOwner).not.toHaveBeenCalled();
+    // Same PID + different instance_id = OS recycled the PID → take over immediately
+    expect(role).toBe("owner");
+    expect(db.replaceOwner).toHaveBeenCalledTimes(1);
   });
 
   it("should use immediateTransaction instead of transaction when acquiring watcher role", () => {

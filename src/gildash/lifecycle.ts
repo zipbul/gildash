@@ -12,6 +12,7 @@ import type { FileChangeEvent } from '../watcher/types';
 import { acquireWatcherRole, releaseWatcherRole, updateHeartbeat } from '../watcher/ownership';
 import type { WatcherOwnerStore } from '../watcher/ownership';
 import { discoverProjects } from '../common/project-discovery';
+import type { ProjectBoundary } from '../common/project-discovery';
 import type { TsconfigPaths } from '../common/tsconfig-resolver';
 import { loadTsconfigPaths, clearTsconfigPathsCache } from '../common/tsconfig-resolver';
 import { ParseCache } from '../parser/parse-cache';
@@ -38,6 +39,15 @@ import type { GildashOptions, Logger } from './types';
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 export const HEALTHCHECK_INTERVAL_MS = 15_000;
 export const MAX_HEALTHCHECK_RETRIES = 10;
+
+/** Update GildashContext when project boundaries change at runtime. */
+export function applyBoundariesChange(
+  ctx: GildashContext,
+  boundaries: ProjectBoundary[],
+): void {
+  ctx.boundaries = boundaries;
+  ctx.defaultProject = boundaries[0]?.project ?? path.basename(ctx.projectRoot);
+}
 
 // ─── Internal Options ───────────────────────────────────────────────
 
@@ -149,6 +159,7 @@ export async function setupOwnerInfrastructure(
         relationRepo: ctx.relationRepo,
         annotationRepo: (ctx.annotationRepo as AnnotationRepository | null) ?? undefined,
         changelogRepo: ctx.changelogRepo ?? undefined,
+        onBoundariesChanged: (b) => applyBoundariesChange(ctx, b),
         logger: ctx.logger,
       });
 
