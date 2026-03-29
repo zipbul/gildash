@@ -1,5 +1,14 @@
 # @zipbul/gildash
 
+## 0.16.1
+
+### Patch Changes
+
+- [#68](https://github.com/zipbul/gildash/pull/68) [`00202dd`](https://github.com/zipbul/gildash/commit/00202dd043a1b74232bd3db20864f4facf14acec) Thanks [@parkrevil](https://github.com/parkrevil)! - fix: deduplicate movedSymbols in incremental indexing, add integration tests
+
+  - Fix duplicate entries in `IndexResult.movedSymbols` during incremental indexing. The `deletedSymbols` loop and `renameResult.removed` loop could both match the same symbol by fingerprint, producing duplicates and redundant `retargetRelations` calls.
+  - Add `test/incremental.test.ts` (21 integration tests) covering: incremental rename/move detection with real files, changelog recording for rename/move, monorepo cross-project relation indexing, external import (`isExternal`/`specifier`) indexing, and Gildash facade-level search for external/cross-project relations.
+
 ## 0.16.0
 
 ### Minor Changes
