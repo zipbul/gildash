@@ -1,5 +1,13 @@
 # @zipbul/gildash
 
+## 0.17.0
+
+### Minor Changes
+
+- [#72](https://github.com/zipbul/gildash/pull/72) [`09292eb`](https://github.com/zipbul/gildash/commit/09292eb26ac7c377816ce08793ab541e704bce82) Thanks [@parkrevil](https://github.com/parkrevil)! - feat: add `getResolvedTypesAtPositions` batch API
+
+  - Add `getResolvedTypesAtPositions(filePath, positions)` to resolve types at multiple byte offsets in a single file with one Program/TypeChecker/SourceFile lookup, reducing per-call overhead when querying many positions in the same file.
+
 ## 0.16.2
 
 ### Patch Changes
