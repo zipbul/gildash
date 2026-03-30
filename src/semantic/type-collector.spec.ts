@@ -568,6 +568,99 @@ describe("TypeCollector", () => {
     expect(() => collector.collectAt(filePath, 6)).toThrow();
   });
 
+  // ── collectAtPositions ──────────────────────────────────────────────────────
+
+  it("should resolve multiple positions in a single file at once", () => {
+    // Arrange
+    const prog = makeProg();
+    const filePath = "/project/src/batch.ts";
+    const content = "const a: string = 'x';\nconst b: number = 1;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    // Act
+    const result = collector.collectAtPositions(filePath, [
+      pos(content, "a"),
+      pos(content, "b"),
+    ]);
+
+    // Assert
+    expect(result.size).toBe(2);
+    expect(result.get(pos(content, "a"))!.text).toBe("string");
+    expect(result.get(pos(content, "b"))!.text).toBe("number");
+  });
+
+  it("should skip invalid positions and return only resolved ones", () => {
+    // Arrange
+    const prog = makeProg();
+    const filePath = "/project/src/batch-skip.ts";
+    const content = "const a: string = 'x';";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    // Act — includes negative, out-of-range, and non-identifier positions
+    const result = collector.collectAtPositions(filePath, [
+      -1,
+      pos(content, "a"),
+      99999,
+    ]);
+
+    // Assert
+    expect(result.size).toBe(1);
+    expect(result.get(pos(content, "a"))!.text).toBe("string");
+  });
+
+  it("should return empty map when file is not tracked", () => {
+    // Arrange
+    const prog = makeProg();
+    const collector = new TypeCollector(prog);
+
+    // Act
+    const result = collector.collectAtPositions("/project/src/missing.ts", [0, 10]);
+
+    // Assert
+    expect(result.size).toBe(0);
+  });
+
+  it("should skip positions that point to non-identifier tokens", () => {
+    // Arrange
+    const prog = makeProg();
+    const filePath = "/project/src/batch-nonid.ts";
+    const content = "const a: string = 'hello';";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    // Act — position 0 points to 'const' keyword (not identifier, not type node)
+    // position of 'a' is the only resolvable one
+    const constPos = 0; // 'c' of 'const'
+    const eqPos = content.indexOf("="); // '=' operator
+    const result = collector.collectAtPositions(filePath, [
+      constPos,
+      eqPos,
+      pos(content, "a"),
+    ]);
+
+    // Assert — only 'a' should resolve
+    expect(result.size).toBe(1);
+    expect(result.has(pos(content, "a"))).toBe(true);
+    expect(result.has(constPos)).toBe(false);
+    expect(result.has(eqPos)).toBe(false);
+  });
+
+  it("should return empty map when positions array is empty", () => {
+    // Arrange
+    const prog = makeProg();
+    const filePath = "/project/src/batch-empty.ts";
+    prog.notifyFileChanged(filePath, "const a: string = 'x';");
+    const collector = new TypeCollector(prog);
+
+    // Act
+    const result = collector.collectAtPositions(filePath, []);
+
+    // Assert
+    expect(result.size).toBe(0);
+  });
+
   // ── isAssignableTo ──────────────────────────────────────────────────────────
 
   it("should return true when source type is assignable to target type", () => {

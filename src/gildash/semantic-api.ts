@@ -216,6 +216,23 @@ export function getBaseTypes(
   }
 }
 
+/** Retrieve resolved types at multiple byte offsets in a single file (batch). */
+export function getResolvedTypesAtPositions(
+  ctx: GildashContext,
+  filePath: string,
+  positions: number[],
+): Map<number, ResolvedType> {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    return ctx.semanticLayer.collectTypesAtPositions(absPath, positions);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: getResolvedTypesAtPositions failed', { cause: e });
+  }
+}
+
 // ─── Position-based semantic API ──────────────────────────────────────
 
 /** Retrieve the resolved type at a byte offset without line/column conversion. */

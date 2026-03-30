@@ -10,6 +10,7 @@ import {
   getSemanticModuleInterface,
   getBaseTypes,
   getResolvedTypeAtPosition,
+  getResolvedTypesAtPositions,
   getSemanticReferencesAtPosition,
   getImplementationsAtPosition,
   isTypeAssignableToAtPosition,
@@ -47,6 +48,7 @@ function makeSemanticLayer(overrides?: Record<string, unknown>) {
     dispose: mock(() => {}),
     isDisposed: false,
     collectFileTypes: mock(() => []),
+    collectTypesAtPositions: mock(() => new Map()),
     ...overrides,
   };
 }
@@ -414,6 +416,55 @@ describe('getResolvedTypeAtPosition', () => {
 
     try {
       getResolvedTypeAtPosition(ctx, '/a.ts', 0);
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GildashError);
+      expect((e as GildashError).type).toBe('semantic');
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
+});
+
+describe('getResolvedTypesAtPositions', () => {
+  it('should delegate to collectTypesAtPositions with resolved absolute path', () => {
+    const typeMap = new Map([[10, { text: 'number', flags: 0, isUnion: false, isIntersection: false, isGeneric: false }]]);
+    const collectTypesAtPositions = mock(() => typeMap);
+    const layer = makeSemanticLayer({ collectTypesAtPositions });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    const result = getResolvedTypesAtPositions(ctx, '/project/src/a.ts', [10, 20]);
+
+    expect(result).toBe(typeMap as any);
+    expect(collectTypesAtPositions).toHaveBeenCalledWith('/project/src/a.ts', [10, 20]);
+  });
+
+  it('should resolve relative path via projectRoot', () => {
+    const collectTypesAtPositions = mock(() => new Map());
+    const layer = makeSemanticLayer({ collectTypesAtPositions });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    getResolvedTypesAtPositions(ctx, 'src/a.ts', [10]);
+
+    expect(collectTypesAtPositions).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'), [10]);
+  });
+
+  it('should throw when closed', () => {
+    const ctx = makeCtx({ closed: true });
+    expect(() => getResolvedTypesAtPositions(ctx, '/a.ts', [0])).toThrow(GildashError);
+  });
+
+  it('should throw when semantic layer is null', () => {
+    const ctx = makeCtx({ semanticLayer: null });
+    expect(() => getResolvedTypesAtPositions(ctx, '/a.ts', [0])).toThrow(GildashError);
+  });
+
+  it('should catch exception and throw GildashError with cause', () => {
+    const error = new Error('batch fail');
+    const layer = makeSemanticLayer({ collectTypesAtPositions: mock(() => { throw error; }) });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    try {
+      getResolvedTypesAtPositions(ctx, '/a.ts', [0]);
       expect.unreachable('should have thrown');
     } catch (e) {
       expect(e).toBeInstanceOf(GildashError);

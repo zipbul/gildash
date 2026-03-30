@@ -146,6 +146,14 @@ export class SemanticLayer {
     return this.#typeCollector.collectFile(filePath);
   }
 
+  collectTypesAtPositions(
+    filePath: string,
+    positions: number[],
+  ): Map<number, ResolvedType> {
+    this.#assertNotDisposed();
+    return this.#typeCollector.collectAtPositions(filePath, positions);
+  }
+
   // ── Semantic references ─────────────────────────────────────────────────
 
   findReferences(filePath: string, position: number): SemanticReference[] {

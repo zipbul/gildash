@@ -152,6 +152,53 @@ describe("SemanticLayer", () => {
     layer.dispose();
   });
 
+  // 4b. [HP] collectTypesAtPositions → TypeCollector.collectAtPositions 위임 호출됨
+  it("should delegate collectTypesAtPositions to TypeCollector.collectAtPositions", () => {
+    // Arrange
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const filePath = "/project/src/a.ts";
+    const content = "const x: string = 'hello';\nconst y: number = 1;";
+    layer.notifyFileChanged(filePath, content);
+
+    const xPos = content.indexOf("x");
+    const yPos = content.indexOf("y");
+
+    // Act
+    const typesMap = layer.collectTypesAtPositions(filePath, [xPos, yPos]);
+
+    // Assert
+    expect(typesMap).toBeInstanceOf(Map);
+    expect(typesMap.size).toBe(2);
+    expect(typesMap.get(xPos)!.text).toBe("string");
+    expect(typesMap.get(yPos)!.text).toBe("number");
+    layer.dispose();
+  });
+
+  // 4c. [NE] collectTypesAtPositions: disposed → throw
+  it("should throw when collectTypesAtPositions is called after dispose", () => {
+    // Arrange
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+    layer.dispose();
+
+    // Act & Assert
+    expect(() => layer.collectTypesAtPositions("/project/src/a.ts", [0])).toThrow();
+  });
+
   // 5. [HP] findReferences → ReferenceResolver.findAt 위임 호출됨
   it("should delegate findReferences to ReferenceResolver.findAt", () => {
     // Arrange
