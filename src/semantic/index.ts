@@ -238,7 +238,8 @@ export class SemanticLayer {
     const baseTypes = checker.getBaseTypes(type as ts.InterfaceType);
     if (!baseTypes || baseTypes.length === 0) return [];
 
-    return baseTypes.map((bt) => buildResolvedType(checker, bt));
+    const seen = new Map<ts.Type, ResolvedType>();
+    return baseTypes.map((bt) => buildResolvedType(checker, bt, 0, seen));
   }
 
   // ── Module interface ────────────────────────────────────────────────────
@@ -259,6 +260,7 @@ export class SemanticLayer {
       // Use checker.getExportsOfModule() — catches indirect exports, re-exports,
       // and `export =` that AST walking misses.
       const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
+      const seen = new Map<ts.Type, ResolvedType>();
 
       for (const exportSym of exportedSymbols) {
         const name = exportSym.getName();
@@ -278,7 +280,7 @@ export class SemanticLayer {
         let resolvedType: ResolvedType | null = null;
         try {
           const type = checker.getTypeOfSymbolAtLocation(exportSym, decl ?? sourceFile);
-          resolvedType = buildResolvedType(checker, type);
+          resolvedType = buildResolvedType(checker, type, 0, seen);
         } catch {
           // Type resolution failure — leave as null
         }
