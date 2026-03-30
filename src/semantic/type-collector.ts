@@ -268,6 +268,45 @@ export class TypeCollector {
    * 파일이 없으면 빈 Map 반환.
    * `TscProgram`이 disposed 상태이면 throw.
    */
+  /**
+   * `filePath`의 여러 `positions` 위치에 있는 노드들의 타입을 한번에 수집한다.
+   *
+   * Program/TypeChecker/SourceFile 조회를 1회로 통합하여
+   * position 개수가 많을 때 반복 호출 대비 오버헤드를 줄인다.
+   */
+  collectAtPositions(
+    filePath: string,
+    positions: number[],
+  ): Map<number, ResolvedType> {
+    const result = new Map<number, ResolvedType>();
+    if (positions.length === 0) return result;
+
+    const tsProgram = this.program.getProgram();
+    const checker = this.program.getChecker();
+
+    const sourceFile = tsProgram.getSourceFile(filePath);
+    if (!sourceFile) return result;
+
+    const end = sourceFile.getEnd();
+
+    for (const position of positions) {
+      if (position < 0 || position >= end) continue;
+
+      const node = findNodeAtPosition(sourceFile, position);
+      if (!node) continue;
+      if (!ts.isIdentifier(node) && !ts.isTypeNode(node)) continue;
+
+      try {
+        const type = checker.getTypeAtLocation(node);
+        result.set(position, buildResolvedType(checker, type));
+      } catch {
+        // 타입 수집 실패 위치는 건너뜀
+      }
+    }
+
+    return result;
+  }
+
   collectFile(filePath: string): Map<number, ResolvedType> {
     const result = new Map<number, ResolvedType>();
 

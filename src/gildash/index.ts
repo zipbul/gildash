@@ -589,6 +589,25 @@ export class Gildash {
   }
 
   /**
+   * Batch-resolve types at multiple byte positions in a single file.
+   *
+   * Shares Program/TypeChecker/SourceFile lookup across all positions,
+   * avoiding per-call overhead when querying many positions in the same file.
+   *
+   * @param filePath - Relative path to the file.
+   * @param positions - Array of 0-based byte offsets.
+   * @returns Map from position to resolved type. Positions where no type
+   *          could be resolved are omitted from the map.
+   * @throws {GildashError} With type `'semantic'` if tsc initialisation fails.
+   */
+  getResolvedTypesAtPositions(
+    filePath: string,
+    positions: number[],
+  ): Map<number, ResolvedType> {
+    return semanticApi.getResolvedTypesAtPositions(this._ctx, filePath, positions);
+  }
+
+  /**
    * Find all semantic references to the symbol at a specific byte position.
    *
    * @param filePath - Relative path to the file.

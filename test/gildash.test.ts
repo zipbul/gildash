@@ -1073,6 +1073,10 @@ describe('Gildash integration', () => {
       expect(() => g.getResolvedTypeAt('src/utils.ts', 1, 0)).toThrow(GildashError);
     });
 
+    it('should throw semantic error from getResolvedTypesAtPositions when semantic layer is not enabled', () => {
+      expect(() => g.getResolvedTypesAtPositions('src/utils.ts', [0])).toThrow(GildashError);
+    });
+
     it('should throw semantic error from isTypeAssignableToAt when semantic layer is not enabled', () => {
       expect(() => g.isTypeAssignableToAt({
         source: { filePath: 'src/models.ts', line: 5, column: 0 },

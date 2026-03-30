@@ -468,6 +468,21 @@ describe('Gildash Semantic integration', () => {
       expect(result!.text).toBe('string');
     });
 
+    it('should batch-resolve types via getResolvedTypesAtPositions', () => {
+      // Collect all positions from getFileTypes, then batch-resolve them
+      const fileTypes = g.getFileTypes('src/service.ts');
+      expect(fileTypes.size).toBeGreaterThan(0);
+      const positions = [...fileTypes.keys()];
+      const batchResult = g.getResolvedTypesAtPositions('src/service.ts', positions);
+      expect(batchResult.size).toBe(fileTypes.size);
+      // Each entry should match the single-call result
+      for (const [pos, expected] of fileTypes) {
+        const actual = batchResult.get(pos);
+        expect(actual).not.toBeUndefined();
+        expect(actual!.text).toBe(expected.text);
+      }
+    });
+
     it('should return semantic references via getSemanticReferencesAtPosition', () => {
       // Use lineColumnToPosition to get byte offset of createService (line 7, col 16)
       const pos = g.lineColumnToPosition('src/service.ts', 7, 16);
@@ -827,6 +842,7 @@ describe('Gildash Semantic integration', () => {
       await g.close();
 
       expect(() => g.getResolvedTypeAtPosition('src/service.ts', 0)).toThrow(GildashError);
+      expect(() => g.getResolvedTypesAtPositions('src/service.ts', [0])).toThrow(GildashError);
       expect(() => g.getSemanticReferencesAtPosition('src/service.ts', 0)).toThrow(GildashError);
       expect(() => g.getImplementationsAtPosition('src/service.ts', 0)).toThrow(GildashError);
       expect(() => g.isTypeAssignableToAtPosition('src/a.ts', 0, 'src/b.ts', 0)).toThrow(GildashError);
