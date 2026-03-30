@@ -32,12 +32,20 @@ function isTypeReference(type: ts.Type): type is ts.TypeReference {
  * `ts.Type`을 `ResolvedType`으로 재귀 변환한다.
  *
  * 순환 타입에 대비해 `depth`로 재귀 깊이를 제한한다.
+ * `seen` Map을 전달하면 동일 `ts.Type` 객체의 중복 빌드를 방지한다.
+ * diamond 패턴(A→B, A→C, B→D, C→D)에서 D를 1회만 빌드한다.
  */
 export function buildResolvedType(
   checker: ts.TypeChecker,
   type: ts.Type,
   depth = 0,
+  seen?: Map<ts.Type, ResolvedType>,
 ): ResolvedType {
+  if (seen) {
+    const cached = seen.get(type);
+    if (cached) return cached;
+  }
+
   const text = checker.typeToString(type);
   const flags = type.flags;
 
@@ -61,11 +69,11 @@ export function buildResolvedType(
   let members: ResolvedType[] | undefined;
   if (isUnion && depth < MAX_TYPE_DEPTH) {
     members = (type as ts.UnionType).types.map((t) =>
-      buildResolvedType(checker, t, depth + 1),
+      buildResolvedType(checker, t, depth + 1, seen),
     );
   } else if (isIntersection && depth < MAX_TYPE_DEPTH) {
     members = (type as ts.IntersectionType).types.map((t) =>
-      buildResolvedType(checker, t, depth + 1),
+      buildResolvedType(checker, t, depth + 1, seen),
     );
   }
 
@@ -73,7 +81,7 @@ export function buildResolvedType(
   let typeArguments: ResolvedType[] | undefined;
   if (typeArgs && typeArgs.length > 0) {
     typeArguments = typeArgs.map((t) =>
-      buildResolvedType(checker, t, depth + 1),
+      buildResolvedType(checker, t, depth + 1, seen),
     );
   }
 
@@ -99,7 +107,7 @@ export function buildResolvedType(
           const propType = checker.getTypeOfSymbolAtLocation(p, declNode);
           properties.push({
             name: p.getName(),
-            type: buildResolvedType(checker, propType, depth + 1),
+            type: buildResolvedType(checker, propType, depth + 1, seen),
           });
         } catch {
           // Skip properties whose type cannot be resolved
@@ -109,7 +117,9 @@ export function buildResolvedType(
     }
   }
 
-  return { text, flags, isUnion, isIntersection, isGeneric, members, typeArguments, properties };
+  const result: ResolvedType = { text, flags, isUnion, isIntersection, isGeneric, members, typeArguments, properties };
+  if (seen) seen.set(type, result);
+  return result;
 }
 
 // ── 선언 위치 순회 ───────────────────────────────────────────────────────────
@@ -163,8 +173,7 @@ export class TypeCollector {
 
     try {
       const type = checker.getTypeAtLocation(node);
-      // error/unknown flag 조합으로 never에 가까운 타입은 그대로 전달
-      return buildResolvedType(checker, type);
+      return buildResolvedType(checker, type, 0, new Map());
     } catch {
       return null;
     }
@@ -288,6 +297,7 @@ export class TypeCollector {
     if (!sourceFile) return result;
 
     const end = sourceFile.getEnd();
+    const seen = new Map<ts.Type, ResolvedType>();
 
     for (const position of positions) {
       if (position < 0 || position >= end) continue;
@@ -298,7 +308,7 @@ export class TypeCollector {
 
       try {
         const type = checker.getTypeAtLocation(node);
-        result.set(position, buildResolvedType(checker, type));
+        result.set(position, buildResolvedType(checker, type, 0, seen));
       } catch {
         // 타입 수집 실패 위치는 건너뜀
       }
@@ -316,13 +326,15 @@ export class TypeCollector {
     const sourceFile = tsProgram.getSourceFile(filePath);
     if (!sourceFile) return result;
 
+    const seen = new Map<ts.Type, ResolvedType>();
+
     function visit(node: ts.Node): void {
       if (isNamedDeclaration(node) && node.name && ts.isIdentifier(node.name)) {
         const nameNode = node.name;
         try {
           const type = checker.getTypeAtLocation(nameNode);
           const pos = nameNode.getStart(sourceFile!);
-          result.set(pos, buildResolvedType(checker, type));
+          result.set(pos, buildResolvedType(checker, type, 0, seen));
         } catch {
           // 타입 수집 실패 심볼은 건너뜀
         }
