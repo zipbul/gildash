@@ -11,22 +11,23 @@ export function resolveImport(
 ): string[] {
   const withTypeScriptCandidates = (resolved: string): string[] => {
     const extension = extname(resolved);
-    if (extension === '') {
-      return [
-        resolved + '.ts',
-        resolved + '.d.ts',
-        resolved + '/index.ts',
-        resolved + '/index.d.ts',
-        resolved + '.mts',
-        resolved + '/index.mts',
-        resolved + '.cts',
-        resolved + '/index.cts',
-      ];
-    }
     if (extension === '.js') return [resolved.slice(0, -3) + '.ts'];
     if (extension === '.mjs') return [resolved.slice(0, -4) + '.mts'];
     if (extension === '.cjs') return [resolved.slice(0, -4) + '.cts'];
-    return [resolved];
+    if (extension === '.ts' || extension === '.mts' || extension === '.cts'
+      || extension === '.d.ts') return [resolved];
+    // No extension or non-JS/TS extension (e.g. '.usecase', '.controller')
+    // → treat as extensionless and generate TS candidates
+    return [
+      resolved + '.ts',
+      resolved + '.d.ts',
+      resolved + '/index.ts',
+      resolved + '/index.d.ts',
+      resolved + '.mts',
+      resolved + '/index.mts',
+      resolved + '.cts',
+      resolved + '/index.cts',
+    ];
   };
 
   if (importPath.startsWith('.')) {
