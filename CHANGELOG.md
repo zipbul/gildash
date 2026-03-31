@@ -1,5 +1,14 @@
 # @zipbul/gildash
 
+## 0.17.3
+
+### Patch Changes
+
+- [#78](https://github.com/zipbul/gildash/pull/78) [`a7b4bf0`](https://github.com/zipbul/gildash/commit/a7b4bf03e94b8dccf89ef9a2c3feaa837bae8cd9) Thanks [@parkrevil](https://github.com/parkrevil)! - fix: preserve symbol names in named re-export relations
+
+  - `export { X } from './mod'` and `export type { X } from './mod'` now set `dstSymbolName` to the original name and `srcSymbolName` to the exported name, instead of both being `null`.
+  - Applies to both oxc module metadata and AST fallback extraction paths.
+
 ## 0.17.2
 
 ### Patch Changes
