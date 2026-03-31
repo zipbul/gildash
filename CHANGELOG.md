@@ -1,5 +1,14 @@
 # @zipbul/gildash
 
+## 0.18.0
+
+### Minor Changes
+
+- [#84](https://github.com/zipbul/gildash/pull/84) [`085d38f`](https://github.com/zipbul/gildash/commit/085d38f0b4cd34f7b9c2f0c7e523a1ae85cfaf31) Thanks [@parkrevil](https://github.com/parkrevil)! - feat: index namespace members as individual symbols
+
+  - TS namespace exported members (`export function`, `export const`, etc.) are now extracted as `members` on the namespace symbol, matching the existing enum member pattern.
+  - `getSymbolsByFile` returns `Guards.isString` (kind: function, memberName: isString) as individual rows, enabling unused namespace member detection.
+
 ## 0.17.5
 
 ### Patch Changes
