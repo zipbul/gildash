@@ -1266,18 +1266,17 @@ describe('Gildash integration', () => {
       expect(meta.namespaceAlias).toBe('utils');
     });
 
-    it('should classify all re-exports as type re-exports with isType flag for type-only specifiers', () => {
-      const reExports = g.searchRelations({ type: 're-exports', srcFilePath: 'src/mixed-reexport.ts' });
+    it('should classify type-only re-export as type-references and value re-export as re-exports', () => {
+      const typeRels = g.searchRelations({ type: 'type-references', srcFilePath: 'src/mixed-reexport.ts' });
+      const valueRels = g.searchRelations({ type: 're-exports', srcFilePath: 'src/mixed-reexport.ts' });
 
-      // Both type and value re-exports should be type 're-exports'
-      expect(reExports.length).toBeGreaterThanOrEqual(2);
-
-      // export { type Config } from './types' → re-exports with isType
-      const configRel = reExports.find((r) => r.meta?.isType === true);
+      // export { type Config } from './types' → type-references
+      const configRel = typeRels.find((r) => r.metaJson?.includes('"isReExport":true'));
       expect(configRel).toBeDefined();
 
-      // export { helper } from './utils' → re-exports without isType
-      expect(reExports.some((r) => r.dstFilePath?.includes('utils'))).toBe(true);
+      // export { helper } from './utils' → re-exports
+      expect(valueRels.length).toBeGreaterThanOrEqual(1);
+      expect(valueRels.some((r) => r.dstFilePath?.includes('utils'))).toBe(true);
     });
 
     it('should resolve imports using tsconfig extends path alias @/utils', () => {

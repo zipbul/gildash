@@ -403,7 +403,7 @@ describe('extractImports', () => {
   });
 
   // 22. per-specifier type annotation in mixed re-exports
-  it('should classify both type-only and value specifiers as re-exports with isType flag distinguishing them', () => {
+  it('should classify type-only specifier as type-references and value specifier as re-exports when mixed', () => {
     const ast = fakeAst([
       {
         type: 'ExportNamedDeclaration',
@@ -418,9 +418,8 @@ describe('extractImports', () => {
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
 
     expect(relations).toHaveLength(2);
-    expect(relations.every((r) => r.type === 're-exports')).toBe(true);
-    const typeRel = relations.find((r) => JSON.parse(r.metaJson!).isType);
-    const valueRel = relations.find((r) => !JSON.parse(r.metaJson!).isType);
+    const typeRel = relations.find((r) => r.type === 'type-references');
+    const valueRel = relations.find((r) => r.type === 're-exports');
     expect(typeRel).toBeDefined();
     expect(valueRel).toBeDefined();
     expect(JSON.parse(typeRel!.metaJson!).specifiers[0].local).toBe('X');
@@ -638,7 +637,7 @@ describe('extractImports', () => {
   });
 
   // 33. [HP] export type { T } from './foo' → type: 'type-references' + isReExport
-  it('should produce re-exports relation with isType true when re-export is type-only', () => {
+  it('should produce type-references relation with isReExport true when re-export is type-only', () => {
     const ast = fakeAst([
       {
         type: 'ExportNamedDeclaration',
@@ -652,7 +651,7 @@ describe('extractImports', () => {
     const relations = extractImports(ast, FILE, undefined, mockResolveImport);
 
     expect(relations).toHaveLength(1);
-    expect(relations[0]!.type).toBe('re-exports');
+    expect(relations[0]!.type).toBe('type-references');
     const meta = JSON.parse(relations[0]!.metaJson!);
     expect(meta.isReExport).toBe(true);
     expect(meta.isType).toBe(true);
@@ -1565,13 +1564,16 @@ describe('extractImports', () => {
     const reExports = relations.filter((r) => r.metaJson?.includes('"isReExport":true'));
     expect(reExports).toHaveLength(2);
 
-    expect(reExports.every((r) => r.type === 're-exports')).toBe(true);
-    const typeRel = reExports.find((r) => JSON.parse(r.metaJson!).isType);
-    const valueRel = reExports.find((r) => !JSON.parse(r.metaJson!).isType);
+    const typeRel = reExports.find((r) => r.type === 'type-references');
+    const valueRel = reExports.find((r) => r.type === 're-exports');
     expect(typeRel).toBeDefined();
     expect(valueRel).toBeDefined();
-    expect(JSON.parse(typeRel!.metaJson!).specifiers[0].local).toBe('T');
-    expect(JSON.parse(valueRel!.metaJson!).specifiers[0].local).toBe('V');
+    const typeMeta = JSON.parse(typeRel!.metaJson!);
+    expect(typeMeta.isType).toBe(true);
+    expect(typeMeta.specifiers[0].local).toBe('T');
+    const valueMeta = JSON.parse(valueRel!.metaJson!);
+    expect(valueMeta.isType).toBeUndefined();
+    expect(valueMeta.specifiers[0].local).toBe('V');
   });
 
   // 58. export entry with no sourcePath (skip branch)
