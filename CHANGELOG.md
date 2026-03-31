@@ -1,5 +1,14 @@
 # @zipbul/gildash
 
+## 0.17.4
+
+### Patch Changes
+
+- [#80](https://github.com/zipbul/gildash/pull/80) [`59a648d`](https://github.com/zipbul/gildash/commit/59a648d361014739d3ec99ce01b4a954612acf76) Thanks [@parkrevil](https://github.com/parkrevil)! - fix: classify type re-exports as `re-exports` instead of `type-references`
+
+  - `export type { X } from './mod'` now produces `type: 're-exports'` with `meta.isType: true`, instead of `type: 'type-references'`.
+  - Ensures `searchRelations({ type: 're-exports' })` and dependency graph include type re-exports, enabling dead type re-export detection.
+
 ## 0.17.3
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@zipbul/gildash",
-  "version": "0.17.3",
+  "version": "0.17.4",
   "description": "TypeScript code indexing and dependency graph engine for Bun",
   "license": "MIT",
   "repository": {
