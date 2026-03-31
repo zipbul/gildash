@@ -553,15 +553,32 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     }
 
     if (type === 'TSModuleDeclaration') {
-      const mod = node as { id: { name?: string; value?: string }; declare?: boolean; start: number; end: number };
+      const mod = node as { id: { name?: string; value?: string }; body?: { type?: string; body?: Array<Record<string, unknown>> }; declare?: boolean; start: number; end: number };
       const name: string = mod.id.name ?? mod.id.value ?? 'unknown';
       const mods = extractModifiers(mod);
+
+      // Extract exported members from the namespace body (TSModuleBlock)
+      const members: ExtractedSymbol[] = [];
+      if (mod.body?.type === 'TSModuleBlock') {
+        for (const stmt of mod.body.body ?? []) {
+          if (stmt.type !== 'ExportNamedDeclaration') continue;
+          const decl = stmt.declaration as Record<string, unknown> | undefined;
+          if (!decl) continue;
+          const memberSym = buildSymbol(decl as unknown as Declaration, false);
+          if (memberSym) {
+            if (Array.isArray(memberSym)) members.push(...memberSym);
+            else members.push(memberSym);
+          }
+        }
+      }
+
       return {
         kind: 'namespace' as SymbolKind,
         name,
         span: span(node.start, node.end),
         isExported,
         modifiers: mods,
+        members: members.length > 0 ? members : undefined,
       };
     }
 
