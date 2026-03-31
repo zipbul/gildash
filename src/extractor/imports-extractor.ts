@@ -181,7 +181,7 @@ function extractStaticExports(
       }
 
       relations.push({
-        type: isType ? 'type-references' : 're-exports',
+        type: 're-exports',
         srcFilePath: filePath,
         srcSymbolName,
         dstFilePath: resolved,
@@ -281,7 +281,7 @@ function extractStaticImportsFromAst(
       if (resolved === null && !isExternal) meta.isUnresolved = true;
       if (aliasName) meta.namespaceAlias = aliasName;
       relations.push({
-        type: isType ? 'type-references' : 're-exports',
+        type: 're-exports',
         srcFilePath: filePath,
         srcSymbolName: null,
         dstFilePath: resolved,
@@ -311,7 +311,7 @@ function extractStaticImportsFromAst(
         if (resolved === null && !isExternal) meta.isUnresolved = true;
 
         relations.push({
-          type: specIsType ? 'type-references' : 're-exports',
+          type: 're-exports',
           srcFilePath: filePath,
           srcSymbolName: exported,
           dstFilePath: resolved,
