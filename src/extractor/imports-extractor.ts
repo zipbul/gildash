@@ -166,6 +166,7 @@ function extractStaticExports(
       if (resolved === null && !isExternal) meta.isUnresolved = true;
 
       // Namespace alias: export * as ns from './mod'
+      let srcSymbolName: string | null = null;
       let dstSymbolName: string | null = null;
       const importKind = entry.importName.kind;
       if (importKind === 'All' || importKind === 'AllButDefault') {
@@ -173,12 +174,16 @@ function extractStaticExports(
           dstSymbolName = exportName;
           meta.namespaceAlias = exportName;
         }
+      } else {
+        // Named re-export: export { X } from './mod' or export { X as Y } from './mod'
+        dstSymbolName = localName;
+        srcSymbolName = exportName;
       }
 
       relations.push({
         type: isType ? 'type-references' : 're-exports',
         srcFilePath: filePath,
-        srcSymbolName: null,
+        srcSymbolName,
         dstFilePath: resolved,
         dstSymbolName,
         metaJson: JSON.stringify(meta),
@@ -308,9 +313,9 @@ function extractStaticImportsFromAst(
         relations.push({
           type: specIsType ? 'type-references' : 're-exports',
           srcFilePath: filePath,
-          srcSymbolName: null,
+          srcSymbolName: exported,
           dstFilePath: resolved,
-          dstSymbolName: null,
+          dstSymbolName: local,
           metaJson: JSON.stringify(meta),
           ...(resolved === null ? { specifier: sourcePath } : {}),
         });
