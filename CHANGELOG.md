@@ -1,5 +1,15 @@
 # @zipbul/gildash
 
+## 0.19.0
+
+### Minor Changes
+
+- [#86](https://github.com/zipbul/gildash/pull/86) [`9aafd06`](https://github.com/zipbul/gildash/commit/9aafd06e69ca742d23740e332b907b35e847d1a3) Thanks [@parkrevil](https://github.com/parkrevil)! - feat: add `isTypeAssignableToTypeAtPositions` batch API
+
+  - Check type assignability for multiple positions against a single target type expression in one call.
+  - Probe file injection/removal happens once instead of per-position, eliminating repeated Program recompile.
+  - 50 positions: 2,293ms → 54ms (42x speedup).
+
 ## 0.18.0
 
 ### Minor Changes
