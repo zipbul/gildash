@@ -271,6 +271,77 @@ export class TypeCollector {
   }
 
   /**
+   * 여러 `positions`의 타입이 `targetTypeExpression`에 assignable한지 한번에 검사한다.
+   *
+   * probe 파일 inject/remove를 1회로 통합하여
+   * N회 개별 호출 대비 Program recompile 비용을 제거한다.
+   */
+  isAssignableToTypeAtPositions(
+    filePath: string,
+    positions: number[],
+    targetTypeExpression: string,
+    options?: { anyConstituent?: boolean },
+  ): Map<number, boolean> {
+    const result = new Map<number, boolean>();
+    if (positions.length === 0) return result;
+
+    const tsProgram = this.program.getProgram();
+    const srcFile = tsProgram.getSourceFile(filePath);
+    if (!srcFile) return result;
+
+    // Inject probe file once
+    const probeFile = `${filePath}.__gildash_probe__.ts`;
+    const probeContent = `declare const __gildash_probe__: ${targetTypeExpression};`;
+    this.program.notifyFileChanged(probeFile, probeContent);
+
+    try {
+      const probeProg = this.program.getProgram();
+      const probeSf = probeProg.getSourceFile(probeFile);
+      if (!probeSf) return result;
+
+      const probeChecker = this.program.getChecker();
+      const probeStmt = probeSf.statements[0];
+      if (!probeStmt || !ts.isVariableStatement(probeStmt)) return result;
+      const probeDecl = probeStmt.declarationList.declarations[0];
+      if (!probeDecl) return result;
+
+      const targetType = probeChecker.getTypeAtLocation(probeDecl.name);
+
+      // Re-fetch source file from the new program (probe injection may have updated it)
+      const freshSrcFile = probeProg.getSourceFile(filePath);
+      if (!freshSrcFile) return result;
+      const end = freshSrcFile.getEnd();
+
+      for (const position of positions) {
+        if (position < 0 || position >= end) continue;
+
+        const node = findNodeAtPosition(freshSrcFile, position);
+        if (!node || (!ts.isIdentifier(node) && !ts.isTypeNode(node))) continue;
+
+        try {
+          const sourceType = probeChecker.getTypeAtLocation(node);
+
+          if (options?.anyConstituent && sourceType.isUnion()) {
+            result.set(position, sourceType.types.some(member =>
+              probeChecker.isTypeAssignableTo(member, targetType),
+            ));
+          } else {
+            result.set(position, probeChecker.isTypeAssignableTo(sourceType, targetType));
+          }
+        } catch {
+          // Skip positions where type resolution fails
+        }
+      }
+    } catch {
+      // Probe resolution failed — return empty map
+    } finally {
+      this.program.removeFile(probeFile);
+    }
+
+    return result;
+  }
+
+  /**
    * `filePath`에서 모든 선언 이름 심볼의 타입을 수집한다.
    *
    * 반환 Map의 key = 선언 이름 식별자의 시작 위치(0-based).
