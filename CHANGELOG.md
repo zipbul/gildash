@@ -1,5 +1,15 @@
 # @zipbul/gildash
 
+## 0.19.1
+
+### Patch Changes
+
+- [#88](https://github.com/zipbul/gildash/pull/88) [`ca1261b`](https://github.com/zipbul/gildash/commit/ca1261b11f03f69a7eafaea5272bbbf1bcf751d6) Thanks [@parkrevil](https://github.com/parkrevil)! - perf: cache probe file across type assignability calls
+
+  - Probe file for `isTypeAssignableToType` / `isTypeAssignableToTypeAtPositions` is now retained between calls with the same target type expression, eliminating redundant Program recompiles.
+  - 50 files with same target type: 2,491ms → 42ms (59x). Single calls also benefit automatically.
+  - Probe is cleaned up on `dispose()` or when the target type expression changes.
+
 ## 0.19.0
 
 ### Minor Changes
