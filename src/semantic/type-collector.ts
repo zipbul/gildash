@@ -142,8 +142,50 @@ function isNamedDeclaration(node: ts.Node): node is ts.NamedDeclaration {
 
 // ── TypeCollector ─────────────────────────────────────────────────────────────
 
+const PROBE_FILE = '/__gildash_type_probe__.ts';
+
 export class TypeCollector {
+  #probeExpression: string | null = null;
+
   constructor(private readonly program: TscProgram) {}
+
+  /**
+   * probe 파일이 현재 targetTypeExpression에 대해 inject되어 있는지 확인하고,
+   * 필요하면 inject 또는 갱신한다. 동일 expression이면 no-op → recompile 없음.
+   */
+  #ensureProbe(targetTypeExpression: string): void {
+    if (this.#probeExpression === targetTypeExpression) return;
+    this.program.notifyFileChanged(
+      PROBE_FILE,
+      `declare const __gildash_probe__: ${targetTypeExpression};`,
+    );
+    this.#probeExpression = targetTypeExpression;
+  }
+
+  /**
+   * 현재 inject된 probe에서 target type을 resolve한다.
+   * probe가 없거나 해석 실패하면 null.
+   */
+  #resolveProbeTarget(
+    program: ts.Program,
+    checker: ts.TypeChecker,
+  ): ts.Type | null {
+    const probeSf = program.getSourceFile(PROBE_FILE);
+    if (!probeSf) return null;
+    const probeStmt = probeSf.statements[0];
+    if (!probeStmt || !ts.isVariableStatement(probeStmt)) return null;
+    const probeDecl = probeStmt.declarationList.declarations[0];
+    if (!probeDecl) return null;
+    return checker.getTypeAtLocation(probeDecl.name);
+  }
+
+  /** 캐시된 probe 파일을 제거한다. dispose 시 호출. */
+  clearProbe(): void {
+    if (this.#probeExpression !== null) {
+      this.program.removeFile(PROBE_FILE);
+      this.#probeExpression = null;
+    }
+  }
 
   /**
    * `filePath`의 `position` 위치(0-based 문자 오프셋)에 있는 노드의 타입을 수집한다.
@@ -229,44 +271,30 @@ export class TypeCollector {
     targetTypeExpression: string,
     options?: { anyConstituent?: boolean },
   ): boolean | null {
-    const checker = this.program.getChecker();
+    this.#ensureProbe(targetTypeExpression);
+
     const tsProgram = this.program.getProgram();
+    const checker = this.program.getChecker();
 
     const srcFile = tsProgram.getSourceFile(filePath);
     if (!srcFile) return null;
     const srcNode = findNodeAtPosition(srcFile, position);
     if (!srcNode || (!ts.isIdentifier(srcNode) && !ts.isTypeNode(srcNode))) return null;
 
-    // Inject a virtual probe file to resolve the target type expression
-    const probeFile = `${filePath}.__gildash_probe__.ts`;
-    const probeContent = `declare const __gildash_probe__: ${targetTypeExpression};`;
-    this.program.notifyFileChanged(probeFile, probeContent);
-
     try {
+      const targetType = this.#resolveProbeTarget(tsProgram, checker);
+      if (!targetType) return null;
+
       const sourceType = checker.getTypeAtLocation(srcNode);
-
-      const probeProg = this.program.getProgram();
-      const probeSf = probeProg.getSourceFile(probeFile);
-      if (!probeSf) return null;
-
-      const probeChecker = this.program.getChecker();
-      const probeStmt = probeSf.statements[0];
-      if (!probeStmt || !ts.isVariableStatement(probeStmt)) return null;
-      const probeDecl = probeStmt.declarationList.declarations[0];
-      if (!probeDecl) return null;
-
-      const targetType = probeChecker.getTypeAtLocation(probeDecl.name);
 
       if (options?.anyConstituent && sourceType.isUnion()) {
         return sourceType.types.some(member =>
-          probeChecker.isTypeAssignableTo(member, targetType),
+          checker.isTypeAssignableTo(member, targetType),
         );
       }
-      return probeChecker.isTypeAssignableTo(sourceType, targetType);
+      return checker.isTypeAssignableTo(sourceType, targetType);
     } catch {
       return null;
-    } finally {
-      this.program.removeFile(probeFile);
     }
   }
 
@@ -285,48 +313,35 @@ export class TypeCollector {
     const result = new Map<number, boolean>();
     if (positions.length === 0) return result;
 
+    this.#ensureProbe(targetTypeExpression);
+
     const tsProgram = this.program.getProgram();
+    const checker = this.program.getChecker();
+
     const srcFile = tsProgram.getSourceFile(filePath);
     if (!srcFile) return result;
 
-    // Inject probe file once
-    const probeFile = `${filePath}.__gildash_probe__.ts`;
-    const probeContent = `declare const __gildash_probe__: ${targetTypeExpression};`;
-    this.program.notifyFileChanged(probeFile, probeContent);
-
     try {
-      const probeProg = this.program.getProgram();
-      const probeSf = probeProg.getSourceFile(probeFile);
-      if (!probeSf) return result;
+      const targetType = this.#resolveProbeTarget(tsProgram, checker);
+      if (!targetType) return result;
 
-      const probeChecker = this.program.getChecker();
-      const probeStmt = probeSf.statements[0];
-      if (!probeStmt || !ts.isVariableStatement(probeStmt)) return result;
-      const probeDecl = probeStmt.declarationList.declarations[0];
-      if (!probeDecl) return result;
-
-      const targetType = probeChecker.getTypeAtLocation(probeDecl.name);
-
-      // Re-fetch source file from the new program (probe injection may have updated it)
-      const freshSrcFile = probeProg.getSourceFile(filePath);
-      if (!freshSrcFile) return result;
-      const end = freshSrcFile.getEnd();
+      const end = srcFile.getEnd();
 
       for (const position of positions) {
         if (position < 0 || position >= end) continue;
 
-        const node = findNodeAtPosition(freshSrcFile, position);
+        const node = findNodeAtPosition(srcFile, position);
         if (!node || (!ts.isIdentifier(node) && !ts.isTypeNode(node))) continue;
 
         try {
-          const sourceType = probeChecker.getTypeAtLocation(node);
+          const sourceType = checker.getTypeAtLocation(node);
 
           if (options?.anyConstituent && sourceType.isUnion()) {
             result.set(position, sourceType.types.some(member =>
-              probeChecker.isTypeAssignableTo(member, targetType),
+              checker.isTypeAssignableTo(member, targetType),
             ));
           } else {
-            result.set(position, probeChecker.isTypeAssignableTo(sourceType, targetType));
+            result.set(position, checker.isTypeAssignableTo(sourceType, targetType));
           }
         } catch {
           // Skip positions where type resolution fails
@@ -334,8 +349,6 @@ export class TypeCollector {
       }
     } catch {
       // Probe resolution failed — return empty map
-    } finally {
-      this.program.removeFile(probeFile);
     }
 
     return result;
