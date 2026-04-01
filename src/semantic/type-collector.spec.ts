@@ -765,6 +765,74 @@ describe("TypeCollector", () => {
     expect(result).toBe(true);
   });
 
+  // ── isAssignableToTypeAtPositions ────────────────────────────────────────
+
+  it("should return assignability results for multiple positions against a target type", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/assign-batch.ts";
+    const content = "const numA: number = 1;\nconst strB: string = 'x';\nconst numC: number = 2;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isAssignableToTypeAtPositions(
+      filePath,
+      [pos(content, "numA"), pos(content, "strB"), pos(content, "numC")],
+      "number",
+    );
+
+    expect(result.size).toBe(3);
+    expect(result.get(pos(content, "numA"))).toBe(true);
+    expect(result.get(pos(content, "strB"))).toBe(false);
+    expect(result.get(pos(content, "numC"))).toBe(true);
+  });
+
+  it("should return empty map when positions array is empty", () => {
+    const prog = makeProg();
+    const collector = new TypeCollector(prog);
+    const result = collector.isAssignableToTypeAtPositions("/project/src/x.ts", [], "string");
+    expect(result.size).toBe(0);
+  });
+
+  it("should return empty map when file is not tracked", () => {
+    const prog = makeProg();
+    const collector = new TypeCollector(prog);
+    const result = collector.isAssignableToTypeAtPositions("/project/src/missing.ts", [0], "string");
+    expect(result.size).toBe(0);
+  });
+
+  it("should skip invalid positions and return only valid ones", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/assign-skip.ts";
+    const content = "const a: string = 'hello';";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isAssignableToTypeAtPositions(
+      filePath,
+      [-1, pos(content, "a"), 99999],
+      "string",
+    );
+
+    expect(result.size).toBe(1);
+    expect(result.get(pos(content, "a"))).toBe(true);
+  });
+
+  it("should support anyConstituent option for union types", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/assign-union.ts";
+    const content = "const x: number | boolean = 0 as any;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    // number | boolean is not assignable to number (union is wider)
+    const without = collector.isAssignableToTypeAtPositions(filePath, [pos(content, "x")], "number");
+    // but with anyConstituent, number member IS assignable to number
+    const withOpt = collector.isAssignableToTypeAtPositions(filePath, [pos(content, "x")], "number", { anyConstituent: true });
+
+    expect(without.get(pos(content, "x"))).toBe(false);
+    expect(withOpt.get(pos(content, "x"))).toBe(true);
+  });
+
   // 30. [OR] collectAt(A, posA) then collectAt(B, posB) = 역순 → 서로 영향 없음
   it("should return independent results when collecting from two different files in different orders", () => {
     // Arrange

@@ -199,6 +199,16 @@ export class SemanticLayer {
     return this.#typeCollector.isAssignableToType(filePath, position, targetTypeExpression, options);
   }
 
+  isTypeAssignableToTypeAtPositions(
+    filePath: string,
+    positions: number[],
+    targetTypeExpression: string,
+    options?: { anyConstituent?: boolean },
+  ): Map<number, boolean> {
+    this.#assertNotDisposed();
+    return this.#typeCollector.isAssignableToTypeAtPositions(filePath, positions, targetTypeExpression, options);
+  }
+
   // ── Symbol graph ────────────────────────────────────────────────────────
 
   getSymbolNode(filePath: string, position: number): SymbolNode | null {

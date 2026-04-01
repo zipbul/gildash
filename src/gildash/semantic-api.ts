@@ -325,6 +325,25 @@ export function isTypeAssignableToType(
   }
 }
 
+/** Batch-check whether types at multiple positions are assignable to a type expression. */
+export function isTypeAssignableToTypeAtPositions(
+  ctx: GildashContext,
+  filePath: string,
+  positions: number[],
+  targetTypeExpression: string,
+  options?: { anyConstituent?: boolean },
+): Map<number, boolean> {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    return ctx.semanticLayer.isTypeAssignableToTypeAtPositions(absPath, positions, targetTypeExpression, options);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: isTypeAssignableToTypeAtPositions failed', { cause: e });
+  }
+}
+
 // ─── Internal utility exposure ────────────────────────────────────────
 
 /** Convert 1-based line + 0-based column to a byte offset using tsc SourceFile. */

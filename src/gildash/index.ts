@@ -672,6 +672,28 @@ export class Gildash {
   }
 
   /**
+   * Batch-check whether types at multiple positions are assignable to a type expression.
+   *
+   * Injects the probe file once and checks all positions, avoiding per-call
+   * Program recompile overhead.
+   *
+   * @param filePath - Relative path to the file.
+   * @param positions - Array of 0-based byte offsets.
+   * @param targetTypeExpression - Type expression string (e.g. `'PromiseLike<any>'`).
+   * @param options.anyConstituent - When `true`, returns `true` if any union member is assignable.
+   * @returns Map from position to assignability result. Positions where type cannot be resolved are omitted.
+   * @throws {GildashError} With type `'semantic'` if tsc initialisation fails.
+   */
+  isTypeAssignableToTypeAtPositions(
+    filePath: string,
+    positions: number[],
+    targetTypeExpression: string,
+    options?: { anyConstituent?: boolean },
+  ): Map<number, boolean> {
+    return semanticApi.isTypeAssignableToTypeAtPositions(this._ctx, filePath, positions, targetTypeExpression, options);
+  }
+
+  /**
    * Convert a line/column position to a byte offset.
    *
    * @param filePath - Relative path to the file.
