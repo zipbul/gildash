@@ -427,6 +427,7 @@ export class SemanticLayer {
   dispose(): void {
     if (this.#isDisposed) return;
     this.#isDisposed = true;
+    this.#typeCollector.clearProbe();
     this.#program.dispose();
     this.#symbolGraph.clear();
   }
