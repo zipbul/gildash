@@ -11,6 +11,14 @@ export interface PatternCapture {
   startLine: number;
   /** 1-based end line number. */
   endLine: number;
+  /** 0-based start column number. */
+  startColumn: number;
+  /** 0-based end column number. */
+  endColumn: number;
+  /** Byte offset of the start position in the source text. */
+  startOffset: number;
+  /** Byte offset of the end position in the source text. */
+  endOffset: number;
 }
 
 /**
@@ -23,6 +31,14 @@ export interface PatternMatch {
   startLine: number;
   /** 1-based end line number of the matched node. */
   endLine: number;
+  /** 0-based start column number. */
+  startColumn: number;
+  /** 0-based end column number. */
+  endColumn: number;
+  /** Byte offset of the start position in the source text. */
+  startOffset: number;
+  /** Byte offset of the end position in the source text. */
+  endOffset: number;
   /** Source text of the matched node. */
   matchedText: string;
   /** Named captures from metavariables in the pattern (e.g. `$METHOD`, `$$$ARGS`). */
@@ -51,7 +67,15 @@ function buildCaptures(node: SgNode, metavars: string[]): Record<string, Pattern
     const single = node.getMatch(mv);
     if (single) {
       const r = single.range();
-      captures[mv] = { text: single.text(), startLine: r.start.line + 1, endLine: r.end.line + 1 };
+      captures[mv] = {
+        text: single.text(),
+        startLine: r.start.line + 1,
+        endLine: r.end.line + 1,
+        startColumn: r.start.column,
+        endColumn: r.end.column,
+        startOffset: r.start.index,
+        endOffset: r.end.index,
+      };
       found = true;
       continue;
     }
@@ -64,6 +88,10 @@ function buildCaptures(node: SgNode, metavars: string[]): Record<string, Pattern
         text: multi.map((n) => n.text()).join(', '),
         startLine: firstRange.start.line + 1,
         endLine: lastRange.end.line + 1,
+        startColumn: firstRange.start.column,
+        endColumn: lastRange.end.column,
+        startOffset: firstRange.start.index,
+        endOffset: lastRange.end.index,
       };
       found = true;
     }
@@ -111,6 +139,10 @@ export async function patternSearch(opts: PatternSearchOptions): Promise<Pattern
           filePath: node.getRoot().filename(),
           startLine: r.start.line + 1,
           endLine: r.end.line + 1,
+          startColumn: r.start.column,
+          endColumn: r.end.column,
+          startOffset: r.start.index,
+          endOffset: r.end.index,
           matchedText: node.text(),
         };
         const captures = buildCaptures(node, metavars);
