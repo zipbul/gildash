@@ -1,5 +1,13 @@
 # @zipbul/gildash
 
+## 0.24.1
+
+### Patch Changes
+
+- [#102](https://github.com/zipbul/gildash/pull/102) [`e5298cd`](https://github.com/zipbul/gildash/commit/e5298cdfc0c01bc3f80f85d2ba3d31bb1690a4a7) Thanks [@parkrevil](https://github.com/parkrevil)! - fix: strip $ prefix when calling ast-grep getMatch/getMultipleMatches
+
+  ast-grep's `getMatch` and `getMultipleMatches` expect the metavariable name without `$` prefix (e.g. `'ARG'` not `'$ARG'`). The captures record keys still use the full pattern name (`$ARG`, `$$$ARGS`) for consumer convenience.
+
 ## 0.24.0
 
 ### Minor Changes
