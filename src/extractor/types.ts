@@ -1,6 +1,94 @@
 import type { SourcePosition, SourceSpan } from '../parser/types';
 
 /**
+ * A structured representation of a JavaScript/TypeScript expression.
+ *
+ * Used for decorator arguments, variable initializers, enum member values,
+ * and property initializers — anywhere an expression's structure matters
+ * beyond its raw source text.
+ *
+ * The extractor does **not** resolve imports; use relation queries for that.
+ */
+export type ExpressionValue =
+  | ExpressionLiteral
+  | ExpressionIdentifier
+  | ExpressionMember
+  | ExpressionCall
+  | ExpressionNew
+  | ExpressionObject
+  | ExpressionArray
+  | ExpressionSpread
+  | ExpressionFunction
+  | ExpressionTemplate
+  | ExpressionUnresolvable;
+
+export interface ExpressionLiteral {
+  kind: 'string' | 'number' | 'boolean' | 'null' | 'undefined';
+  value: string | number | boolean | null;
+}
+
+export interface ExpressionIdentifier {
+  kind: 'identifier';
+  name: string;
+}
+
+export interface ExpressionMember {
+  kind: 'member';
+  /** Full dot-separated expression text, e.g. `'HttpMethod.Get'`. */
+  object: string;
+  property: string;
+}
+
+export interface ExpressionCall {
+  kind: 'call';
+  callee: string;
+  arguments: ExpressionValue[];
+}
+
+export interface ExpressionNew {
+  kind: 'new';
+  callee: string;
+  arguments: ExpressionValue[];
+}
+
+export interface ExpressionObject {
+  kind: 'object';
+  properties: ExpressionObjectProperty[];
+}
+
+export interface ExpressionObjectProperty {
+  key: string;
+  value: ExpressionValue;
+  computed?: boolean;
+  shorthand?: boolean;
+}
+
+export interface ExpressionArray {
+  kind: 'array';
+  elements: ExpressionValue[];
+}
+
+export interface ExpressionSpread {
+  kind: 'spread';
+  argument: ExpressionValue;
+}
+
+export interface ExpressionFunction {
+  kind: 'function';
+  sourceText: string;
+}
+
+export interface ExpressionTemplate {
+  kind: 'template';
+  sourceText: string;
+}
+
+export interface ExpressionUnresolvable {
+  kind: 'unresolvable';
+  sourceText: string;
+}
+
+/**
  * The kind of a symbol extracted from TypeScript source.
  *
  * - `'function'` — standalone function declarations and expressions
@@ -73,8 +161,8 @@ export interface Heritage {
 export interface Decorator {
   /** Decorator name without `@`. */
   name: string;
-  /** Decorator call arguments as source text. */
-  arguments?: string[];
+  /** Structured decorator call arguments. */
+  arguments?: ExpressionValue[];
 }
 
 /**
@@ -141,6 +229,8 @@ export interface ExtractedSymbol {
   heritage?: Heritage[];
   /** Decorators applied to this symbol. */
   decorators?: Decorator[];
+  /** Initializer expression (enum member values, property defaults, variable initializers). */
+  initializer?: ExpressionValue;
   /** Nested members (class fields, methods, interface properties, enum members). */
   members?: ExtractedSymbol[];
   /** Parsed JSDoc comment associated with this symbol. */

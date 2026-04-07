@@ -1,6 +1,6 @@
 import type { ParsedFile } from '../parser/types';
 import type { SymbolSearchResult, SymbolDetail } from '../search/symbol-search';
-import type { SymbolKind, Decorator } from '../extractor/types';
+import type { SymbolKind, Decorator, ExpressionValue } from '../extractor/types';
 import type { ResolvedType } from '../semantic/types';
 
 /**
@@ -72,6 +72,8 @@ export interface FullSymbol extends SymbolSearchResult {
   decorators?: Decorator[];
   /** Generic type parameter names. */
   typeParameters?: string[];
+  /** Initializer expression (enum member values, property defaults, variable initializers). */
+  initializer?: ExpressionValue;
   /** Resolved type from the Semantic Layer (available when `semantic: true`). */
   resolvedType?: ResolvedType;
 }

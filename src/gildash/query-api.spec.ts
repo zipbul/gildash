@@ -247,7 +247,7 @@ describe('getFullSymbol', () => {
       parameters: [{ name: 'a', type: 'number', isOptional: false }],
       returnType: 'void',
       heritage: [{ kind: 'extends' as const, name: 'Base' }],
-      decorators: [{ name: 'Component', arguments: ['()'] }],
+      decorators: [{ name: 'Component', arguments: [{ kind: 'unresolvable' as const, sourceText: '()' }] }],
       typeParameters: ['T'],
     };
     const sym = makeSym('Foo', detail);

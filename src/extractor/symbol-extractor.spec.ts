@@ -933,4 +933,396 @@ describe('extractSymbols', () => {
     expect(ns).toBeDefined();
     expect(ns!.kind).toBe('namespace');
   });
+
+  // ─── ExpressionValue: Decorator arguments ────────────────────────────
+
+  describe('decorator structured arguments', () => {
+    it('should convert string literal argument to ExpressionValue', () => {
+      const parsed = makeFixture(`@Inject('token') class Svc {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg).toEqual({ kind: 'string', value: 'token' });
+    });
+
+    it('should convert numeric literal argument to ExpressionValue', () => {
+      const parsed = makeFixture(`@Retry(3) class Svc {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg).toEqual({ kind: 'number', value: 3 });
+    });
+
+    it('should convert boolean literal argument to ExpressionValue', () => {
+      const parsed = makeFixture(`@Feature(true) class Svc {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg).toEqual({ kind: 'boolean', value: true });
+    });
+
+    it('should convert identifier argument to ExpressionValue', () => {
+      const parsed = makeFixture(`@Inject(MyService) class Svc {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg).toEqual({ kind: 'identifier', name: 'MyService' });
+    });
+
+    it('should convert object literal argument to ExpressionValue', () => {
+      const parsed = makeFixture(`@Module({ imports: [AuthModule], controllers: [] }) class App {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'App')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('object');
+      if (arg.kind === 'object') {
+        expect(arg.properties.length).toBe(2);
+        expect(arg.properties[0]!.key).toBe('imports');
+        expect(arg.properties[0]!.value.kind).toBe('array');
+        expect(arg.properties[1]!.key).toBe('controllers');
+      }
+    });
+
+    it('should convert array literal argument to ExpressionValue', () => {
+      const parsed = makeFixture(`@Roles(['admin', 'user']) class Ctrl {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Ctrl')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('array');
+      if (arg.kind === 'array') {
+        expect(arg.elements).toEqual([
+          { kind: 'string', value: 'admin' },
+          { kind: 'string', value: 'user' },
+        ]);
+      }
+    });
+
+    it('should convert member expression argument to ExpressionValue', () => {
+      const parsed = makeFixture(`@Method(HttpMethod.Get) class Ctrl {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Ctrl')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('member');
+      if (arg.kind === 'member') {
+        expect(arg.object).toBe('HttpMethod');
+        expect(arg.property).toBe('Get');
+      }
+    });
+
+    it('should convert new expression argument to ExpressionValue', () => {
+      const parsed = makeFixture(`@Use(new Guard('admin')) class Ctrl {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Ctrl')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('new');
+      if (arg.kind === 'new') {
+        expect(arg.callee).toBe('Guard');
+        expect(arg.arguments).toEqual([{ kind: 'string', value: 'admin' }]);
+      }
+    });
+
+    it('should convert arrow function argument to ExpressionValue', () => {
+      const parsed = makeFixture(`@Transform(() => true) class Dto {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Dto')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('function');
+      if (arg.kind === 'function') {
+        expect(arg.sourceText).toContain('=>');
+      }
+    });
+
+    it('should convert template literal argument to ExpressionValue', () => {
+      const parsed = makeFixture("@Path(`/api/v1`) class Ctrl {}");
+      const cls = extractSymbols(parsed).find(s => s.name === 'Ctrl')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('template');
+    });
+
+    it('should convert null argument to ExpressionValue', () => {
+      const parsed = makeFixture(`@Optional(null) class Svc {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg).toEqual({ kind: 'null', value: null });
+    });
+
+    it('should convert undefined argument to ExpressionValue', () => {
+      const parsed = makeFixture(`@Optional(undefined) class Svc {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg).toEqual({ kind: 'undefined', value: null });
+    });
+
+    it('should convert spread argument in object to ExpressionValue', () => {
+      const parsed = makeFixture(`@Config({ ...defaults, key: 'val' }) class Svc {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('object');
+      if (arg.kind === 'object') {
+        const spreadProp = arg.properties.find(p => p.key === '...');
+        expect(spreadProp).toBeDefined();
+        expect(spreadProp!.value.kind).toBe('spread');
+      }
+    });
+
+    it('should convert multiple arguments preserving order', () => {
+      const parsed = makeFixture(`@Route('GET', '/users', true) class Ctrl {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Ctrl')!;
+      const args = cls.decorators![0]!.arguments!;
+      expect(args.length).toBe(3);
+      expect(args[0]).toEqual({ kind: 'string', value: 'GET' });
+      expect(args[1]).toEqual({ kind: 'string', value: '/users' });
+      expect(args[2]).toEqual({ kind: 'boolean', value: true });
+    });
+
+    it('should convert call expression argument to ExpressionValue', () => {
+      const parsed = makeFixture(`@Use(createGuard('admin')) class Ctrl {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Ctrl')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('call');
+      if (arg.kind === 'call') {
+        expect(arg.callee).toBe('createGuard');
+        expect(arg.arguments).toEqual([{ kind: 'string', value: 'admin' }]);
+      }
+    });
+
+    it('should convert negative number to ExpressionValue', () => {
+      const parsed = makeFixture(`@Timeout(-1) class Svc {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg).toEqual({ kind: 'number', value: -1 });
+    });
+
+    it('should unwrap type assertion and return inner expression', () => {
+      const parsed = makeFixture(`@Config({ key: 'val' } as const) class Svc {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('object');
+    });
+
+    it('should fall back to unresolvable for complex expressions', () => {
+      const parsed = makeFixture(`@Deco(a ? b : c) class Svc {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('unresolvable');
+      if (arg.kind === 'unresolvable') {
+        expect(arg.sourceText).toContain('?');
+      }
+    });
+  });
+
+  // ─── ExpressionValue: Enum initializers ──────────────────────────────
+
+  describe('enum member initializers', () => {
+    it('should extract string initializer from enum member', () => {
+      const parsed = makeFixture(`enum HttpMethod { Get = 'GET', Post = 'POST' }`);
+      const en = extractSymbols(parsed).find(s => s.name === 'HttpMethod')!;
+      const get = en.members!.find(m => m.name === 'Get')!;
+      const post = en.members!.find(m => m.name === 'Post')!;
+      expect(get.initializer).toEqual({ kind: 'string', value: 'GET' });
+      expect(post.initializer).toEqual({ kind: 'string', value: 'POST' });
+    });
+
+    it('should extract numeric initializer from enum member', () => {
+      const parsed = makeFixture(`enum Status { Active = 1, Inactive = 0 }`);
+      const en = extractSymbols(parsed).find(s => s.name === 'Status')!;
+      expect(en.members![0]!.initializer).toEqual({ kind: 'number', value: 1 });
+      expect(en.members![1]!.initializer).toEqual({ kind: 'number', value: 0 });
+    });
+
+    it('should not set initializer when enum member has no explicit value', () => {
+      const parsed = makeFixture(`enum Dir { Up, Down, Left, Right }`);
+      const en = extractSymbols(parsed).find(s => s.name === 'Dir')!;
+      for (const m of en.members!) {
+        expect(m.initializer).toBeUndefined();
+      }
+    });
+
+    it('should extract mixed initializers from enum with partial values', () => {
+      const parsed = makeFixture(`enum Mixed { A = 10, B, C = 'str' }`);
+      const en = extractSymbols(parsed).find(s => s.name === 'Mixed')!;
+      expect(en.members![0]!.initializer).toEqual({ kind: 'number', value: 10 });
+      expect(en.members![1]!.initializer).toBeUndefined();
+      expect(en.members![2]!.initializer).toEqual({ kind: 'string', value: 'str' });
+    });
+
+    it('should extract computed enum initializer as unresolvable', () => {
+      const parsed = makeFixture(`enum Computed { A = 1 << 0, B = 1 << 1 }`);
+      const en = extractSymbols(parsed).find(s => s.name === 'Computed')!;
+      expect(en.members![0]!.initializer!.kind).toBe('unresolvable');
+      expect(en.members![1]!.initializer!.kind).toBe('unresolvable');
+    });
+
+    it('should extract negative numeric enum initializer', () => {
+      const parsed = makeFixture(`enum Neg { MinusOne = -1 }`);
+      const en = extractSymbols(parsed).find(s => s.name === 'Neg')!;
+      expect(en.members![0]!.initializer).toEqual({ kind: 'number', value: -1 });
+    });
+  });
+
+  // ─── ExpressionValue: Class property type + initializer ──────────────
+
+  describe('class property type and initializer', () => {
+    it('should extract type annotation from class property', () => {
+      const parsed = makeFixture(`class User { name: string; age: number; }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'User')!;
+      const name = cls.members!.find(m => m.name === 'name')!;
+      const age = cls.members!.find(m => m.name === 'age')!;
+      expect(name.returnType).toBe('string');
+      expect(age.returnType).toBe('number');
+    });
+
+    it('should extract initializer from class property', () => {
+      const parsed = makeFixture(`class Config { retries: number = 3; label = 'default'; }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Config')!;
+      const retries = cls.members!.find(m => m.name === 'retries')!;
+      const label = cls.members!.find(m => m.name === 'label')!;
+      expect(retries.returnType).toBe('number');
+      expect(retries.initializer).toEqual({ kind: 'number', value: 3 });
+      expect(label.initializer).toEqual({ kind: 'string', value: 'default' });
+    });
+
+    it('should extract complex initializer from class property', () => {
+      const parsed = makeFixture(`class Svc { items: string[] = ['a', 'b']; }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const items = cls.members!.find(m => m.name === 'items')!;
+      expect(items.returnType).toBe('string[]');
+      expect(items.initializer!.kind).toBe('array');
+    });
+
+    it('should not set initializer when property has no default value', () => {
+      const parsed = makeFixture(`class Svc { id: number; }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const id = cls.members!.find(m => m.name === 'id')!;
+      expect(id.returnType).toBe('number');
+      expect(id.initializer).toBeUndefined();
+    });
+
+    it('should extract decorators from class property', () => {
+      const parsed = makeFixture(`class Dto { @Column('varchar') name: string; }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Dto')!;
+      const name = cls.members!.find(m => m.name === 'name')!;
+      expect(name.decorators).toBeDefined();
+      expect(name.decorators![0]!.name).toBe('Column');
+      expect(name.decorators![0]!.arguments![0]).toEqual({ kind: 'string', value: 'varchar' });
+    });
+
+    it('should extract generic type annotation from class property', () => {
+      const parsed = makeFixture(`class Repo { items: Map<string, number>; }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Repo')!;
+      const items = cls.members!.find(m => m.name === 'items')!;
+      expect(items.returnType).toBe('Map<string, number>');
+    });
+
+    it('should extract object initializer from class property', () => {
+      const parsed = makeFixture(`class Cfg { opts = { timeout: 30, debug: false }; }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Cfg')!;
+      const opts = cls.members!.find(m => m.name === 'opts')!;
+      expect(opts.initializer!.kind).toBe('object');
+      if (opts.initializer!.kind === 'object') {
+        expect(opts.initializer!.properties.length).toBe(2);
+        expect(opts.initializer!.properties[0]!.key).toBe('timeout');
+        expect(opts.initializer!.properties[0]!.value).toEqual({ kind: 'number', value: 30 });
+      }
+    });
+  });
+
+  // ─── ExpressionValue: Variable initializers ──────────────────────────
+
+  describe('variable initializers', () => {
+    it('should extract call expression initializer from variable', () => {
+      const parsed = makeFixture(`const config = defineModule({ imports: [] });`);
+      const v = extractSymbols(parsed).find(s => s.name === 'config')!;
+      expect(v.kind).toBe('variable');
+      expect(v.initializer!.kind).toBe('call');
+      if (v.initializer!.kind === 'call') {
+        expect(v.initializer!.callee).toBe('defineModule');
+        expect(v.initializer!.arguments.length).toBe(1);
+        expect(v.initializer!.arguments[0]!.kind).toBe('object');
+      }
+    });
+
+    it('should extract simple literal initializer from variable', () => {
+      const parsed = makeFixture(`const PI = 3.14;`);
+      const v = extractSymbols(parsed).find(s => s.name === 'PI')!;
+      expect(v.kind).toBe('variable');
+      expect(v.initializer).toEqual({ kind: 'number', value: 3.14 });
+    });
+
+    it('should extract string initializer from variable', () => {
+      const parsed = makeFixture(`const NAME = 'gildash';`);
+      const v = extractSymbols(parsed).find(s => s.name === 'NAME')!;
+      expect(v.initializer).toEqual({ kind: 'string', value: 'gildash' });
+    });
+
+    it('should not set initializer when variable is a function expression', () => {
+      const parsed = makeFixture(`const fn = () => {};`);
+      const v = extractSymbols(parsed).find(s => s.name === 'fn')!;
+      expect(v.kind).toBe('function');
+      expect(v.initializer).toBeUndefined();
+    });
+
+    it('should not set initializer when variable has no initializer', () => {
+      const parsed = makeFixture(`let x: number;`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer).toBeUndefined();
+    });
+
+    it('should extract new expression initializer from variable', () => {
+      const parsed = makeFixture(`const map = new Map<string, number>();`);
+      const v = extractSymbols(parsed).find(s => s.name === 'map')!;
+      expect(v.initializer!.kind).toBe('new');
+      if (v.initializer!.kind === 'new') {
+        expect(v.initializer!.callee).toContain('Map');
+      }
+    });
+
+    it('should extract nested object initializer from variable', () => {
+      const parsed = makeFixture(`const cfg = { db: { host: 'localhost', port: 5432 }, debug: true };`);
+      const v = extractSymbols(parsed).find(s => s.name === 'cfg')!;
+      expect(v.initializer!.kind).toBe('object');
+      if (v.initializer!.kind === 'object') {
+        const dbProp = v.initializer!.properties.find(p => p.key === 'db')!;
+        expect(dbProp.value.kind).toBe('object');
+        if (dbProp.value.kind === 'object') {
+          expect(dbProp.value.properties[0]!.key).toBe('host');
+          expect(dbProp.value.properties[0]!.value).toEqual({ kind: 'string', value: 'localhost' });
+          expect(dbProp.value.properties[1]!.key).toBe('port');
+          expect(dbProp.value.properties[1]!.value).toEqual({ kind: 'number', value: 5432 });
+        }
+      }
+    });
+
+    it('should extract array initializer from variable', () => {
+      const parsed = makeFixture(`const items = [1, 'two', true];`);
+      const v = extractSymbols(parsed).find(s => s.name === 'items')!;
+      expect(v.initializer!.kind).toBe('array');
+      if (v.initializer!.kind === 'array') {
+        expect(v.initializer!.elements).toEqual([
+          { kind: 'number', value: 1 },
+          { kind: 'string', value: 'two' },
+          { kind: 'boolean', value: true },
+        ]);
+      }
+    });
+
+    it('should not set initializer for destructured variable declarations', () => {
+      const parsed = makeFixture(`const { a, b } = obj;`);
+      const syms = extractSymbols(parsed);
+      for (const s of syms) {
+        expect(s.initializer).toBeUndefined();
+      }
+    });
+  });
+
+  // ─── ExpressionValue: Depth limit ────────────────────────────────────
+
+  describe('expression depth limit', () => {
+    it('should fall back to unresolvable when nesting exceeds depth limit', () => {
+      // 9 levels of nesting: [[[[[[[[['x']]]]]]]]]
+      const deep = '[[[[[[[[["x"]]]]]]]]]';
+      const parsed = makeFixture(`const x = ${deep};`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      // Walk down to find the unresolvable at depth limit
+      let current = v.initializer!;
+      let depth = 0;
+      while (current.kind === 'array' && depth < 20) {
+        current = (current as { elements: any[] }).elements[0]!;
+        depth++;
+      }
+      // Should hit unresolvable before reaching the innermost string
+      expect(current.kind).toBe('unresolvable');
+    });
+  });
 });

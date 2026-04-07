@@ -2,6 +2,7 @@ import type { ParsedFile } from '../parser/types';
 import type { SourceSpan } from '../parser/types';
 import type {
   ExtractedSymbol,
+  ExpressionValue,
   SymbolKind,
   Modifier,
   Heritage,
@@ -171,6 +172,149 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     return sourceText.slice(inner.start, inner.end);
   }
 
+  const MAX_EXPRESSION_DEPTH = 8;
+
+  function convertExpression(node: Record<string, unknown>, depth: number = 0): ExpressionValue {
+    if (depth >= MAX_EXPRESSION_DEPTH) {
+      return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
+    }
+
+    const type = node.type as string;
+
+    // Literals — oxc-parser emits ESTree "Literal" for all literal types
+    if (type === 'Literal') {
+      const value = node.value;
+      if (value === null) return { kind: 'null', value: null };
+      if (typeof value === 'string') return { kind: 'string', value };
+      if (typeof value === 'number') return { kind: 'number', value };
+      if (typeof value === 'boolean') return { kind: 'boolean', value };
+      // BigInt, RegExp, etc. → unresolvable
+      return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
+    }
+
+    // Identifier — oxc-parser emits 'Identifier' for all identifier nodes
+    if (type === 'Identifier') {
+      const name = node.name as string;
+      if (name === 'undefined') return { kind: 'undefined', value: null };
+      return { kind: 'identifier', name };
+    }
+
+    // Member expression: a.b or a.b.c — oxc-parser emits 'MemberExpression' with computed flag
+    if (type === 'MemberExpression') {
+      if (node.computed) {
+        return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
+      }
+      const objectText = sourceText.slice(
+        (node.object as Record<string, unknown>).start as number,
+        (node.object as Record<string, unknown>).end as number,
+      );
+      const property = (node.property as Record<string, unknown>).name as string
+        ?? sourceText.slice(
+          (node.property as Record<string, unknown>).start as number,
+          (node.property as Record<string, unknown>).end as number,
+        );
+      return { kind: 'member', object: objectText, property };
+    }
+
+    // Call expression: fn(args)
+    if (type === 'CallExpression') {
+      const callee = node.callee as Record<string, unknown>;
+      const calleeName = sourceText.slice(callee.start as number, callee.end as number);
+      const rawArgs = (node.arguments as Array<Record<string, unknown>>) ?? [];
+      const args = rawArgs.map((a) => convertExpression(a, depth + 1));
+      return { kind: 'call', callee: calleeName, arguments: args };
+    }
+
+    // New expression: new Cls(args)
+    if (type === 'NewExpression') {
+      const callee = node.callee as Record<string, unknown>;
+      const calleeName = sourceText.slice(callee.start as number, callee.end as number);
+      const rawArgs = (node.arguments as Array<Record<string, unknown>>) ?? [];
+      const args = rawArgs.map((a) => convertExpression(a, depth + 1));
+      return { kind: 'new', callee: calleeName, arguments: args };
+    }
+
+    // Object expression: { key: value }
+    if (type === 'ObjectExpression') {
+      const rawProps = (node.properties as Array<Record<string, unknown>>) ?? [];
+      const properties = rawProps.map((p) => {
+        if ((p.type as string) === 'SpreadElement') {
+          const arg = p.argument as Record<string, unknown>;
+          return {
+            key: '...',
+            value: { kind: 'spread' as const, argument: convertExpression(arg, depth + 1) },
+          };
+        }
+        const key = p.key as Record<string, unknown>;
+        const rawKeyName = key.name ?? key.value;
+        const keyName = rawKeyName != null ? String(rawKeyName) : sourceText.slice(key.start as number, key.end as number);
+        const value = p.value as Record<string, unknown>;
+        const computed = (p.computed as boolean) || undefined;
+        const shorthand = (p.shorthand as boolean) || undefined;
+        return { key: keyName, value: convertExpression(value, depth + 1), computed, shorthand };
+      });
+      return { kind: 'object', properties };
+    }
+
+    // Array expression: [a, b, c]
+    if (type === 'ArrayExpression') {
+      const rawElements = (node.elements as Array<Record<string, unknown> | null>) ?? [];
+      const elements = rawElements.map((e) => {
+        if (!e) return { kind: 'undefined' as const, value: null };
+        return convertExpression(e, depth + 1);
+      });
+      return { kind: 'array', elements };
+    }
+
+    // Spread element: ...x
+    if (type === 'SpreadElement') {
+      const arg = node.argument as Record<string, unknown>;
+      return { kind: 'spread', argument: convertExpression(arg, depth + 1) };
+    }
+
+    // Arrow/function expression: () => {} or function() {}
+    if (type === 'ArrowFunctionExpression' || type === 'FunctionExpression') {
+      return { kind: 'function', sourceText: sourceText.slice(node.start as number, node.end as number) };
+    }
+
+    // Template literal
+    if (type === 'TemplateLiteral' || type === 'TaggedTemplateExpression') {
+      return { kind: 'template', sourceText: sourceText.slice(node.start as number, node.end as number) };
+    }
+
+    // Unary expression: !x, -1, typeof x, void 0
+    if (type === 'UnaryExpression') {
+      const operator = node.operator as string;
+      const argument = node.argument as Record<string, unknown>;
+      // Handle negative numbers: -1, -3.14
+      if (operator === '-' && argument.type === 'Literal' && typeof argument.value === 'number') {
+        return { kind: 'number', value: -(argument.value as number) };
+      }
+      // void 0 → undefined
+      if (operator === 'void') {
+        return { kind: 'undefined', value: null };
+      }
+      return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
+    }
+
+    // TSAsExpression, TSSatisfiesExpression, TSNonNullExpression, TSTypeAssertion
+    // — unwrap to inner expression
+    if (
+      type === 'TSAsExpression' ||
+      type === 'TSSatisfiesExpression' ||
+      type === 'TSNonNullExpression' ||
+      type === 'TSTypeAssertion' ||
+      type === 'TSInstantiationExpression' ||
+      type === 'ParenthesizedExpression'
+    ) {
+      const inner = node.expression as Record<string, unknown>;
+      if (inner) return convertExpression(inner, depth);
+    }
+
+    // Fallback: anything we can't structurally represent
+    return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
+  }
+
   function extractDecorators(decorators: readonly OxcDecorator[]): ExtractorDecorator[] {
     if (!decorators || decorators.length === 0) return [];
     return decorators.map((d) => {
@@ -184,7 +328,9 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
             : ('property' in callee && callee.property && typeof (callee.property as { name?: string }).name === 'string')
               ? (callee.property as { name: string }).name
               : 'unknown';
-        const args = callExpr.arguments.map((a: Argument) => sourceText.slice(a.start, a.end));
+        const args = callExpr.arguments.map((a: Argument) =>
+          convertExpression(a as unknown as Record<string, unknown>),
+        );
         return { name: calleeName, arguments: args.length > 0 ? args : undefined };
       }
       if (expr.type === 'Identifier') return { name: (expr as IdentifierReference).name ?? 'unknown' };
@@ -339,13 +485,22 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         if (m.type === 'TSAbstractPropertyDefinition' && !mods.includes('abstract')) {
           mods.push('abstract');
         }
+        const returnType = typeText(pd.typeAnnotation);
+        const initNode = pd.value;
+        const initializer = initNode
+          ? convertExpression(initNode as unknown as Record<string, unknown>)
+          : undefined;
+        const decos = extractDecorators(pd.decorators ?? []);
         const s: ExtractedSymbol = {
           kind: 'property',
           name,
           span: span(m.start, m.end),
           isExported: false,
           modifiers: mods,
+          returnType,
+          initializer,
         };
+        if (decos.length > 0) s.decorators = decos;
         members.push(s);
       }
     }
@@ -463,6 +618,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         let params: Parameter[] | undefined;
         let returnType: string | undefined;
 
+        let initializer: ExpressionValue | undefined;
         if (init) {
           if (
             init.type === 'FunctionExpression' ||
@@ -473,10 +629,12 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
             const rawParams = fnInit.params;
             params = rawParams.map(extractParam);
             returnType = typeText(fnInit.returnType);
+          } else {
+            initializer = convertExpression(init as unknown as Record<string, unknown>);
           }
         }
         const mods: Modifier[] = [];
-        symbols.push({
+        const sym: ExtractedSymbol = {
           kind,
           name,
           span: span(decl.start, decl.end),
@@ -484,7 +642,9 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           modifiers: mods,
           parameters: params,
           returnType,
-        });
+        };
+        if (initializer) sym.initializer = initializer;
+        symbols.push(sym);
       }
       if (symbols.length === 0) return null;
       if (symbols.length === 1) return symbols[0]!;
@@ -534,13 +694,19 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           : ('value' in memberId && typeof memberId.value === 'string')
             ? memberId.value
             : 'unknown';
-        return {
+        const initNode = m.initializer;
+        const initializer = initNode
+          ? convertExpression(initNode as unknown as Record<string, unknown>)
+          : undefined;
+        const sym: ExtractedSymbol = {
           kind: 'property' as SymbolKind,
           name: memberName,
           span: span(m.start, m.end),
           isExported: false,
           modifiers: [],
         };
+        if (initializer) sym.initializer = initializer;
+        return sym;
       });
       return {
         kind: 'enum',

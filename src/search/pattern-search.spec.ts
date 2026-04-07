@@ -50,6 +50,8 @@ describe('patternSearch', () => {
       range: () => ({ start: { line: 4, column: 0 }, end: { line: 4, column: 15 } }),
       text: () => 'console.log("hi")',
       getRoot: () => ({ filename: () => '/src/a.ts' }),
+      getMatch: () => null,
+      getMultipleMatches: () => [],
     };
     mockFindInFiles.mockImplementation(async (_lang, _config, callback) => {
       callback(null, [fakeNode]);
@@ -96,6 +98,8 @@ describe('patternSearch', () => {
       range: () => ({ start: { line }, end: { line } }),
       text: () => `node-${line}`,
       getRoot: () => ({ filename: () => file }),
+      getMatch: () => null,
+      getMultipleMatches: () => [],
     });
     mockFindInFiles.mockImplementation(async (_lang, _config, callback) => {
       callback(null, [makeNode(0, '/src/a.ts'), makeNode(2, '/src/b.ts')]);
@@ -107,5 +111,127 @@ describe('patternSearch', () => {
     expect(result.length).toBe(2);
     expect(result[0]!.filePath).toBe('/src/a.ts');
     expect(result[1]!.filePath).toBe('/src/b.ts');
+  });
+
+  // ─── Captures ────────────────────────────────────────────────────────
+
+  // 7. [HP] 패턴에 메타변수가 없으면 captures 미포함
+  it('should not include captures when pattern has no metavariables', async () => {
+    const fakeNode = {
+      range: () => ({ start: { line: 0 }, end: { line: 0 } }),
+      text: () => 'foo()',
+      getRoot: () => ({ filename: () => '/a.ts' }),
+      getMatch: () => null,
+      getMultipleMatches: () => [],
+    };
+    mockFindInFiles.mockImplementation(async (_lang, _config, callback) => {
+      callback(null, [fakeNode]);
+      return 1;
+    });
+
+    const result = await patternSearch({ pattern: 'foo()', filePaths: ['/a.ts'] });
+    expect(result[0]!.captures).toBeUndefined();
+  });
+
+  // 8. [HP] 단일 메타변수 캡처 ($NAME)
+  it('should populate captures for single metavariable match', async () => {
+    const capturedNode = {
+      text: () => 'getBody',
+      range: () => ({ start: { line: 2, column: 4 }, end: { line: 2, column: 11 } }),
+    };
+    const fakeNode = {
+      range: () => ({ start: { line: 2 }, end: { line: 2 } }),
+      text: () => 'ctx.getBody()',
+      getRoot: () => ({ filename: () => '/a.ts' }),
+      getMatch: (name: string) => name === '$METHOD' ? capturedNode : null,
+      getMultipleMatches: () => [],
+    };
+    mockFindInFiles.mockImplementation(async (_lang, _config, callback) => {
+      callback(null, [fakeNode]);
+      return 1;
+    });
+
+    const result = await patternSearch({ pattern: 'ctx.$METHOD()', filePaths: ['/a.ts'] });
+    expect(result[0]!.captures).toBeDefined();
+    expect(result[0]!.captures!['$METHOD']).toEqual({
+      text: 'getBody',
+      startLine: 3, // 0-based 2 → 1-based 3
+      endLine: 3,
+    });
+  });
+
+  // 9. [HP] 여러 메타변수 동시 캡처
+  it('should populate captures for multiple metavariables', async () => {
+    const methodNode = {
+      text: () => 'getBody',
+      range: () => ({ start: { line: 1 }, end: { line: 1 } }),
+    };
+    const typeNode = {
+      text: () => 'UserDto',
+      range: () => ({ start: { line: 1 }, end: { line: 1 } }),
+    };
+    const fakeNode = {
+      range: () => ({ start: { line: 1 }, end: { line: 1 } }),
+      text: () => 'ctx.getBody<UserDto>()',
+      getRoot: () => ({ filename: () => '/a.ts' }),
+      getMatch: (name: string) => {
+        if (name === '$METHOD') return methodNode;
+        if (name === '$TYPE') return typeNode;
+        return null;
+      },
+      getMultipleMatches: () => [],
+    };
+    mockFindInFiles.mockImplementation(async (_lang, _config, callback) => {
+      callback(null, [fakeNode]);
+      return 1;
+    });
+
+    const result = await patternSearch({ pattern: 'ctx.$METHOD<$TYPE>()', filePaths: ['/a.ts'] });
+    expect(result[0]!.captures!['$METHOD']).toBeDefined();
+    expect(result[0]!.captures!['$TYPE']).toBeDefined();
+    expect(result[0]!.captures!['$METHOD']!.text).toBe('getBody');
+    expect(result[0]!.captures!['$TYPE']!.text).toBe('UserDto');
+  });
+
+  // 10. [HP] variadic 메타변수 ($$$ARGS) 캡처
+  it('should populate captures for variadic metavariable using getMultipleMatches', async () => {
+    const argNodes = [
+      { text: () => "'a'", range: () => ({ start: { line: 3 }, end: { line: 3 } }) },
+      { text: () => "'b'", range: () => ({ start: { line: 3 }, end: { line: 3 } }) },
+    ];
+    const fakeNode = {
+      range: () => ({ start: { line: 3 }, end: { line: 3 } }),
+      text: () => "fn('a', 'b')",
+      getRoot: () => ({ filename: () => '/a.ts' }),
+      getMatch: () => null,
+      getMultipleMatches: (name: string) => name === '$$$ARGS' ? argNodes : [],
+    };
+    mockFindInFiles.mockImplementation(async (_lang, _config, callback) => {
+      callback(null, [fakeNode]);
+      return 1;
+    });
+
+    const result = await patternSearch({ pattern: 'fn($$$ARGS)', filePaths: ['/a.ts'] });
+    expect(result[0]!.captures!['$$$ARGS']).toBeDefined();
+    expect(result[0]!.captures!['$$$ARGS']!.text).toBe("'a', 'b'");
+  });
+
+  // 11. [EP] 메타변수가 매칭되지 않으면 captures에서 제외
+  it('should omit unmatched metavariables from captures', async () => {
+    const fakeNode = {
+      range: () => ({ start: { line: 0 }, end: { line: 0 } }),
+      text: () => 'x.y()',
+      getRoot: () => ({ filename: () => '/a.ts' }),
+      getMatch: () => null,
+      getMultipleMatches: () => [],
+    };
+    mockFindInFiles.mockImplementation(async (_lang, _config, callback) => {
+      callback(null, [fakeNode]);
+      return 1;
+    });
+
+    const result = await patternSearch({ pattern: '$OBJ.$METHOD()', filePaths: ['/a.ts'] });
+    // Both metavariables unmatched → captures undefined
+    expect(result[0]!.captures).toBeUndefined();
   });
 });
