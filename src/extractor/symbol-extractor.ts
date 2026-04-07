@@ -391,7 +391,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
   function extractParam(p: ParamPattern): Parameter {
     if (p.type === 'TSParameterProperty') {
       const tsp = p as TSParameterProperty;
-      return extractParamFromBinding(tsp.parameter, tsp.parameter.decorators);
+      return extractParamFromBinding(tsp.parameter, tsp.decorators);
     }
     if (p.type === 'RestElement') {
       const rest = p as FormalParameterRest;
@@ -409,6 +409,20 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     return extractParamFromBinding(fp, fp.decorators);
   }
 
+  /** Extract the root type name from a type annotation for import resolution. */
+  function resolveTypeImportSource(typeAnn: TSTypeAnnotation | null | undefined): string | undefined {
+    if (!typeAnn) return undefined;
+    const inner = ('typeAnnotation' in typeAnn && typeAnn.typeAnnotation)
+      ? typeAnn.typeAnnotation as unknown as Record<string, unknown>
+      : null;
+    if (!inner) return undefined;
+    // TSTypeReference → typeName is an Identifier
+    const typeName = inner.typeName as Record<string, unknown> | undefined;
+    const rootName = typeName?.name as string | undefined;
+    if (!rootName) return undefined;
+    return importMap.get(rootName)?.specifier;
+  }
+
   function extractParamFromBinding(
     inner: BindingPattern,
     decorators?: readonly OxcDecorator[],
@@ -419,11 +433,13 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       const name: string = ('name' in left && typeof left.name === 'string') ? left.name : 'unknown';
       const typeAnn = ('typeAnnotation' in left) ? left.typeAnnotation as TSTypeAnnotation | null : null;
       const type = typeAnn ? typeText(typeAnn) : undefined;
+      const typeImportSource = resolveTypeImportSource(typeAnn);
       const defaultValue: string = sourceText.slice(right.start, right.end);
       const leftDecos = ('decorators' in left && Array.isArray(left.decorators)) ? left.decorators as OxcDecorator[] : [];
       const decos = extractDecorators(leftDecos);
       const param: Parameter = { name, isOptional: true, defaultValue };
       if (type) param.type = type;
+      if (typeImportSource) param.typeImportSource = typeImportSource;
       if (decos.length > 0) param.decorators = decos;
       return param;
     }
@@ -437,9 +453,11 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     const optional: boolean = !!('optional' in inner && inner.optional);
     const typeAnn = ('typeAnnotation' in inner) ? inner.typeAnnotation as TSTypeAnnotation | null : null;
     const type = typeAnn ? typeText(typeAnn) : undefined;
+    const typeImportSource = resolveTypeImportSource(typeAnn);
     const decos = extractDecorators(decorators ?? []);
     const param: Parameter = { name, isOptional: optional };
     if (type) param.type = type;
+    if (typeImportSource) param.typeImportSource = typeImportSource;
     if (decos.length > 0) param.decorators = decos;
     return param;
   }
@@ -517,6 +535,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         }
         const params = fnValue.params.map(extractParam);
         const returnType = typeText(fnValue.returnType);
+        const decos = extractDecorators(md.decorators ?? []);
         const s: ExtractedSymbol = {
           kind: 'method',
           name,
@@ -527,6 +546,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           parameters: params.length > 0 ? params : undefined,
           returnType,
         };
+        if (decos.length > 0) s.decorators = decos;
         members.push(s);
       } else if (m.type === 'PropertyDefinition' || m.type === 'TSAbstractPropertyDefinition') {
         const pd = m as PropertyDefinition;
