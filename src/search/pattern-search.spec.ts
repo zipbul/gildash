@@ -147,7 +147,7 @@ describe('patternSearch', () => {
       range: () => ({ start: { line: 2, column: 0, index: 20 }, end: { line: 2, column: 13, index: 33 } }),
       text: () => 'ctx.getBody()',
       getRoot: () => ({ filename: () => '/a.ts' }),
-      getMatch: (name: string) => name === '$METHOD' ? capturedNode : null,
+      getMatch: (name: string) => name === 'METHOD' ? capturedNode : null,
       getMultipleMatches: () => [],
     };
     mockFindInFiles.mockImplementation(async (_lang, _config, callback) => {
@@ -183,8 +183,8 @@ describe('patternSearch', () => {
       text: () => 'ctx.getBody<UserDto>()',
       getRoot: () => ({ filename: () => '/a.ts' }),
       getMatch: (name: string) => {
-        if (name === '$METHOD') return methodNode;
-        if (name === '$TYPE') return typeNode;
+        if (name === 'METHOD') return methodNode;
+        if (name === 'TYPE') return typeNode;
         return null;
       },
       getMultipleMatches: () => [],
@@ -213,7 +213,7 @@ describe('patternSearch', () => {
       text: () => "fn('a', 'b')",
       getRoot: () => ({ filename: () => '/a.ts' }),
       getMatch: () => null,
-      getMultipleMatches: (name: string) => name === '$$$ARGS' ? argNodes : [],
+      getMultipleMatches: (name: string) => name === 'ARGS' ? argNodes : [],
     };
     mockFindInFiles.mockImplementation(async (_lang, _config, callback) => {
       callback(null, [fakeNode]);
