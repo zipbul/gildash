@@ -1,5 +1,13 @@
 # @zipbul/gildash
 
+## 0.22.0
+
+### Minor Changes
+
+- [#94](https://github.com/zipbul/gildash/pull/94) [`92525ea`](https://github.com/zipbul/gildash/commit/92525ea61b6a624188f63b9e5c227a1f13d1ae28) Thanks [@parkrevil](https://github.com/parkrevil)! - feat: export parseSource, extractSymbols, extractRelations from main entrypoint
+
+  These standalone functions were implemented internally but not exported, preventing per-file parse/extract without a Gildash instance.
+
 ## 0.21.0
 
 ### Minor Changes
