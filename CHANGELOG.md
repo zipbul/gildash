@@ -1,5 +1,15 @@
 # @zipbul/gildash
 
+## 0.22.1
+
+### Patch Changes
+
+- [#96](https://github.com/zipbul/gildash/pull/96) [`697ea9b`](https://github.com/zipbul/gildash/commit/697ea9b57397c1a2f6f9fb01dd27ee27390b149a) Thanks [@parkrevil](https://github.com/parkrevil)! - fix: extract method decorators and fix parameter decorator source location
+
+  - Method/abstract method decorators were not extracted in `extractClassMembers` — now populated
+  - `TSParameterProperty` decorators were read from `tsp.parameter.decorators` (always empty) instead of `tsp.decorators` — fixed
+  - Add `Parameter.typeImportSource` for import specifier of the parameter's type annotation
+
 ## 0.22.0
 
 ### Minor Changes
