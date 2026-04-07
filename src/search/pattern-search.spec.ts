@@ -47,7 +47,7 @@ describe('patternSearch', () => {
   // 3. [HP] 콜백 결과를 PatternMatch 배열로 변환
   it('should map SgNode results to PatternMatch with 1-based line numbers', async () => {
     const fakeNode = {
-      range: () => ({ start: { line: 4, column: 0 }, end: { line: 4, column: 15 } }),
+      range: () => ({ start: { line: 4, column: 0, index: 40 }, end: { line: 4, column: 15, index: 55 } }),
       text: () => 'console.log("hi")',
       getRoot: () => ({ filename: () => '/src/a.ts' }),
       getMatch: () => null,
@@ -64,6 +64,10 @@ describe('patternSearch', () => {
       filePath: '/src/a.ts',
       startLine: 5, // 0-based 4 → 1-based 5
       endLine: 5,
+      startColumn: 0,
+      endColumn: 15,
+      startOffset: 40,
+      endOffset: 55,
       matchedText: 'console.log("hi")',
     }]);
   });
@@ -95,7 +99,7 @@ describe('patternSearch', () => {
   // 6. [HP] 여러 노드 → 모두 수집
   it('should collect all nodes from multiple callback results', async () => {
     const makeNode = (line: number, file: string) => ({
-      range: () => ({ start: { line }, end: { line } }),
+      range: () => ({ start: { line, column: 0, index: line * 10 }, end: { line, column: 5, index: line * 10 + 5 } }),
       text: () => `node-${line}`,
       getRoot: () => ({ filename: () => file }),
       getMatch: () => null,
@@ -118,7 +122,7 @@ describe('patternSearch', () => {
   // 7. [HP] 패턴에 메타변수가 없으면 captures 미포함
   it('should not include captures when pattern has no metavariables', async () => {
     const fakeNode = {
-      range: () => ({ start: { line: 0 }, end: { line: 0 } }),
+      range: () => ({ start: { line: 0, column: 0, index: 0 }, end: { line: 0, column: 5, index: 5 } }),
       text: () => 'foo()',
       getRoot: () => ({ filename: () => '/a.ts' }),
       getMatch: () => null,
@@ -137,10 +141,10 @@ describe('patternSearch', () => {
   it('should populate captures for single metavariable match', async () => {
     const capturedNode = {
       text: () => 'getBody',
-      range: () => ({ start: { line: 2, column: 4 }, end: { line: 2, column: 11 } }),
+      range: () => ({ start: { line: 2, column: 4, index: 24 }, end: { line: 2, column: 11, index: 31 } }),
     };
     const fakeNode = {
-      range: () => ({ start: { line: 2 }, end: { line: 2 } }),
+      range: () => ({ start: { line: 2, column: 0, index: 20 }, end: { line: 2, column: 13, index: 33 } }),
       text: () => 'ctx.getBody()',
       getRoot: () => ({ filename: () => '/a.ts' }),
       getMatch: (name: string) => name === '$METHOD' ? capturedNode : null,
@@ -155,8 +159,12 @@ describe('patternSearch', () => {
     expect(result[0]!.captures).toBeDefined();
     expect(result[0]!.captures!['$METHOD']).toEqual({
       text: 'getBody',
-      startLine: 3, // 0-based 2 → 1-based 3
+      startLine: 3,
       endLine: 3,
+      startColumn: 4,
+      endColumn: 11,
+      startOffset: 24,
+      endOffset: 31,
     });
   });
 
@@ -164,14 +172,14 @@ describe('patternSearch', () => {
   it('should populate captures for multiple metavariables', async () => {
     const methodNode = {
       text: () => 'getBody',
-      range: () => ({ start: { line: 1 }, end: { line: 1 } }),
+      range: () => ({ start: { line: 1, column: 4, index: 14 }, end: { line: 1, column: 11, index: 21 } }),
     };
     const typeNode = {
       text: () => 'UserDto',
-      range: () => ({ start: { line: 1 }, end: { line: 1 } }),
+      range: () => ({ start: { line: 1, column: 12, index: 22 }, end: { line: 1, column: 19, index: 29 } }),
     };
     const fakeNode = {
-      range: () => ({ start: { line: 1 }, end: { line: 1 } }),
+      range: () => ({ start: { line: 1, column: 0, index: 10 }, end: { line: 1, column: 22, index: 32 } }),
       text: () => 'ctx.getBody<UserDto>()',
       getRoot: () => ({ filename: () => '/a.ts' }),
       getMatch: (name: string) => {
@@ -190,17 +198,18 @@ describe('patternSearch', () => {
     expect(result[0]!.captures!['$METHOD']).toBeDefined();
     expect(result[0]!.captures!['$TYPE']).toBeDefined();
     expect(result[0]!.captures!['$METHOD']!.text).toBe('getBody');
+    expect(result[0]!.captures!['$METHOD']!.startOffset).toBe(14);
     expect(result[0]!.captures!['$TYPE']!.text).toBe('UserDto');
   });
 
   // 10. [HP] variadic 메타변수 ($$$ARGS) 캡처
   it('should populate captures for variadic metavariable using getMultipleMatches', async () => {
     const argNodes = [
-      { text: () => "'a'", range: () => ({ start: { line: 3 }, end: { line: 3 } }) },
-      { text: () => "'b'", range: () => ({ start: { line: 3 }, end: { line: 3 } }) },
+      { text: () => "'a'", range: () => ({ start: { line: 3, column: 3, index: 33 }, end: { line: 3, column: 6, index: 36 } }) },
+      { text: () => "'b'", range: () => ({ start: { line: 3, column: 8, index: 38 }, end: { line: 3, column: 11, index: 41 } }) },
     ];
     const fakeNode = {
-      range: () => ({ start: { line: 3 }, end: { line: 3 } }),
+      range: () => ({ start: { line: 3, column: 0, index: 30 }, end: { line: 3, column: 12, index: 42 } }),
       text: () => "fn('a', 'b')",
       getRoot: () => ({ filename: () => '/a.ts' }),
       getMatch: () => null,
@@ -214,12 +223,14 @@ describe('patternSearch', () => {
     const result = await patternSearch({ pattern: 'fn($$$ARGS)', filePaths: ['/a.ts'] });
     expect(result[0]!.captures!['$$$ARGS']).toBeDefined();
     expect(result[0]!.captures!['$$$ARGS']!.text).toBe("'a', 'b'");
+    expect(result[0]!.captures!['$$$ARGS']!.startOffset).toBe(33);
+    expect(result[0]!.captures!['$$$ARGS']!.endOffset).toBe(41);
   });
 
   // 11. [EP] 메타변수가 매칭되지 않으면 captures에서 제외
   it('should omit unmatched metavariables from captures', async () => {
     const fakeNode = {
-      range: () => ({ start: { line: 0 }, end: { line: 0 } }),
+      range: () => ({ start: { line: 0, column: 0, index: 0 }, end: { line: 0, column: 5, index: 5 } }),
       text: () => 'x.y()',
       getRoot: () => ({ filename: () => '/a.ts' }),
       getMatch: () => null,
