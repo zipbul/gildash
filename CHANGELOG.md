@@ -1,5 +1,15 @@
 # @zipbul/gildash
 
+## 0.23.0
+
+### Minor Changes
+
+- [#98](https://github.com/zipbul/gildash/pull/98) [`627a87e`](https://github.com/zipbul/gildash/commit/627a87e10c0d46383151bec5aebd4985b4397341) Thanks [@parkrevil](https://github.com/parkrevil)! - feat: resolve optional chaining and computed string members, add ExpressionFunction.parameters
+
+  - `ChainExpression` (optional chaining `a?.b`, `fn?.()`) now unwrapped to inner expression instead of returning `unresolvable`
+  - Computed member access with string literal key (`a['key']`) now resolved to `ExpressionMember` instead of `unresolvable`
+  - `ExpressionFunction.parameters` now populated with `Parameter[]` including name, type, typeImportSource, and decorators
+
 ## 0.22.1
 
 ### Patch Changes
