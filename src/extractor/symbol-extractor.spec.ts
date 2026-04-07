@@ -1210,6 +1210,122 @@ describe('extractSymbols', () => {
     });
   });
 
+  // ─── Method/property decorators and parameter decorators ─────────────
+
+  describe('method and parameter decorators', () => {
+    it('should extract decorators from class methods', () => {
+      const parsed = makeFixture(`
+        class Ctrl {
+          @Get('/users')
+          @Middleware('auth')
+          getUsers() {}
+        }
+      `);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Ctrl')!;
+      const method = cls.members!.find(m => m.name === 'getUsers')!;
+      expect(method.decorators).toBeDefined();
+      expect(method.decorators!.length).toBe(2);
+      expect(method.decorators![0]!.name).toBe('Get');
+      expect(method.decorators![0]!.arguments![0]).toEqual({ kind: 'string', value: '/users' });
+      expect(method.decorators![1]!.name).toBe('Middleware');
+    });
+
+    it('should extract parameter decorators from constructor with TSParameterProperty', () => {
+      const parsed = makeFixture(`
+        class Svc {
+          constructor(@Inject('token') private readonly dep: string) {}
+        }
+      `);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const ctor = cls.members!.find(m => m.methodKind === 'constructor')!;
+      const param = ctor.parameters![0]!;
+      expect(param.decorators).toBeDefined();
+      expect(param.decorators![0]!.name).toBe('Inject');
+      expect(param.decorators![0]!.arguments![0]).toEqual({ kind: 'string', value: 'token' });
+    });
+
+    it('should extract parameter decorators from regular method parameters', () => {
+      const parsed = makeFixture(`
+        class Ctrl {
+          handle(@Body() body: string, @Query('page') page: number) {}
+        }
+      `);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Ctrl')!;
+      const method = cls.members!.find(m => m.name === 'handle')!;
+      expect(method.parameters![0]!.decorators![0]!.name).toBe('Body');
+      expect(method.parameters![1]!.decorators![0]!.name).toBe('Query');
+      expect(method.parameters![1]!.decorators![0]!.arguments![0]).toEqual({ kind: 'string', value: 'page' });
+    });
+
+    it('should not set decorators on method without decorators', () => {
+      const parsed = makeFixture(`class Svc { doWork() {} }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const method = cls.members!.find(m => m.name === 'doWork')!;
+      expect(method.decorators).toBeUndefined();
+    });
+
+    it('should extract decorators from abstract methods', () => {
+      const parsed = makeFixture(`
+        abstract class Base {
+          @Log()
+          abstract handle(): void;
+        }
+      `);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Base')!;
+      const method = cls.members!.find(m => m.name === 'handle')!;
+      expect(method.decorators).toBeDefined();
+      expect(method.decorators![0]!.name).toBe('Log');
+    });
+  });
+
+  // ─── Parameter typeImportSource ──────────────────────────────────────
+
+  describe('parameter typeImportSource', () => {
+    it('should set typeImportSource for imported type annotation', () => {
+      const parsed = makeFixture(`
+        import { MyService } from './my.service';
+        function f(svc: MyService) {}
+      `);
+      const fn = extractSymbols(parsed).find(s => s.name === 'f')!;
+      expect(fn.parameters![0]!.type).toBe('MyService');
+      expect(fn.parameters![0]!.typeImportSource).toBe('./my.service');
+    });
+
+    it('should not set typeImportSource for built-in type', () => {
+      const parsed = makeFixture(`function f(x: string) {}`);
+      const fn = extractSymbols(parsed).find(s => s.name === 'f')!;
+      expect(fn.parameters![0]!.typeImportSource).toBeUndefined();
+    });
+
+    it('should not set typeImportSource for local type', () => {
+      const parsed = makeFixture(`
+        interface Local {}
+        function f(x: Local) {}
+      `);
+      const fn = extractSymbols(parsed).find(s => s.name === 'f')!;
+      expect(fn.parameters![0]!.typeImportSource).toBeUndefined();
+    });
+
+    it('should set typeImportSource on constructor parameter with TSParameterProperty', () => {
+      const parsed = makeFixture(`
+        import { Dep } from './dep';
+        class Svc { constructor(private dep: Dep) {} }
+      `);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const ctor = cls.members!.find(m => m.methodKind === 'constructor')!;
+      expect(ctor.parameters![0]!.typeImportSource).toBe('./dep');
+    });
+
+    it('should set typeImportSource on parameter with default value', () => {
+      const parsed = makeFixture(`
+        import { Config } from './config';
+        function f(cfg: Config = defaultCfg) {}
+      `);
+      const fn = extractSymbols(parsed).find(s => s.name === 'f')!;
+      expect(fn.parameters![0]!.typeImportSource).toBe('./config');
+    });
+  });
+
   // ─── ExpressionValue: Enum initializers ──────────────────────────────
 
   describe('enum member initializers', () => {

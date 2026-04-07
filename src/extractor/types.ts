@@ -145,6 +145,8 @@ export interface Parameter {
   name: string;
   /** Type annotation as raw source text, e.g. `"string"`, `"number[]"`. */
   type?: string;
+  /** Import specifier of the type annotation identifier (e.g. `'./my.service'`). */
+  typeImportSource?: string;
   /** Whether the parameter is optional (has `?` or a default value). */
   isOptional: boolean;
   /** Default value expression as source text. */
