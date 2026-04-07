@@ -3,6 +3,10 @@ import type { SourceSpan } from '../parser/types';
 import type {
   ExtractedSymbol,
   ExpressionValue,
+  ExpressionIdentifier,
+  ExpressionMember,
+  ExpressionCall,
+  ExpressionNew,
   SymbolKind,
   Modifier,
   Heritage,
@@ -107,9 +111,30 @@ type ModifierBearing = {
   async?: boolean;
 };
 
+interface ImportInfo {
+  specifier: string;
+  originalName?: string;
+}
+
+function buildStaticImportMap(parsed: ParsedFile): Map<string, ImportInfo> {
+  const map = new Map<string, ImportInfo>();
+  for (const imp of parsed.module.staticImports) {
+    const specifier = imp.moduleRequest.value;
+    for (const entry of imp.entries) {
+      const localName = entry.localName.value;
+      const importedName = entry.importName.kind === 'Name' ? entry.importName.name : undefined;
+      const info: ImportInfo = { specifier };
+      if (importedName && importedName !== localName) info.originalName = importedName;
+      map.set(localName, info);
+    }
+  }
+  return map;
+}
+
 export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
   const { program, sourceText, comments } = parsed;
   const lineOffsets = buildLineOffsets(sourceText);
+  const importMap = buildStaticImportMap(parsed);
 
   // Pre-sort JSDoc block comments by `end` for binary search
   const jsDocComments = comments
@@ -174,6 +199,16 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
 
   const MAX_EXPRESSION_DEPTH = 8;
 
+  /** Resolve the leftmost identifier of a callee (simple or member) to its import info. */
+  function resolveCalleeImport(callee: Record<string, unknown>): ImportInfo | undefined {
+    if (callee.type === 'Identifier') return importMap.get(callee.name as string);
+    if (callee.type === 'MemberExpression') {
+      const obj = callee.object as Record<string, unknown>;
+      if (obj.type === 'Identifier') return importMap.get(obj.name as string);
+    }
+    return undefined;
+  }
+
   function convertExpression(node: Record<string, unknown>, depth: number = 0): ExpressionValue {
     if (depth >= MAX_EXPRESSION_DEPTH) {
       return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
@@ -196,7 +231,13 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     if (type === 'Identifier') {
       const name = node.name as string;
       if (name === 'undefined') return { kind: 'undefined', value: null };
-      return { kind: 'identifier', name };
+      const imp = importMap.get(name);
+      const result: ExpressionValue = { kind: 'identifier', name };
+      if (imp) {
+        (result as ExpressionIdentifier).importSource = imp.specifier;
+        if (imp.originalName) (result as ExpressionIdentifier).originalName = imp.originalName;
+      }
+      return result;
     }
 
     // Member expression: a.b or a.b.c — oxc-parser emits 'MemberExpression' with computed flag
@@ -204,16 +245,19 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       if (node.computed) {
         return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
       }
-      const objectText = sourceText.slice(
-        (node.object as Record<string, unknown>).start as number,
-        (node.object as Record<string, unknown>).end as number,
-      );
+      const obj = node.object as Record<string, unknown>;
+      const objectText = sourceText.slice(obj.start as number, obj.end as number);
       const property = (node.property as Record<string, unknown>).name as string
         ?? sourceText.slice(
           (node.property as Record<string, unknown>).start as number,
           (node.property as Record<string, unknown>).end as number,
         );
-      return { kind: 'member', object: objectText, property };
+      // Resolve the leftmost identifier of the object chain
+      const rootName = obj.type === 'Identifier' ? obj.name as string : undefined;
+      const imp = rootName ? importMap.get(rootName) : undefined;
+      const result: ExpressionValue = { kind: 'member', object: objectText, property };
+      if (imp) (result as ExpressionMember).importSource = imp.specifier;
+      return result;
     }
 
     // Call expression: fn(args)
@@ -222,7 +266,10 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       const calleeName = sourceText.slice(callee.start as number, callee.end as number);
       const rawArgs = (node.arguments as Array<Record<string, unknown>>) ?? [];
       const args = rawArgs.map((a) => convertExpression(a, depth + 1));
-      return { kind: 'call', callee: calleeName, arguments: args };
+      const imp = resolveCalleeImport(callee);
+      const result: ExpressionValue = { kind: 'call', callee: calleeName, arguments: args };
+      if (imp) (result as ExpressionCall).importSource = imp.specifier;
+      return result;
     }
 
     // New expression: new Cls(args)
@@ -231,7 +278,10 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       const calleeName = sourceText.slice(callee.start as number, callee.end as number);
       const rawArgs = (node.arguments as Array<Record<string, unknown>>) ?? [];
       const args = rawArgs.map((a) => convertExpression(a, depth + 1));
-      return { kind: 'new', callee: calleeName, arguments: args };
+      const imp = resolveCalleeImport(callee);
+      const result: ExpressionValue = { kind: 'new', callee: calleeName, arguments: args };
+      if (imp) (result as ExpressionNew).importSource = imp.specifier;
+      return result;
     }
 
     // Object expression: { key: value }

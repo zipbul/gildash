@@ -30,6 +30,10 @@ export interface ExpressionLiteral {
 export interface ExpressionIdentifier {
   kind: 'identifier';
   name: string;
+  /** Import specifier if this identifier is imported (e.g. `'./my.service'`, `'@zipbul/http-adapter'`). */
+  importSource?: string;
+  /** Original exported name when imported under an alias (e.g. `import { Foo as Bar }` → `'Foo'`). */
+  originalName?: string;
 }
 
 export interface ExpressionMember {
@@ -37,17 +41,23 @@ export interface ExpressionMember {
   /** Full dot-separated expression text, e.g. `'HttpMethod.Get'`. */
   object: string;
   property: string;
+  /** Import specifier of the object identifier. */
+  importSource?: string;
 }
 
 export interface ExpressionCall {
   kind: 'call';
   callee: string;
+  /** Import specifier of the callee (simple identifier or leftmost member object). */
+  importSource?: string;
   arguments: ExpressionValue[];
 }
 
 export interface ExpressionNew {
   kind: 'new';
   callee: string;
+  /** Import specifier of the callee (simple identifier or leftmost member object). */
+  importSource?: string;
   arguments: ExpressionValue[];
 }
 
