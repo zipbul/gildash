@@ -343,6 +343,60 @@ describe('indexFileSymbols', () => {
     expect(m.visibility).toBe('private');
   });
 
+  // --- IMP-D: initializer in detailJson ---
+
+  it('should include initializer in detailJson when symbol has initializer', () => {
+    const sym = makeSymbol({ kind: 'variable', name: 'PI', initializer: { kind: 'number', value: 3.14 } } as any);
+    mockExtractSymbols.mockReturnValue([sym]);
+    const symbolRepo = makeSymbolRepo();
+    indexFileSymbols({ parsed: makeParsedFile(), project: PROJECT, filePath: FILE_PATH, contentHash: CONTENT_HASH, symbolRepo: symbolRepo as any });
+    const [, , , symbols] = symbolRepo.replaceFileSymbols.mock.calls[0]!;
+    const detail = JSON.parse(symbols[0].detailJson);
+    expect(detail.initializer).toEqual({ kind: 'number', value: 3.14 });
+  });
+
+  it('should not include initializer in detailJson when symbol has no initializer', () => {
+    const sym = makeSymbol({ kind: 'variable', name: 'x' });
+    mockExtractSymbols.mockReturnValue([sym]);
+    const symbolRepo = makeSymbolRepo();
+    indexFileSymbols({ parsed: makeParsedFile(), project: PROJECT, filePath: FILE_PATH, contentHash: CONTENT_HASH, symbolRepo: symbolRepo as any });
+    const [, , , symbols] = symbolRepo.replaceFileSymbols.mock.calls[0]!;
+    const detail = symbols[0].detailJson ? JSON.parse(symbols[0].detailJson) : {};
+    expect(detail.initializer).toBeUndefined();
+  });
+
+  it('should include member initializer in detailJson members array', () => {
+    const cls = makeSymbol({
+      kind: 'enum', name: 'Status', modifiers: [],
+      members: [makeSymbol({ kind: 'property', name: 'Active', modifiers: [], initializer: { kind: 'number', value: 1 } } as any)],
+    });
+    mockExtractSymbols.mockReturnValue([cls]);
+    const symbolRepo = makeSymbolRepo();
+    indexFileSymbols({ parsed: makeParsedFile(), project: PROJECT, filePath: FILE_PATH, contentHash: CONTENT_HASH, symbolRepo: symbolRepo as any });
+    const [, , , symbols] = symbolRepo.replaceFileSymbols.mock.calls[0]!;
+    const classRow = symbols.find((s: any) => s.name === 'Status')!;
+    const detail = JSON.parse(classRow.detailJson!);
+    expect(detail.members[0].initializer).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it('should include member decorators in detailJson members array', () => {
+    const cls = makeSymbol({
+      kind: 'class', name: 'Dto', modifiers: [],
+      members: [makeSymbol({
+        kind: 'property', name: 'name', modifiers: [],
+        decorators: [{ name: 'Column', arguments: [{ kind: 'string', value: 'varchar' }] }],
+      } as any)],
+    });
+    mockExtractSymbols.mockReturnValue([cls]);
+    const symbolRepo = makeSymbolRepo();
+    indexFileSymbols({ parsed: makeParsedFile(), project: PROJECT, filePath: FILE_PATH, contentHash: CONTENT_HASH, symbolRepo: symbolRepo as any });
+    const [, , , symbols] = symbolRepo.replaceFileSymbols.mock.calls[0]!;
+    const classRow = symbols.find((s: any) => s.name === 'Dto')!;
+    const detail = JSON.parse(classRow.detailJson!);
+    expect(detail.members[0].decorators).toBeDefined();
+    expect(detail.members[0].decorators[0].name).toBe('Column');
+  });
+
   // 13. [ID] same sym twice → identical
   it('should produce identical members detail when indexFileSymbols called twice with same class', () => {
     const cls = makeClassWithMember({ kind: 'method', name: 'doThing', modifiers: ['public'] });

@@ -1,4 +1,4 @@
-import type { SymbolKind, Modifier, Decorator, JsDocBlock } from '../extractor/types';
+import type { SymbolKind, Modifier, Decorator, JsDocBlock, ExpressionValue } from '../extractor/types';
 import type { SymbolRecord } from '../store/repositories/symbol.repository';
 import { toFtsPrefixQuery } from '../store/repositories/fts-utils';
 
@@ -59,6 +59,8 @@ export interface SymbolDetail {
   typeParameters?: string[];
   /** Declaration modifiers. */
   modifiers?: Modifier[];
+  /** Initializer expression (enum member values, property defaults, variable initializers). */
+  initializer?: ExpressionValue;
   /** Class/interface members. */
   members?: Array<{
     name: string;
@@ -67,6 +69,10 @@ export interface SymbolDetail {
     visibility?: string;
     isStatic?: boolean;
     isReadonly?: boolean;
+    /** Member initializer expression. */
+    initializer?: ExpressionValue;
+    /** Decorators applied to this member. */
+    decorators?: Decorator[];
   }>;
   /** Parsed JSDoc comment associated with this symbol. */
   jsDoc?: JsDocBlock;

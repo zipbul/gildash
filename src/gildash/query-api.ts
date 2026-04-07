@@ -139,6 +139,7 @@ export function getFullSymbol(
       heritage: d.heritage,
       decorators: d.decorators,
       typeParameters: d.typeParameters,
+      initializer: d.initializer,
     };
     if (ctx.semanticLayer) {
       try {

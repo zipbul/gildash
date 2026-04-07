@@ -61,12 +61,13 @@ function buildDetailJson(sym: ExtractedSymbol): string | null {
   if (sym.decorators?.length) detail.decorators = sym.decorators;
   if (sym.typeParameters?.length) detail.typeParameters = sym.typeParameters;
   if (sym.modifiers?.length) detail.modifiers = sym.modifiers;
+  if (sym.initializer) detail.initializer = sym.initializer;
   if (sym.members?.length) {
     detail.members = sym.members.map((m) => {
       const visibility = m.modifiers.find(
         (mod: string) => mod === 'private' || mod === 'protected' || mod === 'public',
       );
-      return {
+      const member: Record<string, unknown> = {
         name: m.name,
         kind: m.methodKind ?? m.kind,
         type: m.returnType,
@@ -74,6 +75,9 @@ function buildDetailJson(sym: ExtractedSymbol): string | null {
         isStatic: m.modifiers.includes('static') || undefined,
         isReadonly: m.modifiers.includes('readonly') || undefined,
       };
+      if (m.initializer) member.initializer = m.initializer;
+      if (m.decorators?.length) member.decorators = m.decorators;
+      return member;
     });
   }
 
