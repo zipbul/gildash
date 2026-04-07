@@ -57,14 +57,20 @@ function extractMetavariables(pattern: string): string[] {
   return [...seen];
 }
 
+/** Strip leading $ signs from a metavariable name for ast-grep API calls. */
+function stripDollar(mv: string): string {
+  return mv.replace(/^\$+/, '');
+}
+
 /** Build captures record from an SgNode and a list of metavariable names. */
 function buildCaptures(node: SgNode, metavars: string[]): Record<string, PatternCapture> | undefined {
   if (metavars.length === 0) return undefined;
   const captures: Record<string, PatternCapture> = {};
   let found = false;
   for (const mv of metavars) {
+    const apiKey = stripDollar(mv);
     // Try single-node capture first
-    const single = node.getMatch(mv);
+    const single = node.getMatch(apiKey);
     if (single) {
       const r = single.range();
       captures[mv] = {
@@ -80,7 +86,7 @@ function buildCaptures(node: SgNode, metavars: string[]): Record<string, Pattern
       continue;
     }
     // Try multi-node capture (for $$$ variadic metavariables)
-    const multi = node.getMultipleMatches(mv);
+    const multi = node.getMultipleMatches(apiKey);
     if (multi.length > 0) {
       const firstRange = multi[0]!.range();
       const lastRange = multi[multi.length - 1]!.range();
