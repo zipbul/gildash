@@ -1102,6 +1102,114 @@ describe('extractSymbols', () => {
     });
   });
 
+  // ─── ExpressionValue: importSource ───────────────────────────────────
+
+  describe('expression importSource', () => {
+    it('should set importSource on identifier from named import', () => {
+      const parsed = makeFixture(`import { MyService } from './my.service'; @Inject(MyService) class Svc {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('identifier');
+      if (arg.kind === 'identifier') {
+        expect(arg.name).toBe('MyService');
+        expect(arg.importSource).toBe('./my.service');
+        expect(arg.originalName).toBeUndefined();
+      }
+    });
+
+    it('should set importSource and originalName on aliased import', () => {
+      const parsed = makeFixture(`import { MyService as Svc } from './my.service'; const x = Svc;`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer!.kind).toBe('identifier');
+      if (v.initializer!.kind === 'identifier') {
+        expect(v.initializer!.name).toBe('Svc');
+        expect(v.initializer!.importSource).toBe('./my.service');
+        expect(v.initializer!.originalName).toBe('MyService');
+      }
+    });
+
+    it('should set importSource on member expression object', () => {
+      const parsed = makeFixture(`import { HttpMethod } from '@zipbul/http-adapter'; const x = HttpMethod.Get;`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer!.kind).toBe('member');
+      if (v.initializer!.kind === 'member') {
+        expect(v.initializer!.object).toBe('HttpMethod');
+        expect(v.initializer!.property).toBe('Get');
+        expect(v.initializer!.importSource).toBe('@zipbul/http-adapter');
+      }
+    });
+
+    it('should set importSource on call expression callee', () => {
+      const parsed = makeFixture(`import { createGuard } from './guards'; const x = createGuard('admin');`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer!.kind).toBe('call');
+      if (v.initializer!.kind === 'call') {
+        expect(v.initializer!.callee).toBe('createGuard');
+        expect(v.initializer!.importSource).toBe('./guards');
+      }
+    });
+
+    it('should set importSource on new expression callee', () => {
+      const parsed = makeFixture(`import { Guard } from './guards'; const x = new Guard();`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer!.kind).toBe('new');
+      if (v.initializer!.kind === 'new') {
+        expect(v.initializer!.callee).toBe('Guard');
+        expect(v.initializer!.importSource).toBe('./guards');
+      }
+    });
+
+    it('should set importSource on member call expression (chained)', () => {
+      const parsed = makeFixture(`import { factory } from './factory'; const x = factory.create();`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer!.kind).toBe('call');
+      if (v.initializer!.kind === 'call') {
+        expect(v.initializer!.callee).toBe('factory.create');
+        expect(v.initializer!.importSource).toBe('./factory');
+      }
+    });
+
+    it('should not set importSource on local identifier', () => {
+      const parsed = makeFixture(`const MyService = class {}; @Inject(MyService) class Svc {}`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Svc')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('identifier');
+      if (arg.kind === 'identifier') {
+        expect(arg.importSource).toBeUndefined();
+      }
+    });
+
+    it('should set importSource on default import', () => {
+      const parsed = makeFixture(`import Config from './config'; const x = Config;`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer!.kind).toBe('identifier');
+      if (v.initializer!.kind === 'identifier') {
+        expect(v.initializer!.name).toBe('Config');
+        expect(v.initializer!.importSource).toBe('./config');
+      }
+    });
+
+    it('should set importSource on namespace import', () => {
+      const parsed = makeFixture(`import * as path from 'node:path'; const x = path.join;`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer!.kind).toBe('member');
+      if (v.initializer!.kind === 'member') {
+        expect(v.initializer!.importSource).toBe('node:path');
+      }
+    });
+
+    it('should not set importSource on deeply nested member without import', () => {
+      const parsed = makeFixture(`const x = a.b.c;`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      // a.b is a MemberExpression, so object is 'a.b' and root is not a simple identifier at the top level
+      // The outermost member has object 'a.b' which is itself a MemberExpression, not Identifier
+      expect(v.initializer!.kind).toBe('member');
+      if (v.initializer!.kind === 'member') {
+        expect(v.initializer!.importSource).toBeUndefined();
+      }
+    });
+  });
+
   // ─── ExpressionValue: Enum initializers ──────────────────────────────
 
   describe('enum member initializers', () => {
