@@ -1210,6 +1210,132 @@ describe('extractSymbols', () => {
     });
   });
 
+  // ─── Optional chaining and computed members ───────────────────────────
+
+  describe('optional chaining and computed members', () => {
+    it('should resolve optional chaining to ExpressionMember', () => {
+      const parsed = makeFixture(`import { mod } from './mod'; const x = mod?.val;`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer!.kind).toBe('member');
+      if (v.initializer!.kind === 'member') {
+        expect(v.initializer!.object).toBe('mod');
+        expect(v.initializer!.property).toBe('val');
+        expect(v.initializer!.importSource).toBe('./mod');
+      }
+    });
+
+    it('should resolve chained optional access to ExpressionMember', () => {
+      const parsed = makeFixture(`const x = a?.b?.c;`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer!.kind).toBe('member');
+      if (v.initializer!.kind === 'member') {
+        expect(v.initializer!.property).toBe('c');
+      }
+    });
+
+    it('should resolve computed string literal member to ExpressionMember', () => {
+      const parsed = makeFixture(`import { obj } from './obj'; const x = obj['key'];`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer!.kind).toBe('member');
+      if (v.initializer!.kind === 'member') {
+        expect(v.initializer!.object).toBe('obj');
+        expect(v.initializer!.property).toBe('key');
+        expect(v.initializer!.importSource).toBe('./obj');
+      }
+    });
+
+    it('should fall back to unresolvable for computed non-string member', () => {
+      const parsed = makeFixture(`const x = obj[someVar];`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer!.kind).toBe('unresolvable');
+    });
+
+    it('should resolve optional call expression', () => {
+      const parsed = makeFixture(`import { fn } from './fn'; const x = fn?.();`);
+      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
+      expect(v.initializer!.kind).toBe('call');
+      if (v.initializer!.kind === 'call') {
+        expect(v.initializer!.callee).toBe('fn');
+        expect(v.initializer!.importSource).toBe('./fn');
+      }
+    });
+  });
+
+  // ─── ExpressionFunction parameters ───────────────────────────────────
+
+  describe('ExpressionFunction parameters', () => {
+    it('should extract parameters from arrow function expression', () => {
+      const parsed = makeFixture(`
+        import { MyService } from './svc';
+        const factory = (svc: MyService, name: string) => svc.create();
+      `);
+      const v = extractSymbols(parsed).find(s => s.name === 'factory')!;
+      // factory is extracted as kind: 'function' because init is ArrowFunctionExpression
+      // but the initializer is set on the variable... actually for arrow functions,
+      // the variable kind becomes 'function' and initializer is not set.
+      // So check the parameters directly on the symbol
+      expect(v.kind).toBe('function');
+      expect(v.parameters).toBeDefined();
+      expect(v.parameters![0]!.name).toBe('svc');
+      expect(v.parameters![0]!.type).toBe('MyService');
+      expect(v.parameters![0]!.typeImportSource).toBe('./svc');
+      expect(v.parameters![1]!.name).toBe('name');
+      expect(v.parameters![1]!.type).toBe('string');
+    });
+
+    it('should extract parameters from function expression in decorator argument', () => {
+      const parsed = makeFixture(`
+        import { Config } from './config';
+        @Transform((cfg: Config) => cfg.value)
+        class Dto {}
+      `);
+      const cls = extractSymbols(parsed).find(s => s.name === 'Dto')!;
+      const arg = cls.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('function');
+      if (arg.kind === 'function') {
+        expect(arg.parameters).toBeDefined();
+        expect(arg.parameters![0]!.name).toBe('cfg');
+        expect(arg.parameters![0]!.type).toBe('Config');
+        expect(arg.parameters![0]!.typeImportSource).toBe('./config');
+      }
+    });
+
+    it('should extract parameters from function expression in variable initializer', () => {
+      const parsed = makeFixture(`const handler = function(x: number, y: string) { return x; };`);
+      // This is a function expression, so variable becomes kind: 'function'
+      const v = extractSymbols(parsed).find(s => s.name === 'handler')!;
+      expect(v.kind).toBe('function');
+      expect(v.parameters![0]!.name).toBe('x');
+      expect(v.parameters![0]!.type).toBe('number');
+    });
+
+    it('should extract parameters from arrow in object literal', () => {
+      const parsed = makeFixture(`
+        import { Req } from './req';
+        const cfg = { handler: (req: Req) => req.body };
+      `);
+      const v = extractSymbols(parsed).find(s => s.name === 'cfg')!;
+      expect(v.initializer!.kind).toBe('object');
+      if (v.initializer!.kind === 'object') {
+        const handler = v.initializer!.properties.find(p => p.key === 'handler')!;
+        expect(handler.value.kind).toBe('function');
+        if (handler.value.kind === 'function') {
+          expect(handler.value.parameters).toBeDefined();
+          expect(handler.value.parameters![0]!.name).toBe('req');
+          expect(handler.value.parameters![0]!.type).toBe('Req');
+          expect(handler.value.parameters![0]!.typeImportSource).toBe('./req');
+        }
+      }
+    });
+
+    it('should set empty parameters on arrow with no params', () => {
+      const parsed = makeFixture(`const fn = () => 42;`);
+      const v = extractSymbols(parsed).find(s => s.name === 'fn')!;
+      expect(v.kind).toBe('function');
+      expect(v.parameters).toEqual([]);
+    });
+  });
+
   // ─── Method/property decorators and parameter decorators ─────────────
 
   describe('method and parameter decorators', () => {

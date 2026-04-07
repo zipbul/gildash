@@ -86,6 +86,8 @@ export interface ExpressionSpread {
 export interface ExpressionFunction {
   kind: 'function';
   sourceText: string;
+  /** Parameters of the function expression (name, type, importSource). */
+  parameters?: Parameter[];
 }
 
 export interface ExpressionTemplate {

@@ -7,6 +7,7 @@ import type {
   ExpressionMember,
   ExpressionCall,
   ExpressionNew,
+  ExpressionFunction,
   SymbolKind,
   Modifier,
   Heritage,
@@ -243,6 +244,17 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     // Member expression: a.b or a.b.c — oxc-parser emits 'MemberExpression' with computed flag
     if (type === 'MemberExpression') {
       if (node.computed) {
+        // Allow computed access with string literal key: a['key'] → member
+        const prop = node.property as Record<string, unknown>;
+        if (prop.type === 'Literal' && typeof prop.value === 'string') {
+          const obj = node.object as Record<string, unknown>;
+          const objectText = sourceText.slice(obj.start as number, obj.end as number);
+          const rootName = obj.type === 'Identifier' ? obj.name as string : undefined;
+          const imp = rootName ? importMap.get(rootName) : undefined;
+          const result: ExpressionValue = { kind: 'member', object: objectText, property: prop.value };
+          if (imp) (result as ExpressionMember).importSource = imp.specifier;
+          return result;
+        }
         return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
       }
       const obj = node.object as Record<string, unknown>;
@@ -324,7 +336,14 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
 
     // Arrow/function expression: () => {} or function() {}
     if (type === 'ArrowFunctionExpression' || type === 'FunctionExpression') {
-      return { kind: 'function', sourceText: sourceText.slice(node.start as number, node.end as number) };
+      const fnNode = node as unknown as OxcFunction | ArrowFunctionExpression;
+      const params = fnNode.params.map(extractParam);
+      const result: ExpressionFunction = {
+        kind: 'function',
+        sourceText: sourceText.slice(node.start as number, node.end as number),
+      };
+      if (params.length > 0) result.parameters = params;
+      return result;
     }
 
     // Template literal
@@ -347,15 +366,15 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
     }
 
-    // TSAsExpression, TSSatisfiesExpression, TSNonNullExpression, TSTypeAssertion
-    // — unwrap to inner expression
+    // Transparent wrappers — unwrap to inner expression
     if (
       type === 'TSAsExpression' ||
       type === 'TSSatisfiesExpression' ||
       type === 'TSNonNullExpression' ||
       type === 'TSTypeAssertion' ||
       type === 'TSInstantiationExpression' ||
-      type === 'ParenthesizedExpression'
+      type === 'ParenthesizedExpression' ||
+      type === 'ChainExpression'
     ) {
       const inner = node.expression as Record<string, unknown>;
       if (inner) return convertExpression(inner, depth);
