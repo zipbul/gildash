@@ -27,6 +27,11 @@ export type { AnnotationSource, ExtractedAnnotation } from "./extractor/types";
 export type { AnnotationSearchQuery, AnnotationSearchResult } from "./search/annotation-search";
 export type { SymbolChange, SymbolChangeType, SymbolChangeQueryOptions } from "./gildash/types";
 
+// Standalone parse/extract functions (no Gildash instance required)
+export { parseSource } from './parser/parse-source';
+export { extractSymbols } from './extractor/symbol-extractor';
+export { extractRelations } from './extractor/relation-extractor';
+
 // Path utilities for consumers
 export { normalizePath } from './common/path-utils';
 
