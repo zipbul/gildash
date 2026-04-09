@@ -234,7 +234,7 @@ export class SemanticLayer {
     const node = findNodeAtPosition(sourceFile, position);
     if (!node) return null;
 
-    const checker = this.#program.getChecker();
+    const checker = tsProgram.getTypeChecker();
     const type = checker.getTypeAtLocation(node);
 
     // getBaseTypes only works on InterfaceType (class & interface)
@@ -263,7 +263,7 @@ export class SemanticLayer {
     const sourceFile = tsProgram.getSourceFile(filePath);
     if (!sourceFile) return { filePath, exports };
 
-    const checker = this.#program.getChecker();
+    const checker = tsProgram.getTypeChecker();
     const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
 
     if (moduleSymbol) {

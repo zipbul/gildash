@@ -196,9 +196,8 @@ export class TypeCollector {
    * - `TscProgram`이 disposed 상태이면 throw (getProgram이 throw)
    */
   collectAt(filePath: string, position: number): ResolvedType | null {
-    // disposed 체크는 getProgram/getChecker가 대신 throw
     const tsProgram = this.program.getProgram();
-    const checker = this.program.getChecker();
+    const checker = tsProgram.getTypeChecker();
 
     if (position < 0) return null;
 
@@ -236,8 +235,8 @@ export class TypeCollector {
     targetFilePath: string,
     targetPosition: number,
   ): boolean | null {
-    const checker = this.program.getChecker();
     const tsProgram = this.program.getProgram();
+    const checker = tsProgram.getTypeChecker();
 
     const srcFile = tsProgram.getSourceFile(sourceFilePath);
     if (!srcFile) return null;
@@ -274,7 +273,7 @@ export class TypeCollector {
     this.#ensureProbe(targetTypeExpression);
 
     const tsProgram = this.program.getProgram();
-    const checker = this.program.getChecker();
+    const checker = tsProgram.getTypeChecker();
 
     const srcFile = tsProgram.getSourceFile(filePath);
     if (!srcFile) return null;
@@ -316,7 +315,7 @@ export class TypeCollector {
     this.#ensureProbe(targetTypeExpression);
 
     const tsProgram = this.program.getProgram();
-    const checker = this.program.getChecker();
+    const checker = tsProgram.getTypeChecker();
 
     const srcFile = tsProgram.getSourceFile(filePath);
     if (!srcFile) return result;
@@ -375,7 +374,7 @@ export class TypeCollector {
     if (positions.length === 0) return result;
 
     const tsProgram = this.program.getProgram();
-    const checker = this.program.getChecker();
+    const checker = tsProgram.getTypeChecker();
 
     const sourceFile = tsProgram.getSourceFile(filePath);
     if (!sourceFile) return result;
@@ -405,7 +404,7 @@ export class TypeCollector {
     const result = new Map<number, ResolvedType>();
 
     const tsProgram = this.program.getProgram();
-    const checker = this.program.getChecker();
+    const checker = tsProgram.getTypeChecker();
 
     const sourceFile = tsProgram.getSourceFile(filePath);
     if (!sourceFile) return result;

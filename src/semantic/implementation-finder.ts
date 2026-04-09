@@ -162,9 +162,8 @@ export class ImplementationFinder {
     if (this.#program.isDisposed) return [];
 
     // SourceFile 조회
-    const prog = this.#program.getProgram();
-    // Branch 2: sourceFile 없음
-    const sourceFile = prog.getSourceFile(filePath);
+    const tsProgram = this.#program.getProgram();
+    const sourceFile = tsProgram.getSourceFile(filePath);
     if (!sourceFile) return [];
 
     // Branch 3, 4: AST 탐색 — identifier 노드만 허용
@@ -189,7 +188,7 @@ export class ImplementationFinder {
       }
 
       // Branch 6: sourceFile 없는 결과 entry skip
-      const implSourceFile = prog.getSourceFile(loc.fileName);
+      const implSourceFile = tsProgram.getSourceFile(loc.fileName);
       if (!implSourceFile) continue;
 
       // 선언 노드 탐색

@@ -160,8 +160,8 @@ export class SymbolGraph {
     if (cached !== undefined) return cached;
 
     // SourceFile 조회
-    const prog = this.#program.getProgram();
-    const sourceFile = prog.getSourceFile(filePath);
+    const tsProgram = this.#program.getProgram();
+    const sourceFile = tsProgram.getSourceFile(filePath);
     if (!sourceFile) return null;
 
     // AST 탐색 — identifier 노드를 찾아야 함
@@ -169,7 +169,7 @@ export class SymbolGraph {
     if (!node || !ts.isIdentifier(node)) return null;
 
     // 심볼 조회
-    const checker = this.#program.getChecker();
+    const checker = tsProgram.getTypeChecker();
     const symbol = checker.getSymbolAtLocation(node);
     if (!symbol) return null;
 
