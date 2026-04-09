@@ -1,5 +1,13 @@
 # @zipbul/gildash
 
+## 0.24.4
+
+### Patch Changes
+
+- [#109](https://github.com/zipbul/gildash/pull/109) [`8a1fe51`](https://github.com/zipbul/gildash/commit/8a1fe51dc9f2776530944a8db62b77026491f5e4) Thanks [@parkrevil](https://github.com/parkrevil)! - fix: replace fs.promises.glob with Bun.Glob.scan({ followSymlinks: false })
+
+  Fixes ELOOP (too many symbolic links) error in monorepos with Bun workspace symlinks. Both file-indexer and project-discovery now use `Bun.Glob.scan` with `followSymlinks: false`, preventing infinite symlink cycle traversal. This also aligns with the project's Bun-first convention.
+
 ## 0.24.3
 
 ### Patch Changes
