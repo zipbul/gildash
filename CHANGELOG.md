@@ -1,5 +1,13 @@
 # @zipbul/gildash
 
+## 0.24.3
+
+### Patch Changes
+
+- [#107](https://github.com/zipbul/gildash/pull/107) [`ea1f929`](https://github.com/zipbul/gildash/commit/ea1f929f6f7cd2bded0d962d97dfaaf2b41ac753) Thanks [@parkrevil](https://github.com/parkrevil)! - fix: heartbeat timer checks ctx.closed before DB access
+
+  Prevents "Database is not open" error caused by race condition between close() and heartbeat timer during owner promotion.
+
 ## 0.24.2
 
 ### Patch Changes
