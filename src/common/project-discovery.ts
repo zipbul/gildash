@@ -1,5 +1,4 @@
 import path from "node:path";
-import { promises as fs } from "node:fs";
 import { DATA_DIR } from "../constants";
 import { normalizePath } from "./path-utils";
 
@@ -16,14 +15,23 @@ export interface ProjectBoundary {
 }
 
 const DISCOVERY_EXCLUDE = ["**/node_modules/**", "**/.git/**", `**/${DATA_DIR}/**`, "**/dist/**"];
+const DISCOVERY_EXCLUDE_GLOBS = DISCOVERY_EXCLUDE.map((p) => new Bun.Glob(p));
 
-export async function discoverProjects(projectRoot: string): Promise<ProjectBoundary[]> {
+export type ScanProjectsFn = (projectRoot: string) => AsyncIterable<string>;
+
+function defaultScanProjects(projectRoot: string): AsyncIterable<string> {
+  return new Bun.Glob("**/package.json").scan({ cwd: projectRoot, followSymlinks: false });
+}
+
+export async function discoverProjects(
+  projectRoot: string,
+  scanProjectsFn: ScanProjectsFn = defaultScanProjects,
+): Promise<ProjectBoundary[]> {
   const boundaries: ProjectBoundary[] = [];
 
-  for await (const relativePackageJson of fs.glob("**/package.json", {
-    cwd: projectRoot,
-    exclude: DISCOVERY_EXCLUDE,
-  })) {
+  for await (const relativePackageJson of scanProjectsFn(projectRoot)) {
+    const normalizedPath = normalizePath(relativePackageJson);
+    if (DISCOVERY_EXCLUDE_GLOBS.some((g) => g.match(normalizedPath))) continue;
     const packageDir = normalizePath(path.dirname(relativePackageJson));
     const packagePath = path.join(projectRoot, relativePackageJson);
     const content = await Bun.file(packagePath).json();
