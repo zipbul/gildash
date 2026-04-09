@@ -7,26 +7,17 @@ import ts from "typescript";
 /**
  * `pos` 위치의 가장 작은(innermost) 노드를 반환한다.
  * 범위 밖이면 `undefined`.
+ *
+ * tsc 내부의 `getTokenAtPosition`을 사용하여 최적화된 탐색을 수행한다.
  */
 export function findNodeAtPosition(
   sourceFile: ts.SourceFile,
   pos: number,
 ): ts.Node | undefined {
   if (pos < 0 || pos >= sourceFile.getEnd()) return undefined;
-
-  function visit(node: ts.Node): ts.Node | undefined {
-    const start = node.getStart(sourceFile, false);
-    const end = node.getEnd();
-
-    if (pos < start || pos >= end) return undefined;
-
-    // 자식 중 더 좁은 노드 탐색
-    let found: ts.Node | undefined;
-    ts.forEachChild(node, (child) => {
-      if (!found) found = visit(child);
-    });
-    return found ?? node;
-  }
-
-  return visit(sourceFile);
+  const token = (ts as unknown as { getTokenAtPosition(sf: ts.SourceFile, pos: number): ts.Node }).getTokenAtPosition(sourceFile, pos);
+  // getTokenAtPosition may return the next token when pos is on whitespace/trivia.
+  // Verify the token actually contains the requested position.
+  if (token.getStart(sourceFile, false) > pos) return undefined;
+  return token;
 }

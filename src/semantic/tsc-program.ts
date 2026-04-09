@@ -221,6 +221,10 @@ class TscLanguageServiceHost implements ts.LanguageServiceHost {
 
   /** tracked file path → { version: number, content: string } */
   #files = new Map<string, { version: number; content: string }>();
+  /** Cached snapshots for tracked files: "path:version" → snapshot */
+  #snapshotCache = new Map<string, ts.IScriptSnapshot>();
+  /** Cached snapshots for non-tracked files (lib.d.ts, node_modules): path → snapshot */
+  #nonTrackedSnapshotCache = new Map<string, ts.IScriptSnapshot>();
 
   constructor(
     rootFileNames: string[],
@@ -239,6 +243,8 @@ class TscLanguageServiceHost implements ts.LanguageServiceHost {
   updateFile(filePath: string, content: string): void {
     const existing = this.#files.get(filePath);
     if (existing) {
+      // Remove stale snapshot cache entry
+      this.#snapshotCache.delete(`${filePath}:${existing.version}`);
       existing.version += 1;
       existing.content = content;
     } else {
@@ -247,6 +253,10 @@ class TscLanguageServiceHost implements ts.LanguageServiceHost {
   }
 
   removeFile(filePath: string): void {
+    const existing = this.#files.get(filePath);
+    if (existing) {
+      this.#snapshotCache.delete(`${filePath}:${existing.version}`);
+    }
     this.#files.delete(filePath);
     this.#rootFileNames.delete(filePath);
   }
@@ -265,16 +275,27 @@ class TscLanguageServiceHost implements ts.LanguageServiceHost {
   }
 
   getScriptSnapshot(fileName: string): ts.IScriptSnapshot | undefined {
-    // 1. Tracked files
+    // 1. Tracked files — cache by path:version
     const entry = this.#files.get(fileName);
     if (entry) {
-      return ts.ScriptSnapshot.fromString(entry.content);
+      const cacheKey = `${fileName}:${entry.version}`;
+      let snapshot = this.#snapshotCache.get(cacheKey);
+      if (!snapshot) {
+        snapshot = ts.ScriptSnapshot.fromString(entry.content);
+        this.#snapshotCache.set(cacheKey, snapshot);
+      }
+      return snapshot;
     }
 
-    // 2. Non-tracked files (ts libs, etc.)
+    // 2. Non-tracked files (ts libs, node_modules) — cache permanently
+    let snapshot = this.#nonTrackedSnapshotCache.get(fileName);
+    if (snapshot) return snapshot;
+
     const content = this.#resolveNonTracked(fileName);
     if (content !== undefined) {
-      return ts.ScriptSnapshot.fromString(content);
+      snapshot = ts.ScriptSnapshot.fromString(content);
+      this.#nonTrackedSnapshotCache.set(fileName, snapshot);
+      return snapshot;
     }
 
     return undefined;

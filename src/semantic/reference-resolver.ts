@@ -30,8 +30,8 @@ export class ReferenceResolver {
     if (this.#program.isDisposed) return [];
 
     // SourceFile 조회
-    const prog = this.#program.getProgram();
-    const sourceFile = prog.getSourceFile(filePath);
+    const tsProgram = this.#program.getProgram();
+    const sourceFile = tsProgram.getSourceFile(filePath);
     if (!sourceFile) return [];
 
     // AST 탐색 — identifier 노드만 허용
@@ -48,7 +48,7 @@ export class ReferenceResolver {
 
     for (const refSymbol of referencedSymbols) {
       for (const entry of refSymbol.references) {
-        const refSourceFile = prog.getSourceFile(entry.fileName);
+        const refSourceFile = tsProgram.getSourceFile(entry.fileName);
         if (!refSourceFile) continue;
 
         const { line: lineZero, character: column } =
