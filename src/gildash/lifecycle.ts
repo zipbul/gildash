@@ -205,6 +205,7 @@ export async function setupOwnerInfrastructure(
     ctx.watcher = w;
 
     ctx.timer = setInterval(() => {
+      if (ctx.closed) return;
       ctx.updateHeartbeatFn(ctx.db, process.pid);
     }, HEARTBEAT_INTERVAL_MS);
   }
