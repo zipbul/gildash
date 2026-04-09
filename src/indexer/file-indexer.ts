@@ -1,4 +1,3 @@
-import { promises as fsPromises } from 'node:fs';
 import { join } from 'node:path';
 import { hashString } from '../common/hasher';
 import { normalizePath } from '../common/path-utils';
@@ -20,15 +19,25 @@ interface FileRepoPart {
   getFilesMap(): Map<string, { filePath: string; mtimeMs: number; size: number; contentHash: string }>;
 }
 
+export type ScanFilesFn = (projectRoot: string, extensions: string[]) => AsyncIterable<string>;
+
+function defaultScanFiles(projectRoot: string, extensions: string[]): AsyncIterable<string> {
+  const extPattern = extensions.length === 1
+    ? `**/*${extensions[0]}`
+    : `**/*{${extensions.join(',')}}`;
+  return new Bun.Glob(extPattern).scan({ cwd: projectRoot, followSymlinks: false });
+}
+
 export interface DetectChangesOptions {
   projectRoot: string;
   extensions: string[];
   ignorePatterns: string[];
   fileRepo: FileRepoPart;
+  scanFilesFn?: ScanFilesFn;
 }
 
 export async function detectChanges(opts: DetectChangesOptions): Promise<DetectChangesResult> {
-  const { projectRoot, extensions, ignorePatterns, fileRepo } = opts;
+  const { projectRoot, extensions, ignorePatterns, fileRepo, scanFilesFn = defaultScanFiles } = opts;
 
   const existingMap = fileRepo.getFilesMap();
   const seenPaths = new Set<string>();
@@ -37,7 +46,7 @@ export async function detectChanges(opts: DetectChangesOptions): Promise<DetectC
 
   const ignoreGlobs = ignorePatterns.map((p) => new Bun.Glob(p));
 
-  for await (const rawRelativePath of fsPromises.glob('**/*', { cwd: projectRoot })) {
+  for await (const rawRelativePath of scanFilesFn(projectRoot, extensions)) {
     const relativePath = normalizePath(rawRelativePath);
     if (!extensions.some((ext) => relativePath.endsWith(ext))) continue;
 
