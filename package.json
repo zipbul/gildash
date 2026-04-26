@@ -49,7 +49,7 @@
     "@zipbul/result": "^0.1.4",
     "comment-parser": "1.4.5",
     "drizzle-orm": "^0.45.1",
-    "oxc-parser": "0.121.0",
+    "oxc-parser": "0.127.0",
     "oxc-walker": "^0.7.0"
   },
   "devDependencies": {
