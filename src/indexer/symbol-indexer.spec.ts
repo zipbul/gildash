@@ -412,4 +412,50 @@ describe('indexFileSymbols', () => {
 
     expect(syms1[0].detailJson).toBe(syms2[0].detailJson);
   });
+
+  it('should include key in detailJson and structural fingerprint when symbol has a non-identifier key', () => {
+    const cls = makeSymbol({
+      kind: 'class',
+      name: 'C',
+      members: [
+        { kind: 'method', name: '#secret', span: { start: { line: 2, column: 2 }, end: { line: 2, column: 12 } }, isExported: false, modifiers: [], methodKind: 'method', key: { kind: 'private' } },
+      ],
+    });
+    mockExtractSymbols.mockReturnValue([cls]);
+    const captured: string[] = [];
+    mockHashString.mockImplementation((s: string) => { captured.push(s); return 'fp'; });
+    const repo = makeSymbolRepo();
+    indexFileSymbols({ parsed: makeParsedFile(), project: PROJECT, filePath: FILE_PATH, contentHash: CONTENT_HASH, symbolRepo: repo as any });
+    const [, , , syms] = repo.replaceFileSymbols.mock.calls[0]!;
+    const detail = JSON.parse(syms[0].detailJson!);
+    expect(detail.members[0].key).toEqual({ kind: 'private' });
+    // Member signature line in the structural fingerprint input must include the serialized key
+    expect(captured.some((s: string) => s.includes('"kind":"private"'))).toBe(true);
+  });
+
+  it('should produce identical structural fingerprint input regardless of key field-insertion order', () => {
+    const aFirst = makeSymbol({
+      kind: 'class', name: 'C',
+      members: [{ kind: 'method', name: '[k]', span: { start: { line: 1, column: 0 }, end: { line: 1, column: 5 } }, isExported: false, modifiers: [], methodKind: 'method', key: { kind: 'member', object: 'A', property: 'b' } }],
+    });
+    const bFirst = makeSymbol({
+      kind: 'class', name: 'C',
+      // Same shape, but constructed with property keys inserted in a different order:
+      members: [{ kind: 'method', name: '[k]', span: { start: { line: 1, column: 0 }, end: { line: 1, column: 5 } }, isExported: false, modifiers: [], methodKind: 'method', key: { property: 'b', object: 'A', kind: 'member' } as any }],
+    });
+
+    const captureCalls = (sym: any): string[] => {
+      const captured: string[] = [];
+      mockExtractSymbols.mockReturnValue([sym]);
+      mockHashString.mockReset();
+      mockHashString.mockImplementation((s: string) => { captured.push(s); return 'h'; });
+      const repo = makeSymbolRepo();
+      indexFileSymbols({ parsed: makeParsedFile(), project: PROJECT, filePath: FILE_PATH, contentHash: CONTENT_HASH, symbolRepo: repo as any });
+      return captured;
+    };
+
+    const a = captureCalls(aFirst);
+    const b = captureCalls(bFirst);
+    expect(a).toEqual(b);
+  });
 });

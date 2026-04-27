@@ -3,6 +3,19 @@ import type { ExtractedSymbol } from '../extractor/types';
 import { extractSymbols } from '../extractor/symbol-extractor';
 import { hashString } from '../common/hasher';
 
+/**
+ * Deterministic JSON serialization with sorted object keys.
+ * Used for fingerprint inputs so logically-identical structures always
+ * hash to the same value regardless of source-order key insertion.
+ */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
+}
+
 export interface SymbolDbRow {
   project: string;
   filePath: string;
@@ -62,6 +75,7 @@ function buildDetailJson(sym: ExtractedSymbol): string | null {
   if (sym.typeParameters?.length) detail.typeParameters = sym.typeParameters;
   if (sym.modifiers?.length) detail.modifiers = sym.modifiers;
   if (sym.initializer) detail.initializer = sym.initializer;
+  if (sym.key) detail.key = sym.key;
   if (sym.members?.length) {
     detail.members = sym.members.map((m) => {
       const visibility = m.modifiers.find(
@@ -74,7 +88,9 @@ function buildDetailJson(sym: ExtractedSymbol): string | null {
         visibility,
         isStatic: m.modifiers.includes('static') || undefined,
         isReadonly: m.modifiers.includes('readonly') || undefined,
+        isAccessor: m.modifiers.includes('accessor') || undefined,
       };
+      if (m.key) member.key = m.key;
       if (m.initializer) member.initializer = m.initializer;
       if (m.decorators?.length) member.decorators = m.decorators;
       return member;
@@ -100,10 +116,11 @@ export function buildStructuralFingerprint(sym: ExtractedSymbol): string {
   if (sym.methodKind) parts.push(`mk:${sym.methodKind}`);
   if (sym.parameters) parts.push(`p:${sym.parameters.length}`);
   if (sym.returnType) parts.push(`rt:${sym.returnType}`);
+  if (sym.key) parts.push(`k:${stableStringify(sym.key)}`);
 
   if (sym.members?.length) {
     const memberSig = sym.members
-      .map(m => `${m.kind}:${m.modifiers.join(',')}:${m.parameters?.length ?? ''}:${m.returnType ?? ''}`)
+      .map(m => `${m.kind}:${m.modifiers.join(',')}:${m.parameters?.length ?? ''}:${m.returnType ?? ''}:${m.key ? stableStringify(m.key) : ''}`)
       .sort()
       .join(';');
     parts.push(`mem:${sym.members.length}:${hashString(memberSig)}`);
