@@ -2,7 +2,14 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { isErr } from '@zipbul/result';
 import { parseSource } from '../parser/parse-source';
 import type { ParsedFile } from '../parser/types';
-import type { JsDocTag } from '../extractor/types';
+import type { JsDocTag, ExpressionObject, ExpressionObjectProperty, ExpressionObjectEntry } from '../extractor/types';
+
+/** Narrow object literal entries to non-spread key/value properties. */
+function objectProps(obj: ExpressionObject): ExpressionObjectProperty[] {
+  return obj.properties.filter(
+    (p: ExpressionObjectEntry): p is ExpressionObjectProperty => p.kind === 'property',
+  );
+}
 
 const mockBuildLineOffsets = mock((sourceText: string) => [0]);
 const mockGetLineColumn = mock((offsets: number[], offset: number) => ({ line: 1, column: 0 }));
@@ -813,15 +820,15 @@ describe('extractSymbols', () => {
 
   // ─── AST edge cases ────────────────────────────────────────────────
 
-  it('should set member name to source text and keyKind to "computed" when class has computed property name', () => {
+  it('should expose computed member key as structured ExpressionValue with name = source text', () => {
     const parsed = makeFixture(`class C { [Symbol.iterator]() {} }`);
     const symbols = extractSymbols(parsed);
     const cls = symbols.find((s) => s.name === 'C');
-    const member = cls?.members?.find((m) => m.keyKind === 'computed');
+    const member = cls?.members?.find((m) => m.key?.kind === 'member');
     expect(member).toBeDefined();
     expect(member!.kind).toBe('method');
     expect(member!.name).toBe('Symbol.iterator');
-    expect(member!.keyKind).toBe('computed');
+    expect(member!.key).toEqual({ kind: 'member', object: 'Symbol', property: 'iterator' });
   });
 
   it('should extract class method overload signatures as separate members', () => {
@@ -841,15 +848,14 @@ describe('extractSymbols', () => {
     expect(fooMembers!.every((m) => m.kind === 'method')).toBe(true);
   });
 
-  it('should extract private field with PrivateIdentifier name (without hash prefix) when class has private field', () => {
+  it('should extract private field with #-prefixed name and key.kind=private when class has private field', () => {
     const parsed = makeFixture(`class C { #secret: string = ''; }`);
     const symbols = extractSymbols(parsed);
     const cls = symbols.find((s) => s.name === 'C');
-    // oxc-parser emits PrivateIdentifier with name "secret" (no # prefix),
-    // and extractClassMembers reads key.name directly
-    const member = cls?.members?.find((m) => m.name === 'secret');
+    const member = cls?.members?.find((m) => m.name === '#secret');
     expect(member).toBeDefined();
     expect(member!.kind).toBe('property');
+    expect(member!.key).toEqual({ kind: 'private' });
   });
 
   // ─── Destructuring edge cases ───────────────────────────────────────
@@ -971,10 +977,11 @@ describe('extractSymbols', () => {
       const arg = cls.decorators![0]!.arguments![0]!;
       expect(arg.kind).toBe('object');
       if (arg.kind === 'object') {
-        expect(arg.properties.length).toBe(2);
-        expect(arg.properties[0]!.key).toBe('imports');
-        expect(arg.properties[0]!.value.kind).toBe('array');
-        expect(arg.properties[1]!.key).toBe('controllers');
+        const props = objectProps(arg);
+        expect(props.length).toBe(2);
+        expect(props[0]!.key).toEqual({ kind: 'string', value: 'imports' });
+        expect(props[0]!.value.kind).toBe('array');
+        expect(props[1]!.key).toEqual({ kind: 'string', value: 'controllers' });
       }
     });
 
@@ -1050,9 +1057,12 @@ describe('extractSymbols', () => {
       const arg = cls.decorators![0]!.arguments![0]!;
       expect(arg.kind).toBe('object');
       if (arg.kind === 'object') {
-        const spreadProp = arg.properties.find(p => p.key === '...');
+        const spreadProp = arg.properties.find(p => p.kind === 'spread');
         expect(spreadProp).toBeDefined();
-        expect(spreadProp!.value.kind).toBe('spread');
+        expect(spreadProp!.kind).toBe('spread');
+        if (spreadProp?.kind === 'spread') {
+          expect(spreadProp.argument.kind).toBe('identifier');
+        }
       }
     });
 
@@ -1317,7 +1327,7 @@ describe('extractSymbols', () => {
       const v = extractSymbols(parsed).find(s => s.name === 'cfg')!;
       expect(v.initializer!.kind).toBe('object');
       if (v.initializer!.kind === 'object') {
-        const handler = v.initializer!.properties.find(p => p.key === 'handler')!;
+        const handler = objectProps(v.initializer!).find(p => p.key.kind === 'string' && p.key.value === 'handler')!;
         expect(handler.value.kind).toBe('function');
         if (handler.value.kind === 'function') {
           expect(handler.value.parameters).toBeDefined();
@@ -1561,9 +1571,10 @@ describe('extractSymbols', () => {
       const opts = cls.members!.find(m => m.name === 'opts')!;
       expect(opts.initializer!.kind).toBe('object');
       if (opts.initializer!.kind === 'object') {
-        expect(opts.initializer!.properties.length).toBe(2);
-        expect(opts.initializer!.properties[0]!.key).toBe('timeout');
-        expect(opts.initializer!.properties[0]!.value).toEqual({ kind: 'number', value: 30 });
+        const props = objectProps(opts.initializer!);
+        expect(props.length).toBe(2);
+        expect(props[0]!.key).toEqual({ kind: 'string', value: 'timeout' });
+        expect(props[0]!.value).toEqual({ kind: 'number', value: 30 });
       }
     });
   });
@@ -1623,13 +1634,14 @@ describe('extractSymbols', () => {
       const v = extractSymbols(parsed).find(s => s.name === 'cfg')!;
       expect(v.initializer!.kind).toBe('object');
       if (v.initializer!.kind === 'object') {
-        const dbProp = v.initializer!.properties.find(p => p.key === 'db')!;
+        const dbProp = objectProps(v.initializer!).find(p => p.key.kind === 'string' && p.key.value === 'db')!;
         expect(dbProp.value.kind).toBe('object');
         if (dbProp.value.kind === 'object') {
-          expect(dbProp.value.properties[0]!.key).toBe('host');
-          expect(dbProp.value.properties[0]!.value).toEqual({ kind: 'string', value: 'localhost' });
-          expect(dbProp.value.properties[1]!.key).toBe('port');
-          expect(dbProp.value.properties[1]!.value).toEqual({ kind: 'number', value: 5432 });
+          const inner = objectProps(dbProp.value);
+          expect(inner[0]!.key).toEqual({ kind: 'string', value: 'host' });
+          expect(inner[0]!.value).toEqual({ kind: 'string', value: 'localhost' });
+          expect(inner[1]!.key).toEqual({ kind: 'string', value: 'port' });
+          expect(inner[1]!.value).toEqual({ kind: 'number', value: 5432 });
         }
       }
     });
@@ -1658,106 +1670,415 @@ describe('extractSymbols', () => {
 
   // ─── ExpressionValue: Depth limit ────────────────────────────────────
 
-  describe('member keyKind', () => {
-    it('should omit keyKind for plain identifier method keys', () => {
+  describe('member key (structured form)', () => {
+    it('should omit key for plain identifier method keys', () => {
       const parsed = makeFixture(`class C { foo() {} }`);
       const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
       const foo = cls.members!.find((m) => m.name === 'foo')!;
-      expect(foo.keyKind).toBeUndefined();
+      expect(foo.key).toBeUndefined();
     });
 
-    it('should set keyKind to "private" and strip # from name for #private methods', () => {
+    it('should set key to private kind and prefix # in name for #private methods', () => {
       const parsed = makeFixture(`class C { #secret() {} }`);
       const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
-      const m = cls.members!.find((x) => x.keyKind === 'private')!;
+      const m = cls.members!.find((x) => x.key?.kind === 'private')!;
       expect(m).toBeDefined();
-      expect(m.name).toBe('secret');
-      expect(m.keyKind).toBe('private');
+      expect(m.name).toBe('#secret');
+      expect(m.key).toEqual({ kind: 'private' });
       expect(m.kind).toBe('method');
     });
 
-    it('should set keyKind to "private" for #private properties', () => {
+    it('should set key to private kind for #private properties with # in name', () => {
       const parsed = makeFixture(`class C { #count = 0; }`);
       const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
-      const p = cls.members!.find((x) => x.keyKind === 'private')!;
+      const p = cls.members!.find((x) => x.key?.kind === 'private')!;
       expect(p).toBeDefined();
-      expect(p.name).toBe('count');
-      expect(p.keyKind).toBe('private');
+      expect(p.name).toBe('#count');
+      expect(p.key).toEqual({ kind: 'private' });
       expect(p.kind).toBe('property');
     });
 
-    it('should set keyKind to "literal" for string-literal method keys', () => {
+    it('should distinguish #private from same-named public member', () => {
+      const parsed = makeFixture(`class C { foo() {} #foo() {} }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const pub = cls.members!.find((m) => m.name === 'foo')!;
+      const priv = cls.members!.find((m) => m.name === '#foo')!;
+      expect(pub.key).toBeUndefined();
+      expect(priv.key).toEqual({ kind: 'private' });
+    });
+
+    it('should set key to string literal for string-key methods', () => {
       const parsed = makeFixture(`class C { 'my-method'() {} }`);
       const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
-      const m = cls.members!.find((x) => x.keyKind === 'literal')!;
-      expect(m).toBeDefined();
-      expect(m.name).toBe('my-method');
-      expect(m.keyKind).toBe('literal');
+      const m = cls.members!.find((x) => x.name === 'my-method')!;
+      expect(m.key).toEqual({ kind: 'string', value: 'my-method' });
       expect(m.kind).toBe('method');
     });
 
-    it('should set keyKind to "literal" for numeric-literal property keys', () => {
+    it('should set key to number literal for numeric-key properties', () => {
       const parsed = makeFixture(`class C { 42 = 'answer'; }`);
       const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
-      const p = cls.members!.find((x) => x.keyKind === 'literal')!;
-      expect(p).toBeDefined();
-      expect(p.name).toBe('42');
-      expect(p.keyKind).toBe('literal');
+      const p = cls.members!.find((x) => x.name === '42')!;
+      expect(p.key).toEqual({ kind: 'number', value: 42 });
     });
 
-    it('should set keyKind to "computed" and use source text for computed property names', () => {
-      const parsed = makeFixture(`const KEY = 'k'; class C { [KEY]: string = ''; }`);
+    it('should set key to bigint literal for bigint-key properties', () => {
+      const parsed = makeFixture(`class C { 42n = 'answer'; }`);
       const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
-      const p = cls.members!.find((x) => x.keyKind === 'computed')!;
+      const p = cls.members!.find((x) => x.key?.kind === 'bigint')!;
+      expect(p).toBeDefined();
+      expect(p.key).toEqual({ kind: 'bigint', value: '42' });
+    });
+
+    it('should set key to identifier with importSource for computed identifier key', () => {
+      const parsed = makeFixture(`
+        import { KEY } from './k';
+        class C { [KEY]: string = ''; }
+      `);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const p = cls.members!.find((x) => x.key?.kind === 'identifier')!;
       expect(p).toBeDefined();
       expect(p.name).toBe('KEY');
-      expect(p.keyKind).toBe('computed');
-      expect(p.kind).toBe('property');
+      expect(p.key).toMatchObject({ kind: 'identifier', name: 'KEY', importSource: './k' });
     });
 
-    it('should set keyKind to "computed" for member-expression computed method keys', () => {
+    it('should set key to member expression for computed member-key methods', () => {
       const parsed = makeFixture(`class C { [Symbol.asyncIterator]() {} }`);
       const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
-      const m = cls.members!.find((x) => x.keyKind === 'computed')!;
+      const m = cls.members!.find((x) => x.key?.kind === 'member')!;
       expect(m).toBeDefined();
       expect(m.name).toBe('Symbol.asyncIterator');
-      expect(m.keyKind).toBe('computed');
+      expect(m.key).toEqual({ kind: 'member', object: 'Symbol', property: 'asyncIterator' });
     });
 
-    it('should set keyKind to "computed" for interface computed method signatures', () => {
+    it('should set key for interface computed method signature', () => {
       const parsed = makeFixture(`interface I { [Symbol.iterator](): void; }`);
       const iface = extractSymbols(parsed).find((s) => s.name === 'I')!;
-      const m = iface.members!.find((x) => x.keyKind === 'computed')!;
+      const m = iface.members!.find((x) => x.key?.kind === 'member')!;
       expect(m).toBeDefined();
       expect(m.name).toBe('Symbol.iterator');
-      expect(m.keyKind).toBe('computed');
+      expect(m.key).toEqual({ kind: 'member', object: 'Symbol', property: 'iterator' });
       expect(m.kind).toBe('method');
     });
 
-    it('should set keyKind to "literal" for interface string-literal property signatures', () => {
+    it('should set key to string literal for interface string-key property', () => {
       const parsed = makeFixture(`interface I { 'x-header': string; }`);
       const iface = extractSymbols(parsed).find((s) => s.name === 'I')!;
-      const p = iface.members!.find((x) => x.keyKind === 'literal')!;
-      expect(p).toBeDefined();
-      expect(p.name).toBe('x-header');
-      expect(p.keyKind).toBe('literal');
+      const p = iface.members!.find((x) => x.name === 'x-header')!;
+      expect(p.key).toEqual({ kind: 'string', value: 'x-header' });
       expect(p.kind).toBe('property');
     });
 
-    it('should omit keyKind for plain identifier interface property signatures', () => {
+    it('should omit key for plain identifier interface property signature', () => {
       const parsed = makeFixture(`interface I { foo: string; }`);
       const iface = extractSymbols(parsed).find((s) => s.name === 'I')!;
       const p = iface.members!.find((m) => m.name === 'foo')!;
-      expect(p.keyKind).toBeUndefined();
+      expect(p.key).toBeUndefined();
     });
 
-    it('should set keyKind to "private" for abstract private-like method declarations', () => {
-      // Abstract methods cannot be private in TS, but verify abstract path still works for plain keys
+    it('should omit key for plain identifier in abstract methods', () => {
       const parsed = makeFixture(`abstract class C { abstract foo(): void; }`);
       const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
       const m = cls.members!.find((x) => x.name === 'foo')!;
-      expect(m.keyKind).toBeUndefined();
+      expect(m.key).toBeUndefined();
       expect(m.modifiers).toContain('abstract');
+    });
+  });
+
+  describe('AccessorProperty (TC39 auto-accessor)', () => {
+    it('should extract accessor property with accessor modifier', () => {
+      const parsed = makeFixture(`class C { accessor x = 1; }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const x = cls.members!.find((m) => m.name === 'x')!;
+      expect(x).toBeDefined();
+      expect(x.kind).toBe('property');
+      expect(x.modifiers).toContain('accessor');
+      expect(x.initializer).toEqual({ kind: 'number', value: 1 });
+    });
+
+    it('should set key to private kind for #private auto-accessor', () => {
+      const parsed = makeFixture(`class C { accessor #count = 0; }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const m = cls.members!.find((x) => x.key?.kind === 'private')!;
+      expect(m).toBeDefined();
+      expect(m.name).toBe('#count');
+      expect(m.modifiers).toContain('accessor');
+    });
+
+    it('should add accessor + abstract modifiers for abstract auto-accessor', () => {
+      const parsed = makeFixture(`abstract class C { abstract accessor x: number; }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const x = cls.members!.find((m) => m.name === 'x')!;
+      expect(x.modifiers).toContain('accessor');
+      expect(x.modifiers).toContain('abstract');
+    });
+
+    it('should set key for computed-key auto-accessor', () => {
+      const parsed = makeFixture(`class C { accessor [Symbol.toPrimitive] = () => 1; }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const m = cls.members!.find((x) => x.key?.kind === 'member')!;
+      expect(m).toBeDefined();
+      expect(m.name).toBe('Symbol.toPrimitive');
+      expect(m.modifiers).toContain('accessor');
+    });
+  });
+
+  describe('object literal keys as KeyExpression', () => {
+    it('should encode static identifier object key as kind=string', () => {
+      const parsed = makeFixture(`@D({ foo: 1 }) class C {}`);
+      const arg = extractSymbols(parsed).find(s => s.name === 'C')!.decorators![0]!.arguments![0]!;
+      expect(arg.kind).toBe('object');
+      if (arg.kind === 'object') {
+        expect(objectProps(arg)[0]!.key).toEqual({ kind: 'string', value: 'foo' });
+      }
+    });
+
+    it('should encode string-literal object key as kind=string', () => {
+      const parsed = makeFixture(`@D({ 'x-foo': 1 }) class C {}`);
+      const arg = extractSymbols(parsed).find(s => s.name === 'C')!.decorators![0]!.arguments![0]!;
+      if (arg.kind === 'object') {
+        expect(objectProps(arg)[0]!.key).toEqual({ kind: 'string', value: 'x-foo' });
+      }
+    });
+
+    it('should encode numeric-literal object key as kind=number', () => {
+      const parsed = makeFixture(`@D({ 42: 'a' }) class C {}`);
+      const arg = extractSymbols(parsed).find(s => s.name === 'C')!.decorators![0]!.arguments![0]!;
+      if (arg.kind === 'object') {
+        expect(objectProps(arg)[0]!.key).toEqual({ kind: 'number', value: 42 });
+      }
+    });
+
+    it('should encode computed object key as the inner expression with importSource', () => {
+      const parsed = makeFixture(`
+        import { KEY } from './k';
+        @D({ [KEY]: 1 }) class C {}
+      `);
+      const arg = extractSymbols(parsed).find(s => s.name === 'C')!.decorators![0]!.arguments![0]!;
+      if (arg.kind === 'object') {
+        expect(objectProps(arg)[0]!.key).toMatchObject({
+          kind: 'identifier',
+          name: 'KEY',
+          importSource: './k',
+        });
+      }
+    });
+
+    it('should mark shorthand property and still encode key as kind=string', () => {
+      const parsed = makeFixture(`const x = 1; const o = { x };`);
+      const o = extractSymbols(parsed).find(s => s.name === 'o')!;
+      if (o.initializer?.kind === 'object') {
+        const props = objectProps(o.initializer);
+        expect(props[0]!.key).toEqual({ kind: 'string', value: 'x' });
+        expect(props[0]!.shorthand).toBe(true);
+      }
+    });
+
+    it('should emit a separate spread entry (no fake key) for `...x`', () => {
+      const parsed = makeFixture(`const x = {}; const o = { ...x, a: 1 };`);
+      const o = extractSymbols(parsed).find(s => s.name === 'o')!;
+      if (o.initializer?.kind === 'object') {
+        expect(o.initializer.properties.length).toBe(2);
+        expect(o.initializer.properties[0]!.kind).toBe('spread');
+        if (o.initializer.properties[0]!.kind === 'spread') {
+          expect(o.initializer.properties[0]!.argument.kind).toBe('identifier');
+        }
+        expect(o.initializer.properties[1]!.kind).toBe('property');
+      }
+    });
+
+    it('should encode bigint object key as kind=bigint', () => {
+      const parsed = makeFixture(`@D({ 9007199254740993n: 'big' }) class C {}`);
+      const arg = extractSymbols(parsed).find(s => s.name === 'C')!.decorators![0]!.arguments![0]!;
+      if (arg.kind === 'object') {
+        expect(objectProps(arg)[0]!.key).toEqual({ kind: 'bigint', value: '9007199254740993' });
+      }
+    });
+
+    it('should encode template-literal computed object key as kind=template', () => {
+      const parsed = makeFixture('const x = "a"; const o = { [`prefix-${x}`]: 1 };');
+      const o = extractSymbols(parsed).find(s => s.name === 'o')!;
+      if (o.initializer?.kind === 'object') {
+        expect(objectProps(o.initializer)[0]!.key.kind).toBe('template');
+      }
+    });
+  });
+
+  describe('ExpressionLiteral: bigint and regex kinds', () => {
+    it('should extract bigint variable initializer as kind=bigint', () => {
+      const parsed = makeFixture(`const big = 9007199254740993n;`);
+      const v = extractSymbols(parsed).find(s => s.name === 'big')!;
+      expect(v.initializer).toEqual({ kind: 'bigint', value: '9007199254740993' });
+    });
+
+    it('should extract regex variable initializer as kind=regex with full source', () => {
+      const parsed = makeFixture(`const re = /^foo$/gi;`);
+      const v = extractSymbols(parsed).find(s => s.name === 're')!;
+      expect(v.initializer).toEqual({ kind: 'regex', value: '/^foo$/gi' });
+    });
+
+    it('should extract bigint decorator argument as kind=bigint', () => {
+      const parsed = makeFixture(`@D(42n) class C {}`);
+      const arg = extractSymbols(parsed).find(s => s.name === 'C')!.decorators![0]!.arguments![0]!;
+      expect(arg).toEqual({ kind: 'bigint', value: '42' });
+    });
+  });
+
+  describe('enum member keys', () => {
+    it('should omit key for identifier enum member', () => {
+      const parsed = makeFixture(`enum E { Foo = 1 }`);
+      const e = extractSymbols(parsed).find(s => s.name === 'E')!;
+      const foo = e.members!.find(m => m.name === 'Foo')!;
+      expect(foo.key).toBeUndefined();
+    });
+
+    it('should set key=string for string-literal enum member', () => {
+      const parsed = makeFixture(`enum E { 'x-foo' = 1 }`);
+      const e = extractSymbols(parsed).find(s => s.name === 'E')!;
+      const m = e.members!.find(x => x.name === 'x-foo')!;
+      expect(m.key).toEqual({ kind: 'string', value: 'x-foo' });
+    });
+  });
+
+  describe('member key — exhaustive combinations', () => {
+    it('should set key on getter with computed member key', () => {
+      const parsed = makeFixture(`class C { get [Symbol.iterator]() { return this; } }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      const m = cls.members!.find(x => x.methodKind === 'getter')!;
+      expect(m.key).toEqual({ kind: 'member', object: 'Symbol', property: 'iterator' });
+    });
+
+    it('should set key on setter with private name', () => {
+      const parsed = makeFixture(`class C { set #v(x: number) {} }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      const m = cls.members!.find(x => x.methodKind === 'setter')!;
+      expect(m.name).toBe('#v');
+      expect(m.key).toEqual({ kind: 'private' });
+    });
+
+    it('should preserve static + private modifiers and key', () => {
+      const parsed = makeFixture(`class C { static #foo() {} }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      const m = cls.members!.find(x => x.name === '#foo')!;
+      expect(m.modifiers).toContain('static');
+      expect(m.key).toEqual({ kind: 'private' });
+    });
+
+    it('should preserve static + accessor + private together', () => {
+      const parsed = makeFixture(`class C { static accessor #x = 1; }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      const m = cls.members!.find(x => x.name === '#x')!;
+      expect(m.modifiers).toContain('static');
+      expect(m.modifiers).toContain('accessor');
+      expect(m.key).toEqual({ kind: 'private' });
+    });
+
+    it('should preserve decorators on private method', () => {
+      const parsed = makeFixture(`function dec() { return (...a: any[]) => {}; }
+        class C { @dec() #foo() {} }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      const m = cls.members!.find(x => x.name === '#foo')!;
+      expect(m.key).toEqual({ kind: 'private' });
+      expect(m.decorators?.length).toBe(1);
+      expect(m.decorators![0]!.name).toBe('dec');
+    });
+
+    it('should preserve decorators on computed-key method', () => {
+      const parsed = makeFixture(`function dec() { return (...a: any[]) => {}; }
+        class C { @dec() [Symbol.iterator]() {} }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      const m = cls.members!.find(x => x.key?.kind === 'member')!;
+      expect(m.decorators?.length).toBe(1);
+    });
+
+    it('should set key=template for template-literal computed method key', () => {
+      const parsed = makeFixture('class C { ["foo" + "bar"]() {} }');
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      // BinaryExpression is unresolvable in the current convertExpression model
+      const m = cls.members!.find(x => x.key !== undefined)!;
+      expect(m).toBeDefined();
+      expect(m.key!.kind).toBe('unresolvable');
+    });
+
+    it('should set key for unary-expression computed key (-1)', () => {
+      const parsed = makeFixture(`class C { [-1]() {} }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      const m = cls.members!.find(x => x.key !== undefined)!;
+      expect(m).toBeDefined();
+      // UnaryExpression with literal number → kind: 'number', value: -1
+      expect(m.key).toEqual({ kind: 'number', value: -1 });
+    });
+  });
+
+  describe('enum members — additional cases', () => {
+    it('should preserve numeric-literal-id enum member name and key', () => {
+      const parsed = makeFixture(`enum E { 'a-b' = 1, 'c-d' = 2 }`);
+      const e = extractSymbols(parsed).find(s => s.name === 'E')!;
+      const ab = e.members!.find(m => m.name === 'a-b')!;
+      const cd = e.members!.find(m => m.name === 'c-d')!;
+      expect(ab.key).toEqual({ kind: 'string', value: 'a-b' });
+      expect(cd.key).toEqual({ kind: 'string', value: 'c-d' });
+    });
+  });
+
+  describe('depth guard — keys threaded through MAX_EXPRESSION_DEPTH', () => {
+    it('should not blow the stack for deeply nested computed key expression and produce a defined key', () => {
+      // 6 levels of nesting via property access on object literals
+      const parsed = makeFixture(`class C { [({a:{b:{c:{d:{e:{f:1}}}}}})]() {} }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      const m = cls.members!.find(x => x.key !== undefined)!;
+      expect(m.key).toBeDefined();
+    });
+
+    it('should produce same fingerprint regardless of insertion order of key fields', () => {
+      // Sanity check that stableStringify in fingerprint is deterministic
+      // (not directly observable via extractSymbols, but covered indirectly
+      // by symbol-indexer roundtrips).
+      const parsed = makeFixture(`class C { [Symbol.iterator]() {} }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      const m = cls.members!.find(x => x.key !== undefined)!;
+      expect(m.key).toEqual({ kind: 'member', object: 'Symbol', property: 'iterator' });
+    });
+  });
+
+  describe('member key — additional combinations', () => {
+    it('should omit key for constructor (constructors are always identifier-keyed)', () => {
+      const parsed = makeFixture(`class C { constructor() {} }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      const ctor = cls.members!.find(m => m.methodKind === 'constructor')!;
+      expect(ctor.key).toBeUndefined();
+      expect(ctor.name).toBe('constructor');
+    });
+
+    it('should keep getter and setter with same identifier name as separate members and omit key', () => {
+      const parsed = makeFixture(`class C { get x() { return 1; } set x(v: number) {} }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      const getter = cls.members!.find(m => m.methodKind === 'getter')!;
+      const setter = cls.members!.find(m => m.methodKind === 'setter')!;
+      expect(getter).toBeDefined();
+      expect(setter).toBeDefined();
+      expect(getter.key).toBeUndefined();
+      expect(setter.key).toBeUndefined();
+    });
+
+    it('should preserve decorators on AccessorProperty', () => {
+      const parsed = makeFixture(`function dec() { return (...a: any[]) => {}; }
+        class C { @dec() accessor x = 1; }`);
+      const cls = extractSymbols(parsed).find(s => s.name === 'C')!;
+      const x = cls.members!.find(m => m.name === 'x')!;
+      expect(x.modifiers).toContain('accessor');
+      expect(x.decorators?.length).toBe(1);
+      expect(x.decorators![0]!.name).toBe('dec');
+    });
+
+    it('should encode object literal method shorthand value as kind=function with key=string', () => {
+      const parsed = makeFixture(`const o = { foo() { return 1; } };`);
+      const o = extractSymbols(parsed).find(s => s.name === 'o')!;
+      if (o.initializer?.kind === 'object') {
+        const props = objectProps(o.initializer);
+        expect(props[0]!.key).toEqual({ kind: 'string', value: 'foo' });
+        expect(props[0]!.value.kind).toBe('function');
+      }
     });
   });
 

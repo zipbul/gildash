@@ -286,6 +286,47 @@ describe('IndexResult changedSymbols.isExported (integration)', () => {
   });
 });
 
+describe('Private (#name) members — integration', () => {
+  it('should index #foo and foo as distinct symbol records (no name collision) and find both via searchSymbols', async () => {
+    const projectDir = join(tmpDir, 'private-proj');
+    await mkdir(join(projectDir, 'src'), { recursive: true });
+    await writeFile(
+      join(projectDir, 'src', 'a.ts'),
+      `export class C {
+        foo() {}
+        #foo() {}
+      }`,
+    );
+
+    const coordinator = new IndexCoordinator({
+      projectRoot: projectDir,
+      boundaries: [{ dir: '.', project: 'private-test' }],
+      extensions: ['.ts'],
+      ignorePatterns: [],
+      dbConnection: db,
+      parseCache: new ParseCache(10),
+      fileRepo,
+      symbolRepo,
+      relationRepo,
+    });
+
+    const result = await coordinator.fullIndex();
+
+    const fooMembers = result.changedSymbols.added.filter(
+      s => s.name === 'C.foo' || s.name === 'C.#foo',
+    );
+    expect(fooMembers.length).toBe(2);
+    expect(fooMembers.some(s => s.name === 'C.foo')).toBe(true);
+    expect(fooMembers.some(s => s.name === 'C.#foo')).toBe(true);
+
+    // Verify FTS tokenizer treats `#` as a separator so "foo" search still finds #foo
+    const ftsHits = symbolRepo.searchByName('private-test', 'foo');
+    const names = ftsHits.map((r: { name: string }) => r.name).sort();
+    expect(names).toContain('C.foo');
+    expect(names).toContain('C.#foo');
+  });
+});
+
 describe('IndexResult changedRelations (integration)', () => {
   it('should report added relations on first fullIndex with real files', async () => {
     const projectDir = join(tmpDir, 'rel-proj');

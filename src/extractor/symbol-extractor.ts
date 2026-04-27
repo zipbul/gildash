@@ -8,6 +8,10 @@ import type {
   ExpressionCall,
   ExpressionNew,
   ExpressionFunction,
+  ExpressionObjectProperty,
+  ExpressionObjectEntry,
+  KeyExpression,
+  SymbolKey,
   SymbolKind,
   Modifier,
   Heritage,
@@ -35,6 +39,7 @@ import type {
   ClassElement,
   MethodDefinition,
   PropertyDefinition,
+  AccessorProperty,
   TSSignature,
   TSMethodSignature,
   TSPropertySignature,
@@ -151,19 +156,71 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     .map((s) => s.start)
     .sort((a, b) => a - b);
 
-  function keyKindFor(
-    key: OxcPropertyKey,
-    computed: boolean,
-  ): ExtractedSymbol['keyKind'] {
-    if (computed) return 'computed';
-    if (key.type === 'PrivateIdentifier') return 'private';
-    if (key.type === 'Identifier') return undefined;
-    return 'literal';
+  /**
+   * Convert any key node (computed expression or static literal) to a
+   * `KeyExpression`.
+   *
+   * **Invariant**: spread (`...x`) cannot appear syntactically as a key
+   * in any context (object literal property, class/interface member, enum
+   * member). The runtime guarantee is upheld by oxc's grammar; we narrow
+   * the return type with an `as` assertion rather than carrying a dead
+   * defensive branch.
+   */
+  function keyExpressionFor(keyNode: unknown, depth: number): KeyExpression {
+    return convertExpression(keyNode, depth) as KeyExpression;
   }
 
-  function memberKeyName(key: OxcPropertyKey, computed: boolean): string {
+  /**
+   * Build the structured `SymbolKey` for a class/interface member key.
+   * Returns `undefined` for plain identifier keys (caller relies on the
+   * symbol's `name` field).
+   *
+   * For static identifier object literal keys (`{ foo: 1 }`) we encode as
+   * `kind: 'string'` because the runtime semantics are identical to the
+   * string-literal form `{ 'foo': 1 }`. For class/interface members,
+   * a plain identifier is the *default* case and the field is omitted.
+   */
+  function memberKey(
+    key: OxcPropertyKey,
+    computed: boolean,
+    depth: number,
+  ): SymbolKey | undefined {
+    if (key.type === 'PrivateIdentifier') return { kind: 'private' };
+    if (!computed && key.type === 'Identifier') return undefined;
+    return keyExpressionFor(key, depth);
+  }
+
+  /**
+   * The display/search name for a class/interface member.
+   * - identifier `foo` → `'foo'`
+   * - private `#foo` → `'#foo'` (with `#` prefix preserved)
+   * - literal `'my-method'` / `42` → the literal's string form
+   * - computed `[expr]` → the source text of the bracket expression
+   */
+  function memberDisplayName(key: OxcPropertyKey, computed: boolean): string {
     if (computed) return sourceText.slice(key.start as number, key.end as number);
+    if (key.type === 'PrivateIdentifier') return `#${(key as { name: string }).name}`;
     return keyName(key);
+  }
+
+  /**
+   * Object literal property key — always a `KeyExpression` (object literals
+   * cannot have private keys). For static identifier keys (`{ foo: 1 }`)
+   * we encode as `{ kind: 'string', value: 'foo' }` to match the semantics
+   * of `{ 'foo': 1 }`; consumers distinguishing computed vs static can
+   * inspect the surrounding `shorthand` flag and the original source if
+   * needed (the runtime property is identical either way).
+   */
+  function objectLiteralKey(
+    keyNode: unknown,
+    computed: boolean,
+    depth: number,
+  ): KeyExpression {
+    const key = keyNode as Record<string, unknown>;
+    if (!computed && key.type === 'Identifier') {
+      return { kind: 'string', value: key.name as string };
+    }
+    return keyExpressionFor(keyNode, depth);
   }
 
   function span(start: number, end: number): SourceSpan {
@@ -229,7 +286,14 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     return undefined;
   }
 
-  function convertExpression(node: Record<string, unknown>, depth: number = 0): ExpressionValue {
+  /**
+   * Convert any oxc AST node we treat as an expression value into our
+   * structured `ExpressionValue` model. Accepts `unknown` because oxc node
+   * unions are too wide to express precisely at the call site; the runtime
+   * `node.type` discriminator drives all dispatch.
+   */
+  function convertExpression(rawNode: unknown, depth: number = 0): ExpressionValue {
+    const node = rawNode as Record<string, unknown>;
     if (depth >= MAX_EXPRESSION_DEPTH) {
       return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
     }
@@ -239,11 +303,19 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     // Literals — oxc-parser emits ESTree "Literal" for all literal types
     if (type === 'Literal') {
       const value = node.value;
+      if (typeof value === 'bigint') {
+        // oxc preserves the numeric portion (without the trailing `n`) as a string
+        const bigintText = typeof node.bigint === 'string' ? node.bigint : value.toString();
+        return { kind: 'bigint', value: bigintText };
+      }
+      if (typeof node.regex === 'object' && node.regex !== null) {
+        // Use raw source text to preserve the full /pattern/flags form
+        return { kind: 'regex', value: sourceText.slice(node.start as number, node.end as number) };
+      }
       if (value === null) return { kind: 'null', value: null };
       if (typeof value === 'string') return { kind: 'string', value };
       if (typeof value === 'number') return { kind: 'number', value };
       if (typeof value === 'boolean') return { kind: 'boolean', value };
-      // BigInt, RegExp, etc. → unresolvable
       return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
     }
 
@@ -318,22 +390,26 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     // Object expression: { key: value }
     if (type === 'ObjectExpression') {
       const rawProps = (node.properties as Array<Record<string, unknown>>) ?? [];
-      const properties = rawProps.map((p) => {
+      const properties: ExpressionObjectEntry[] = [];
+      for (const p of rawProps) {
         if ((p.type as string) === 'SpreadElement') {
           const arg = p.argument as Record<string, unknown>;
-          return {
-            key: '...',
-            value: { kind: 'spread' as const, argument: convertExpression(arg, depth + 1) },
-          };
+          properties.push({ kind: 'spread', argument: convertExpression(arg, depth + 1) });
+          continue;
         }
-        const key = p.key as Record<string, unknown>;
-        const rawKeyName = key.name ?? key.value;
-        const keyName = rawKeyName != null ? String(rawKeyName) : sourceText.slice(key.start as number, key.end as number);
+        const keyNode = p.key as Record<string, unknown>;
+        const computed = p.computed === true;
         const value = p.value as Record<string, unknown>;
-        const computed = (p.computed as boolean) || undefined;
         const shorthand = (p.shorthand as boolean) || undefined;
-        return { key: keyName, value: convertExpression(value, depth + 1), computed, shorthand };
-      });
+        const objKey = objectLiteralKey(keyNode, computed, depth + 1);
+        const entry: ExpressionObjectProperty = {
+          kind: 'property',
+          key: objKey,
+          value: convertExpression(value, depth + 1),
+        };
+        if (shorthand) entry.shorthand = true;
+        properties.push(entry);
+      }
       return { kind: 'object', properties };
     }
 
@@ -417,7 +493,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
               ? (callee.property as { name: string }).name
               : 'unknown';
         const args = callExpr.arguments.map((a: Argument) =>
-          convertExpression(a as unknown as Record<string, unknown>),
+          convertExpression(a),
         );
         return { name: calleeName, arguments: args.length > 0 ? args : undefined };
       }
@@ -556,8 +632,8 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     for (const m of bodyNodes) {
       if (m.type === 'MethodDefinition' || m.type === 'TSAbstractMethodDefinition') {
         const md = m as MethodDefinition;
-        const name: string = memberKeyName(md.key, md.computed);
-        const keyKind = keyKindFor(md.key, md.computed);
+        const name: string = memberDisplayName(md.key, md.computed);
+        const key = memberKey(md.key, md.computed, 0);
         const fnValue = md.value;
         const rawKind: string = md.kind;
         const methodKind =
@@ -585,23 +661,31 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           parameters: params.length > 0 ? params : undefined,
           returnType,
         };
-        if (keyKind) s.keyKind = keyKind;
+        if (key) s.key = key;
         if (decos.length > 0) s.decorators = decos;
         members.push(s);
-      } else if (m.type === 'PropertyDefinition' || m.type === 'TSAbstractPropertyDefinition') {
-        const pd = m as PropertyDefinition;
-        const name: string = memberKeyName(pd.key, pd.computed);
-        const keyKind = keyKindFor(pd.key, pd.computed);
+      } else if (
+        m.type === 'PropertyDefinition' ||
+        m.type === 'TSAbstractPropertyDefinition' ||
+        m.type === 'AccessorProperty' ||
+        m.type === 'TSAbstractAccessorProperty'
+      ) {
+        const pd = m as PropertyDefinition | AccessorProperty;
+        const name: string = memberDisplayName(pd.key, pd.computed);
+        const key = memberKey(pd.key, pd.computed, 0);
         const mods = extractModifiers(pd);
-        if (m.type === 'TSAbstractPropertyDefinition' && !mods.includes('abstract')) {
-          mods.push('abstract');
+        if (m.type === 'TSAbstractPropertyDefinition' || m.type === 'TSAbstractAccessorProperty') {
+          if (!mods.includes('abstract')) mods.push('abstract');
         }
-        const returnType = typeText(pd.typeAnnotation);
-        const initNode = pd.value;
+        if (m.type === 'AccessorProperty' || m.type === 'TSAbstractAccessorProperty') {
+          mods.push('accessor');
+        }
+        const returnType = typeText((pd as { typeAnnotation?: TSTypeAnnotation | null }).typeAnnotation);
+        const initNode = (pd as { value?: unknown }).value;
         const initializer = initNode
-          ? convertExpression(initNode as unknown as Record<string, unknown>)
+          ? convertExpression(initNode)
           : undefined;
-        const decos = extractDecorators(pd.decorators ?? []);
+        const decos = extractDecorators((pd as { decorators?: readonly OxcDecorator[] }).decorators ?? []);
         const s: ExtractedSymbol = {
           kind: 'property',
           name,
@@ -611,7 +695,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           returnType,
           initializer,
         };
-        if (keyKind) s.keyKind = keyKind;
+        if (key) s.key = key;
         if (decos.length > 0) s.decorators = decos;
         members.push(s);
       }
@@ -624,8 +708,8 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     for (const m of bodyNodes) {
       if (m.type === 'TSMethodSignature') {
         const ms = m as TSMethodSignature;
-        const name: string = memberKeyName(ms.key, ms.computed);
-        const keyKind = keyKindFor(ms.key, ms.computed);
+        const name: string = memberDisplayName(ms.key, ms.computed);
+        const key = memberKey(ms.key, ms.computed, 0);
         const params = ms.params.map(extractParam);
         const returnType = typeText(ms.returnType);
         const s: ExtractedSymbol = {
@@ -638,12 +722,12 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           parameters: params.length > 0 ? params : undefined,
           returnType,
         };
-        if (keyKind) s.keyKind = keyKind;
+        if (key) s.key = key;
         members.push(s);
       } else if (m.type === 'TSPropertySignature') {
         const ps = m as TSPropertySignature;
-        const name: string = memberKeyName(ps.key, ps.computed);
-        const keyKind = keyKindFor(ps.key, ps.computed);
+        const name: string = memberDisplayName(ps.key, ps.computed);
+        const key = memberKey(ps.key, ps.computed, 0);
         const typeAnn = typeText(ps.typeAnnotation);
         const s: ExtractedSymbol = {
           kind: 'property',
@@ -653,7 +737,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           modifiers: ps.readonly ? ['readonly'] : [],
           returnType: typeAnn,
         };
-        if (keyKind) s.keyKind = keyKind;
+        if (key) s.key = key;
         members.push(s);
       }
     }
@@ -747,7 +831,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
             params = rawParams.map(extractParam);
             returnType = typeText(fnInit.returnType);
           } else {
-            initializer = convertExpression(init as unknown as Record<string, unknown>);
+            initializer = convertExpression(init);
           }
         }
         const mods: Modifier[] = [];
@@ -806,15 +890,13 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       const rawMembers: readonly TSEnumMember[] = enumDecl.body.members;
       const members: ExtractedSymbol[] = rawMembers.map((m) => {
         const memberId = m.id;
+        const isLiteral = memberId.type !== 'Identifier';
         const memberName: string = ('name' in memberId && typeof memberId.name === 'string')
           ? memberId.name
           : ('value' in memberId && typeof memberId.value === 'string')
             ? memberId.value
             : 'unknown';
-        const initNode = m.initializer;
-        const initializer = initNode
-          ? convertExpression(initNode as unknown as Record<string, unknown>)
-          : undefined;
+        const initializer = m.initializer ? convertExpression(m.initializer) : undefined;
         const sym: ExtractedSymbol = {
           kind: 'property' as SymbolKind,
           name: memberName,
@@ -822,6 +904,11 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           isExported: false,
           modifiers: [],
         };
+        if (isLiteral) {
+          // Enum members can have string-literal IDs (e.g. `enum E { 'foo' = 1 }`).
+          // Preserve via the same `key` model used elsewhere.
+          sym.key = keyExpressionFor(memberId, 0);
+        }
         if (initializer) sym.initializer = initializer;
         return sym;
       });

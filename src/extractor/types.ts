@@ -22,10 +22,16 @@ export type ExpressionValue =
   | ExpressionTemplate
   | ExpressionUnresolvable;
 
-export interface ExpressionLiteral {
-  kind: 'string' | 'number' | 'boolean' | 'null' | 'undefined';
-  value: string | number | boolean | null;
-}
+export type ExpressionLiteral =
+  | { kind: 'string'; value: string }
+  | { kind: 'number'; value: number }
+  | { kind: 'boolean'; value: boolean }
+  | { kind: 'null'; value: null }
+  | { kind: 'undefined'; value: null }
+  /** BigInt literal — value is the numeric portion as a string (e.g. `'42'` for `42n`). */
+  | { kind: 'bigint'; value: string }
+  /** Regular-expression literal — value is the full source form (e.g. `'/foo/g'`). */
+  | { kind: 'regex'; value: string };
 
 export interface ExpressionIdentifier {
   kind: 'identifier';
@@ -63,15 +69,54 @@ export interface ExpressionNew {
 
 export interface ExpressionObject {
   kind: 'object';
-  properties: ExpressionObjectProperty[];
+  /** Properties of the object literal, in source order. Each entry is either
+   *  a key/value property or a spread element (`...x`). */
+  properties: ExpressionObjectEntry[];
 }
 
+/** An entry inside an object literal — either a normal key/value property
+ *  or a spread (`...x`). The spread variant reuses {@link ExpressionSpread}
+ *  since the runtime shape is identical to spreads elsewhere. */
+export type ExpressionObjectEntry = ExpressionObjectProperty | ExpressionSpread;
+
 export interface ExpressionObjectProperty {
-  key: string;
+  kind: 'property';
+  /**
+   * Property key. Static identifier keys (`{ foo: 1 }`) and string-literal keys
+   * (`{ 'foo': 1 }`) are both encoded as `{ kind: 'string', value: 'foo' }`
+   * (their runtime semantics are identical). Numeric keys use `kind: 'number'`.
+   * Computed keys (`{ [expr]: 1 }`) carry the structured expression
+   * (with `importSource` resolution where applicable). Private (`#name`)
+   * is *not* valid in object literals and never appears here.
+   */
+  key: KeyExpression;
   value: ExpressionValue;
-  computed?: boolean;
+  /** True when written in shorthand form `{ x }` (equivalent to `{ x: x }`). */
   shorthand?: boolean;
 }
+
+/**
+ * Any `ExpressionValue` that can appear as a key — every variant except
+ * `spread` (which is not a valid key form anywhere). Used for object literal
+ * keys, computed class/interface member keys, and enum literal-id keys.
+ */
+export type KeyExpression = Exclude<ExpressionValue, ExpressionSpread>;
+
+/**
+ * Form of a key for class/interface members and enum members.
+ *
+ * - `{ kind: 'private' }` — `#name` private identifier key (class members only).
+ *   The owning symbol's `name` field carries the full `#name` source form.
+ * - Otherwise — a `KeyExpression` carrying the structured key form. For
+ *   computed keys (`[expr]`), the inner expression's `importSource` is
+ *   resolved when it is an imported identifier.
+ *
+ * Object literal property keys use {@link KeyExpression} directly (private
+ * keys are not valid in object literals).
+ */
+export type SymbolKey =
+  | { kind: 'private' }
+  | KeyExpression;
 
 export interface ExpressionArray {
   kind: 'array';
@@ -137,7 +182,10 @@ export type Modifier =
   | 'public'
   | 'override'
   | 'declare'
-  | 'const';
+  | 'const'
+  /** TC39 auto-accessor: `accessor x = 1`. Marks `AccessorProperty` /
+   *  `TSAbstractAccessorProperty` class members. */
+  | 'accessor';
 
 /**
  * A function/method parameter.
@@ -231,14 +279,20 @@ export interface ExtractedSymbol {
   /** For methods: distinguishes `'method'`, `'getter'`, `'setter'`, or `'constructor'`. */
   methodKind?: 'method' | 'getter' | 'setter' | 'constructor';
   /**
-   * Syntactic form of a class/interface member key. Omitted for plain identifier
-   * keys (the default). Distinguishes:
-   * - `'private'` — `#name` (PrivateIdentifier). `name` field is the bare name without `#`.
-   * - `'literal'` — string-literal key, e.g. `'my-method'() {}`. `name` is the literal value.
-   * - `'computed'` — `[expr]` key. `name` is the source text of the bracket expression
-   *   (e.g. `'[Symbol.iterator]'`).
+   * Form of the member key when it is not a plain identifier. Omitted for
+   * identifier-keyed members (`name` carries the identifier in that case).
+   *
+   * - `{ kind: 'private' }` — `#name` private member. `name` carries the
+   *   full source form including `#` (e.g. `'#secret'`).
+   * - `{ kind: 'string' | 'number' | 'bigint', value }` — non-computed
+   *   literal key (e.g. `'my-method'() {}`, `42 = 'x'`).
+   * - any other `ExpressionValue` shape — computed key `[expr]`, with
+   *   the inner expression's structure (and `importSource` resolution
+   *   for imported identifiers) preserved.
+   *
+   * For object literal property keys, see {@link ExpressionObjectProperty.key}.
    */
-  keyKind?: 'private' | 'literal' | 'computed';
+  key?: SymbolKey;
 
   /** Function/method parameters. Present for functions, methods, and constructors. */
   parameters?: Parameter[];

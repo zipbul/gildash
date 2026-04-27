@@ -14,7 +14,7 @@ export type { PatternMatch, PatternCapture } from "./search/pattern-search";
 
 export type { IndexResult } from "./indexer/index-coordinator";
 export type { ProjectBoundary } from "./common/project-discovery";
-export type { CodeRelation, ExtractedSymbol, SymbolKind, Decorator, Parameter, Heritage, Modifier, JsDocBlock, JsDocTag, ExpressionValue, ExpressionLiteral, ExpressionIdentifier, ExpressionMember, ExpressionCall, ExpressionNew, ExpressionObject, ExpressionObjectProperty, ExpressionArray, ExpressionSpread, ExpressionFunction, ExpressionTemplate, ExpressionUnresolvable } from "./extractor/types";
+export type { CodeRelation, ExtractedSymbol, SymbolKey, KeyExpression, SymbolKind, Decorator, Parameter, Heritage, Modifier, JsDocBlock, JsDocTag, ExpressionValue, ExpressionLiteral, ExpressionIdentifier, ExpressionMember, ExpressionCall, ExpressionNew, ExpressionObject, ExpressionObjectEntry, ExpressionObjectProperty, ExpressionArray, ExpressionSpread, ExpressionFunction, ExpressionTemplate, ExpressionUnresolvable } from "./extractor/types";
 export type { SymbolStats } from "./store/repositories/symbol.repository";
 export type { WatcherRole, FileChangeEvent } from "./watcher/types";
 export type { ParsedFile } from "./parser/types";
