@@ -813,15 +813,15 @@ describe('extractSymbols', () => {
 
   // ─── AST edge cases ────────────────────────────────────────────────
 
-  it('should set member name to "unknown" when class has computed property name', () => {
+  it('should set member name to source text and keyKind to "computed" when class has computed property name', () => {
     const parsed = makeFixture(`class C { [Symbol.iterator]() {} }`);
     const symbols = extractSymbols(parsed);
     const cls = symbols.find((s) => s.name === 'C');
-    // oxc-parser emits key as MemberExpression for computed properties,
-    // so key.name is undefined and extractClassMembers falls back to 'unknown'
-    const member = cls?.members?.find((m) => m.name === 'unknown');
+    const member = cls?.members?.find((m) => m.keyKind === 'computed');
     expect(member).toBeDefined();
     expect(member!.kind).toBe('method');
+    expect(member!.name).toBe('Symbol.iterator');
+    expect(member!.keyKind).toBe('computed');
   });
 
   it('should extract class method overload signatures as separate members', () => {
@@ -1657,6 +1657,109 @@ describe('extractSymbols', () => {
   });
 
   // ─── ExpressionValue: Depth limit ────────────────────────────────────
+
+  describe('member keyKind', () => {
+    it('should omit keyKind for plain identifier method keys', () => {
+      const parsed = makeFixture(`class C { foo() {} }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const foo = cls.members!.find((m) => m.name === 'foo')!;
+      expect(foo.keyKind).toBeUndefined();
+    });
+
+    it('should set keyKind to "private" and strip # from name for #private methods', () => {
+      const parsed = makeFixture(`class C { #secret() {} }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const m = cls.members!.find((x) => x.keyKind === 'private')!;
+      expect(m).toBeDefined();
+      expect(m.name).toBe('secret');
+      expect(m.keyKind).toBe('private');
+      expect(m.kind).toBe('method');
+    });
+
+    it('should set keyKind to "private" for #private properties', () => {
+      const parsed = makeFixture(`class C { #count = 0; }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const p = cls.members!.find((x) => x.keyKind === 'private')!;
+      expect(p).toBeDefined();
+      expect(p.name).toBe('count');
+      expect(p.keyKind).toBe('private');
+      expect(p.kind).toBe('property');
+    });
+
+    it('should set keyKind to "literal" for string-literal method keys', () => {
+      const parsed = makeFixture(`class C { 'my-method'() {} }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const m = cls.members!.find((x) => x.keyKind === 'literal')!;
+      expect(m).toBeDefined();
+      expect(m.name).toBe('my-method');
+      expect(m.keyKind).toBe('literal');
+      expect(m.kind).toBe('method');
+    });
+
+    it('should set keyKind to "literal" for numeric-literal property keys', () => {
+      const parsed = makeFixture(`class C { 42 = 'answer'; }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const p = cls.members!.find((x) => x.keyKind === 'literal')!;
+      expect(p).toBeDefined();
+      expect(p.name).toBe('42');
+      expect(p.keyKind).toBe('literal');
+    });
+
+    it('should set keyKind to "computed" and use source text for computed property names', () => {
+      const parsed = makeFixture(`const KEY = 'k'; class C { [KEY]: string = ''; }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const p = cls.members!.find((x) => x.keyKind === 'computed')!;
+      expect(p).toBeDefined();
+      expect(p.name).toBe('KEY');
+      expect(p.keyKind).toBe('computed');
+      expect(p.kind).toBe('property');
+    });
+
+    it('should set keyKind to "computed" for member-expression computed method keys', () => {
+      const parsed = makeFixture(`class C { [Symbol.asyncIterator]() {} }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const m = cls.members!.find((x) => x.keyKind === 'computed')!;
+      expect(m).toBeDefined();
+      expect(m.name).toBe('Symbol.asyncIterator');
+      expect(m.keyKind).toBe('computed');
+    });
+
+    it('should set keyKind to "computed" for interface computed method signatures', () => {
+      const parsed = makeFixture(`interface I { [Symbol.iterator](): void; }`);
+      const iface = extractSymbols(parsed).find((s) => s.name === 'I')!;
+      const m = iface.members!.find((x) => x.keyKind === 'computed')!;
+      expect(m).toBeDefined();
+      expect(m.name).toBe('Symbol.iterator');
+      expect(m.keyKind).toBe('computed');
+      expect(m.kind).toBe('method');
+    });
+
+    it('should set keyKind to "literal" for interface string-literal property signatures', () => {
+      const parsed = makeFixture(`interface I { 'x-header': string; }`);
+      const iface = extractSymbols(parsed).find((s) => s.name === 'I')!;
+      const p = iface.members!.find((x) => x.keyKind === 'literal')!;
+      expect(p).toBeDefined();
+      expect(p.name).toBe('x-header');
+      expect(p.keyKind).toBe('literal');
+      expect(p.kind).toBe('property');
+    });
+
+    it('should omit keyKind for plain identifier interface property signatures', () => {
+      const parsed = makeFixture(`interface I { foo: string; }`);
+      const iface = extractSymbols(parsed).find((s) => s.name === 'I')!;
+      const p = iface.members!.find((m) => m.name === 'foo')!;
+      expect(p.keyKind).toBeUndefined();
+    });
+
+    it('should set keyKind to "private" for abstract private-like method declarations', () => {
+      // Abstract methods cannot be private in TS, but verify abstract path still works for plain keys
+      const parsed = makeFixture(`abstract class C { abstract foo(): void; }`);
+      const cls = extractSymbols(parsed).find((s) => s.name === 'C')!;
+      const m = cls.members!.find((x) => x.name === 'foo')!;
+      expect(m.keyKind).toBeUndefined();
+      expect(m.modifiers).toContain('abstract');
+    });
+  });
 
   describe('expression depth limit', () => {
     it('should fall back to unresolvable when nesting exceeds depth limit', () => {

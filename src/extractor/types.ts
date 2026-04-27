@@ -230,6 +230,15 @@ export interface ExtractedSymbol {
   isExported: boolean;
   /** For methods: distinguishes `'method'`, `'getter'`, `'setter'`, or `'constructor'`. */
   methodKind?: 'method' | 'getter' | 'setter' | 'constructor';
+  /**
+   * Syntactic form of a class/interface member key. Omitted for plain identifier
+   * keys (the default). Distinguishes:
+   * - `'private'` — `#name` (PrivateIdentifier). `name` field is the bare name without `#`.
+   * - `'literal'` — string-literal key, e.g. `'my-method'() {}`. `name` is the literal value.
+   * - `'computed'` — `[expr]` key. `name` is the source text of the bracket expression
+   *   (e.g. `'[Symbol.iterator]'`).
+   */
+  keyKind?: 'private' | 'literal' | 'computed';
 
   /** Function/method parameters. Present for functions, methods, and constructors. */
   parameters?: Parameter[];

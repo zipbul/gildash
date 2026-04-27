@@ -57,7 +57,11 @@ import { isErr } from '@zipbul/result';
 /** Extract the name string from an oxc PropertyKey node. */
 function keyName(key: OxcPropertyKey): string {
   if ('name' in key && typeof key.name === 'string') return key.name;
-  if ('value' in key && typeof key.value === 'string') return key.value;
+  if ('value' in key) {
+    const v = (key as { value: unknown }).value;
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number' || typeof v === 'bigint' || typeof v === 'boolean') return String(v);
+  }
   return 'unknown';
 }
 
@@ -146,6 +150,21 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
   const stmtStarts = program.body
     .map((s) => s.start)
     .sort((a, b) => a - b);
+
+  function keyKindFor(
+    key: OxcPropertyKey,
+    computed: boolean,
+  ): ExtractedSymbol['keyKind'] {
+    if (computed) return 'computed';
+    if (key.type === 'PrivateIdentifier') return 'private';
+    if (key.type === 'Identifier') return undefined;
+    return 'literal';
+  }
+
+  function memberKeyName(key: OxcPropertyKey, computed: boolean): string {
+    if (computed) return sourceText.slice(key.start as number, key.end as number);
+    return keyName(key);
+  }
 
   function span(start: number, end: number): SourceSpan {
     return {
@@ -537,7 +556,8 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     for (const m of bodyNodes) {
       if (m.type === 'MethodDefinition' || m.type === 'TSAbstractMethodDefinition') {
         const md = m as MethodDefinition;
-        const name: string = keyName(md.key);
+        const name: string = memberKeyName(md.key, md.computed);
+        const keyKind = keyKindFor(md.key, md.computed);
         const fnValue = md.value;
         const rawKind: string = md.kind;
         const methodKind =
@@ -565,11 +585,13 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           parameters: params.length > 0 ? params : undefined,
           returnType,
         };
+        if (keyKind) s.keyKind = keyKind;
         if (decos.length > 0) s.decorators = decos;
         members.push(s);
       } else if (m.type === 'PropertyDefinition' || m.type === 'TSAbstractPropertyDefinition') {
         const pd = m as PropertyDefinition;
-        const name: string = keyName(pd.key);
+        const name: string = memberKeyName(pd.key, pd.computed);
+        const keyKind = keyKindFor(pd.key, pd.computed);
         const mods = extractModifiers(pd);
         if (m.type === 'TSAbstractPropertyDefinition' && !mods.includes('abstract')) {
           mods.push('abstract');
@@ -589,6 +611,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           returnType,
           initializer,
         };
+        if (keyKind) s.keyKind = keyKind;
         if (decos.length > 0) s.decorators = decos;
         members.push(s);
       }
@@ -601,10 +624,11 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     for (const m of bodyNodes) {
       if (m.type === 'TSMethodSignature') {
         const ms = m as TSMethodSignature;
-        const name: string = keyName(ms.key);
+        const name: string = memberKeyName(ms.key, ms.computed);
+        const keyKind = keyKindFor(ms.key, ms.computed);
         const params = ms.params.map(extractParam);
         const returnType = typeText(ms.returnType);
-        members.push({
+        const s: ExtractedSymbol = {
           kind: 'method',
           name,
           span: span(m.start, m.end),
@@ -613,10 +637,13 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           methodKind: 'method',
           parameters: params.length > 0 ? params : undefined,
           returnType,
-        });
+        };
+        if (keyKind) s.keyKind = keyKind;
+        members.push(s);
       } else if (m.type === 'TSPropertySignature') {
         const ps = m as TSPropertySignature;
-        const name: string = keyName(ps.key);
+        const name: string = memberKeyName(ps.key, ps.computed);
+        const keyKind = keyKindFor(ps.key, ps.computed);
         const typeAnn = typeText(ps.typeAnnotation);
         const s: ExtractedSymbol = {
           kind: 'property',
@@ -626,6 +653,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           modifiers: ps.readonly ? ['readonly'] : [],
           returnType: typeAnn,
         };
+        if (keyKind) s.keyKind = keyKind;
         members.push(s);
       }
     }
