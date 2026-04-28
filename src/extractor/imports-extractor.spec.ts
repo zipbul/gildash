@@ -787,8 +787,8 @@ describe('extractImports', () => {
     expect(meta.isExternal).toBe(true);
   });
 
-  // 40. [HP] resolved import should NOT have specifier field
-  it('should not include specifier field when import is resolved to a file path', () => {
+  // 40. [HP] resolved import preserves the verbatim specifier
+  it('should preserve the verbatim source specifier when import is resolved to a file path', () => {
     mockResolveImport.mockReturnValue([RESOLVED]);
 
     const ast = fakeAst([
@@ -805,7 +805,7 @@ describe('extractImports', () => {
 
     expect(relations).toHaveLength(1);
     expect(relations[0]!.dstFilePath).toBe(RESOLVED);
-    expect(relations[0]!.specifier).toBeUndefined();
+    expect(relations[0]!.specifier).toBe('./bar');
   });
 
   // --- REQ: require() and require.resolve() ---
@@ -1745,5 +1745,127 @@ describe('extractImports', () => {
     expect(namedReExport!.type).toBe('re-exports');
     const namedMeta = JSON.parse(namedReExport!.metaJson!);
     expect(namedMeta.specifiers).toEqual([{ local: 'Y', exported: 'Z' }]);
+  });
+
+  describe('specifier preservation (verbatim source specifier)', () => {
+    it('should preserve the verbatim relative specifier when an import is resolved to a local file', () => {
+      mockResolveImport.mockReturnValue([RESOLVED]);
+      const ast = fakeAst([{
+        type: 'ImportDeclaration',
+        source: { value: './local' },
+        importKind: 'value',
+        specifiers: [{ type: 'ImportSpecifier', imported: { name: 'X' }, local: { name: 'X' }, importKind: 'value' }],
+      }]);
+      const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+      expect(relations).toHaveLength(1);
+      expect(relations[0]!.dstFilePath).toBe(RESOLVED);
+      expect(relations[0]!.specifier).toBe('./local');
+    });
+
+    it('should preserve the verbatim alias specifier when resolver returns an absolute path', () => {
+      mockResolveImport.mockReturnValue(['/abs/src/foo.ts']);
+      const ast = fakeAst([{
+        type: 'ImportDeclaration',
+        source: { value: '@app/foo' },
+        importKind: 'value',
+        specifiers: [{ type: 'ImportSpecifier', imported: { name: 'Foo' }, local: { name: 'Foo' }, importKind: 'value' }],
+      }]);
+      const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+      expect(relations).toHaveLength(1);
+      expect(relations[0]!.dstFilePath).toBe('/abs/src/foo.ts');
+      expect(relations[0]!.specifier).toBe('@app/foo');
+    });
+
+    it('should preserve the verbatim specifier when import is a side-effect-only statement', () => {
+      mockResolveImport.mockReturnValue([RESOLVED]);
+      const ast = fakeAst([{
+        type: 'ImportDeclaration',
+        source: { value: './side-effect' },
+        importKind: 'value',
+        specifiers: [],
+      }]);
+      const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+      expect(relations).toHaveLength(1);
+      expect(relations[0]!.specifier).toBe('./side-effect');
+      expect(relations[0]!.srcSymbolName).toBeNull();
+      expect(relations[0]!.dstSymbolName).toBeNull();
+    });
+
+    it('should preserve the verbatim specifier when re-export with `from` is resolved', () => {
+      mockResolveImport.mockReturnValue([RESOLVED]);
+      const ast = fakeAst([{
+        type: 'ExportNamedDeclaration',
+        source: { value: './reexport' },
+        exportKind: 'value',
+        specifiers: [{ type: 'ExportSpecifier', local: { name: 'a' }, exported: { name: 'b' }, exportKind: 'value' }],
+      }]);
+      const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+      expect(relations).toHaveLength(1);
+      const reExport = relations[0]!;
+      expect(reExport.type).toBe('re-exports');
+      expect(reExport.dstFilePath).toBe(RESOLVED);
+      expect(reExport.specifier).toBe('./reexport');
+    });
+
+    it('should preserve the verbatim specifier when export-all is resolved', () => {
+      mockResolveImport.mockReturnValue([RESOLVED]);
+      const ast = fakeAst([{
+        type: 'ExportAllDeclaration',
+        source: { value: './all-of-them' },
+        exportKind: 'value',
+        exported: null,
+      }]);
+      const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+      expect(relations).toHaveLength(1);
+      const reExport = relations[0]!;
+      expect(reExport.type).toBe('re-exports');
+      expect(reExport.dstFilePath).toBe(RESOLVED);
+      expect(reExport.specifier).toBe('./all-of-them');
+    });
+
+    it('should preserve the verbatim specifier when type-only import is resolved', () => {
+      mockResolveImport.mockReturnValue([RESOLVED]);
+      const ast = fakeAst([{
+        type: 'ImportDeclaration',
+        source: { value: './types' },
+        importKind: 'type',
+        specifiers: [{ type: 'ImportSpecifier', imported: { name: 'T' }, local: { name: 'T' }, importKind: 'type' }],
+      }]);
+      const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+      expect(relations).toHaveLength(1);
+      expect(relations[0]!.type).toBe('type-references');
+      expect(relations[0]!.dstFilePath).toBe(RESOLVED);
+      expect(relations[0]!.specifier).toBe('./types');
+    });
+
+    it('should preserve the verbatim specifier when dynamic import() is resolved', () => {
+      mockResolveImport.mockReturnValue([RESOLVED]);
+      mockVisitImpl = () => {
+        capturedVisitorCallbacks.ImportExpression?.({ type: 'ImportExpression', source: { type: 'Literal', value: './dynamic' } });
+      };
+      const ast = fakeAst([]);
+      const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+      expect(relations).toHaveLength(1);
+      expect(relations[0]!.dstFilePath).toBe(RESOLVED);
+      expect(relations[0]!.specifier).toBe('./dynamic');
+      expect(JSON.parse(relations[0]!.metaJson!).isDynamic).toBe(true);
+    });
+
+    it('should preserve the verbatim specifier when require() is resolved', () => {
+      mockResolveImport.mockReturnValue([RESOLVED]);
+      mockVisitImpl = () => {
+        capturedVisitorCallbacks.CallExpression?.({
+          type: 'CallExpression',
+          callee: { type: 'Identifier', name: 'require' },
+          arguments: [{ type: 'Literal', value: './required' }],
+        });
+      };
+      const ast = fakeAst([]);
+      const relations = extractImports(ast, FILE, undefined, mockResolveImport);
+      expect(relations).toHaveLength(1);
+      expect(relations[0]!.dstFilePath).toBe(RESOLVED);
+      expect(relations[0]!.specifier).toBe('./required');
+      expect(JSON.parse(relations[0]!.metaJson!).isRequire).toBe(true);
+    });
   });
 });

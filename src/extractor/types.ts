@@ -361,7 +361,26 @@ export interface CodeRelation {
   metaJson?: string;
   /** Parsed metadata object derived from `metaJson`. */
   meta?: Record<string, unknown>;
-  /** Raw import specifier (e.g. `'lodash'`, `'./missing'`). Present for unresolved/external imports. */
+  /**
+   * Verbatim module specifier text as written in the source — `'./foo'`,
+   * `'@zipbul/core'`, `'lodash'`, etc. Always present on any
+   * module-source-bearing relation: `'imports'`, `'re-exports'`,
+   * `'type-references'` (any typed import or typed re-export — including
+   * bare re-exports cross-referenced through an existing typed import),
+   * dynamic `import(...)`, and `require(...)`. Preserved regardless of
+   * whether `dstFilePath` was successfully resolved, so consumers can
+   * reconstruct the original import form without reverse-engineering
+   * tsconfig paths, package `exports` maps, or relative-path normalization.
+   *
+   * For bare re-exports (`export { x };`) where `x` was previously imported,
+   * the relation cross-references the originating import statement and
+   * `specifier` carries that import's source text. Bare re-exports that
+   * cannot be cross-referenced are *not emitted* as relations at all
+   * (rather than emitted with `specifier` absent).
+   *
+   * Absent only on relations with no associated module source — `'calls'`,
+   * `'extends'`, `'implements'`.
+   */
   specifier?: string;
 }
 
