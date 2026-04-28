@@ -260,7 +260,8 @@ try {
 | `hasCycle(project?)` | `Promise<boolean>` | 순환 의존성 감지 |
 | `getCyclePaths(project?, opts?)` | `Promise<string[][]>` | 모든 순환 경로 (Tarjan SCC + Johnson's). `opts.maxCycles`로 개수 제한 가능. |
 | `getImportGraph(project?)` | `Promise<Map>` | 전체 인접 리스트 |
-| `getTransitiveDependencies(filePath)` | `Promise<string[]>` | 전방 전이적 BFS |
+| `getTransitiveDependencies(filePath)` | `Promise<string[]>` | 전방 전이적 BFS (이 파일이 의존하는 파일들) |
+| `getTransitiveDependents(filePath)` | `Promise<string[]>` | 역방향 전이적 BFS (이 파일에 의존하는 파일들) |
 
 ### 분석
 
@@ -277,12 +278,40 @@ try {
 
 `semantic: true`로 열어야 사용 가능.
 
+#### 심볼 이름 기반
+
 | 메서드 | 반환 타입 | 설명 |
 |--------|-----------|------|
 | `getResolvedType(name, filePath)` | `ResolvedType \| null` | tsc TypeChecker로 resolved type 조회 |
 | `getSemanticReferences(name, filePath)` | `SemanticReference[]` | 심볼의 모든 참조 위치 |
 | `getImplementations(name, filePath)` | `Implementation[]` | 인터페이스/추상 클래스 구현체 |
 | `getSemanticModuleInterface(filePath)` | `SemanticModuleInterface` | 모듈 export 목록 + resolved type |
+| `isTypeAssignableTo(opts)` | `boolean` | 두 심볼 타입 간 할당 가능성 |
+| `isTypeAssignableToType(opts)` | `boolean` | 심볼 타입을 임의 타입 문자열에 할당 가능한지 |
+
+#### 라인/컬럼 또는 바이트 위치 기반
+
+| 메서드 | 반환 타입 | 설명 |
+|--------|-----------|------|
+| `getResolvedTypeAt(filePath, line, column)` | `ResolvedType \| null` | 라인/컬럼 위치의 resolved type |
+| `isTypeAssignableToAt(opts)` | `boolean` | 두 라인/컬럼 위치 간 할당 가능성 |
+| `getResolvedTypeAtPosition(filePath, position)` | `ResolvedType \| null` | 바이트 위치의 resolved type |
+| `getResolvedTypesAtPositions(filePath, positions)` | `Map<number, ResolvedType>` | 여러 위치의 resolved type 일괄 조회 |
+| `getSemanticReferencesAtPosition(filePath, position)` | `SemanticReference[]` | 바이트 위치 심볼의 참조 |
+| `getImplementationsAtPosition(filePath, position)` | `Implementation[]` | 바이트 위치 심볼의 구현체 |
+| `isTypeAssignableToAtPosition(opts)` | `boolean` | 두 바이트 위치 간 할당 가능성 |
+| `isTypeAssignableToTypeAtPositions(opts)` | `boolean` | 위치 → 임의 타입 문자열 할당 가능성 |
+
+#### 파일 단위 / 유틸 / 진단
+
+| 메서드 | 반환 타입 | 설명 |
+|--------|-----------|------|
+| `getFileTypes(filePath)` | `Map<number, ResolvedType>` | 파일 내 모든 심볼의 resolved type |
+| `getSymbolNode(filePath, position)` | `SymbolNode \| null` | 위치의 심볼 그래프 노드 |
+| `getBaseTypes(filePath, position)` | `ResolvedType[] \| null` | 위치 심볼의 직접 베이스 타입들 |
+| `lineColumnToPosition(filePath, line, column)` | `number \| null` | 라인/컬럼 → 바이트 오프셋 변환 |
+| `findNamePosition(filePath, declarationPos, name)` | `number \| null` | 선언 내 식별자의 바이트 위치 탐색 |
+| `getSemanticDiagnostics(filePath, opts?)` | `SemanticDiagnostic[]` | 파일의 tsc 진단 |
 
 `getFullSymbol()`은 semantic 활성 시 자동으로 `resolvedType` 필드를 보강합니다.
 `searchSymbols({ resolvedType })`로 resolved type 문자열 기반 필터링이 가능합니다.
@@ -331,23 +360,37 @@ interface SymbolSearchQuery {
   filePath?: string;    // 파일 경로 필터
   isExported?: boolean; // export 여부
   project?: string;     // 프로젝트 이름
-  limit?: number;       // 최대 결과 수 (기본값: 100)
+  limit?: number;       // 미지정 시 limit 미적용 (전체 결과)
   decorator?: string;   // 데코레이터 이름 필터
   regex?: string;       // 정규식 패턴 필터
+  resolvedType?: string;  // 시맨틱 레이어 필터 (`semantic: true` 필요)
 }
 
 interface CodeRelation {
   type: 'imports' | 'type-references' | 're-exports' | 'calls' | 'extends' | 'implements';
   srcFilePath: string;
   srcSymbolName: string | null;
-  dstFilePath: string;
+  /** 외부 패키지 / 미해상 import 의 경우 `null`. */
+  dstFilePath: string | null;
   dstSymbolName: string | null;
   meta?: Record<string, unknown>;
+  /**
+   * 소스에 적힌 모듈 specifier 원문(`'./foo'`, `'@zipbul/core'`, `'lodash'`).
+   * 모듈 source 가 있는 모든 관계(`'imports'`, `'re-exports'`, `'type-references'`,
+   * 동적 `import()`, `require()`)에서 `dstFilePath` 해상 여부와 무관하게 항상 보존.
+   * `'calls'` / `'extends'` / `'implements'` 관계에서만 부재.
+   */
+  specifier?: string;
 }
 
-/** 목적지 프로젝트 식별자가 추가된 CodeRelation */
-interface StoredCodeRelation extends CodeRelation {
-  dstProject: string;
+/** 목적지 프로젝트 식별자와 외부 플래그가 추가된 CodeRelation. */
+interface StoredCodeRelation extends Omit<CodeRelation, 'specifier'> {
+  /** 목적지 프로젝트, 또는 cross-project / 미해상 시 `null`. */
+  dstProject: string | null;
+  /** 외부 패키지(bare specifier) 여부. */
+  isExternal: boolean;
+  /** 원문 specifier (`CodeRelation.specifier` 참고); `'calls'` / `'extends'` / `'implements'` 에서만 `null`. */
+  specifier: string | null;
 }
 
 interface IndexResult {
@@ -355,14 +398,25 @@ interface IndexResult {
   removedFiles: number;
   totalSymbols: number;
   totalRelations: number;
+  totalAnnotations: number;
   durationMs: number;
   changedFiles: string[];
   deletedFiles: string[];
   failedFiles: string[];
+  /** 이전 인덱스 상태 대비 심볼 단위 diff. */
   changedSymbols: {
-    added: Array<{ name: string; filePath: string; kind: string }>;
-    modified: Array<{ name: string; filePath: string; kind: string }>;
-    removed: Array<{ name: string; filePath: string; kind: string }>;
+    added: Array<{ name: string; filePath: string; kind: string; isExported: boolean }>;
+    modified: Array<{ name: string; filePath: string; kind: string; isExported: boolean }>;
+    removed: Array<{ name: string; filePath: string; kind: string; isExported: boolean }>;
+  };
+  /** 이름이 바뀐 심볼 (구조적 fingerprint 매칭). */
+  renamedSymbols: Array<{ oldName: string; newName: string; filePath: string; kind: string; isExported: boolean }>;
+  /** 다른 파일로 이동한 심볼 (incremental 만; fingerprint 매칭). */
+  movedSymbols: Array<{ name: string; oldFilePath: string; newFilePath: string; kind: string; isExported: boolean }>;
+  /** 이전 인덱스 상태 대비 관계 단위 diff. */
+  changedRelations: {
+    added: Array<{ type: string; srcFilePath: string; dstFilePath: string | null; srcSymbolName: string | null; dstSymbolName: string | null; dstProject: string | null; metaJson: string | null }>;
+    removed: Array<{ type: string; srcFilePath: string; dstFilePath: string | null; srcSymbolName: string | null; dstSymbolName: string | null; dstProject: string | null; metaJson: string | null }>;
   };
 }
 
