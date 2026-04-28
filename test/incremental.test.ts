@@ -575,16 +575,16 @@ describe('External imports: isExternal and specifier', () => {
     expect(dynamicImport!.dstFilePath).toBeNull();
   });
 
-  it('should store specifier as null for resolved relative imports', async () => {
-    const projectDir = join(tmpDir, 'specifier-null-proj');
+  it('should preserve the verbatim source specifier when relative import is resolved', async () => {
+    const projectDir = join(tmpDir, 'specifier-resolved-proj');
     await mkdir(join(projectDir, 'src'), { recursive: true });
-    await writeFile(join(projectDir, 'package.json'), JSON.stringify({ name: 'spec-null-test' }));
+    await writeFile(join(projectDir, 'package.json'), JSON.stringify({ name: 'spec-resolved-test' }));
     await writeFile(join(projectDir, 'src', 'a.ts'), "import { b } from './b';");
     await writeFile(join(projectDir, 'src', 'b.ts'), 'export const b = 1;');
 
     const coordinator = new IndexCoordinator({
       projectRoot: projectDir,
-      boundaries: [{ dir: '.', project: 'spec-null-test' }],
+      boundaries: [{ dir: '.', project: 'spec-resolved-test' }],
       extensions: ['.ts'],
       ignorePatterns: [],
       dbConnection: db,
@@ -596,11 +596,38 @@ describe('External imports: isExternal and specifier', () => {
 
     await coordinator.fullIndex();
 
-    const relations = relationRepo.getOutgoing('spec-null-test', 'src/a.ts');
+    const relations = relationRepo.getOutgoing('spec-resolved-test', 'src/a.ts');
     const internalRel = relations.find(r => r.dstFilePath === 'src/b.ts');
     expect(internalRel).toBeDefined();
-    expect(internalRel!.specifier).toBeNull();
+    expect(internalRel!.specifier).toBe('./b');
     expect(internalRel!.isExternal).toBe(0);
+  });
+
+  it('should preserve the cross-referenced specifier when bare re-export refers to a previously-imported binding', async () => {
+    const projectDir = join(tmpDir, 'specifier-bare-reexport-proj');
+    await mkdir(join(projectDir, 'src'), { recursive: true });
+    await writeFile(join(projectDir, 'package.json'), JSON.stringify({ name: 'spec-bare-reexport-test' }));
+    await writeFile(join(projectDir, 'src', 'idx.ts'), "import { x } from './m';\nexport { x };");
+    await writeFile(join(projectDir, 'src', 'm.ts'), 'export const x = 1;');
+
+    const coordinator = new IndexCoordinator({
+      projectRoot: projectDir,
+      boundaries: [{ dir: '.', project: 'spec-bare-reexport-test' }],
+      extensions: ['.ts'],
+      ignorePatterns: [],
+      dbConnection: db,
+      parseCache: new ParseCache(100),
+      fileRepo,
+      symbolRepo,
+      relationRepo,
+    });
+
+    await coordinator.fullIndex();
+
+    const relations = relationRepo.getOutgoing('spec-bare-reexport-test', 'src/idx.ts');
+    const reExport = relations.find(r => r.type === 're-exports' && r.dstFilePath === 'src/m.ts');
+    expect(reExport).toBeDefined();
+    expect(reExport!.specifier).toBe('./m');
   });
 });
 

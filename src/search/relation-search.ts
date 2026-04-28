@@ -10,7 +10,14 @@ export interface StoredCodeRelation extends Omit<CodeRelation, 'specifier'> {
   dstProject: string | null;
   /** Whether this relation targets an external (bare specifier) package. */
   isExternal: boolean;
-  /** The raw import specifier string (e.g. `'lodash'`, `'./missing'`). `null` when the import was resolved to a file. */
+  /**
+   * Verbatim module specifier text as written in the source — `'./foo'`,
+   * `'@zipbul/core'`, `'lodash'`, etc. Preserved regardless of whether
+   * the import was successfully resolved to a file. `null` only on
+   * relations with no associated module source (`'calls'`, `'extends'`,
+   * `'implements'`). See {@link CodeRelation.specifier} for the full
+   * contract.
+   */
   specifier: string | null;
 }
 

@@ -300,7 +300,8 @@ Returns `Promise<Gildash>`. Throws `GildashError` on failure.
 | `hasCycle(project?)` | `Promise<boolean>` | Circular dependency check |
 | `getCyclePaths(project?, opts?)` | `Promise<string[][]>` | All cycle paths (Tarjan SCC + Johnson's). `opts.maxCycles` limits results. |
 | `getImportGraph(project?)` | `Promise<Map>` | Full adjacency list |
-| `getTransitiveDependencies(filePath)` | `Promise<string[]>` | Forward transitive BFS |
+| `getTransitiveDependencies(filePath)` | `Promise<string[]>` | Forward transitive BFS (files this depends on) |
+| `getTransitiveDependents(filePath)` | `Promise<string[]>` | Reverse transitive BFS (files that depend on this) |
 
 ### Analysis
 
@@ -330,12 +331,40 @@ Returns `Promise<Gildash>`. Throws `GildashError` on failure.
 
 Requires `semantic: true` at open time.
 
+#### By symbol name
+
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `getResolvedType(name, filePath)` | `ResolvedType \| null` | Resolved type via tsc TypeChecker |
 | `getSemanticReferences(name, filePath)` | `SemanticReference[]` | All references to a symbol |
 | `getImplementations(name, filePath)` | `Implementation[]` | Interface / abstract class implementations |
 | `getSemanticModuleInterface(filePath)` | `SemanticModuleInterface` | Module exports with resolved types |
+| `isTypeAssignableTo(opts)` | `boolean` | Whether one symbol's type is assignable to another's |
+| `isTypeAssignableToType(opts)` | `boolean` | Whether a symbol's type is assignable to an arbitrary type string |
+
+#### By line/column or byte position
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `getResolvedTypeAt(filePath, line, column)` | `ResolvedType \| null` | Resolved type at a line/column |
+| `isTypeAssignableToAt(opts)` | `boolean` | Assignability check between two line/column positions |
+| `getResolvedTypeAtPosition(filePath, position)` | `ResolvedType \| null` | Resolved type at a byte position |
+| `getResolvedTypesAtPositions(filePath, positions)` | `Map<number, ResolvedType>` | Batch type lookup across positions |
+| `getSemanticReferencesAtPosition(filePath, position)` | `SemanticReference[]` | References to the symbol at a position |
+| `getImplementationsAtPosition(filePath, position)` | `Implementation[]` | Implementations of the symbol at a position |
+| `isTypeAssignableToAtPosition(opts)` | `boolean` | Assignability check between two byte positions |
+| `isTypeAssignableToTypeAtPositions(opts)` | `boolean` | Assignability check from a position to an arbitrary type string |
+
+#### File-level / utilities / diagnostics
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `getFileTypes(filePath)` | `Map<number, ResolvedType>` | All resolved types for symbols in a file |
+| `getSymbolNode(filePath, position)` | `SymbolNode \| null` | Underlying symbol-graph node at a position |
+| `getBaseTypes(filePath, position)` | `ResolvedType[] \| null` | Direct base types of the symbol at a position |
+| `lineColumnToPosition(filePath, line, column)` | `number \| null` | Convert line/column to byte offset |
+| `findNamePosition(filePath, declarationPos, name)` | `number \| null` | Locate an identifier's byte offset within a declaration |
+| `getSemanticDiagnostics(filePath, opts?)` | `SemanticDiagnostic[]` | tsc diagnostics for a file |
 
 `getFullSymbol()` automatically enriches the result with a `resolvedType` field when semantic is enabled.
 `searchSymbols({ resolvedType })` filters symbols by their resolved type string.
@@ -378,56 +407,37 @@ Requires `semantic: true` at open time.
 interface SymbolSearchQuery {
   text?: string;        // FTS5 full-text query
   exact?: boolean;      // exact name match (not prefix)
-  kind?: SymbolKind;    // 'function' | 'method' | 'class' | 'variable' | 'type' | 'interface' | 'enum' | 'property'
+  kind?: SymbolKind;    // 'function' | 'method' | 'class' | 'variable' | 'type' | 'interface' | 'enum' | 'namespace' | 'property'
   filePath?: string;
   isExported?: boolean;
   project?: string;
-  limit?: number;       // default: 100
+  limit?: number;       // when omitted, no limit is applied
   decorator?: string;   // e.g. 'Injectable'
   regex?: string;       // regex applied to symbol name
+  resolvedType?: string;  // semantic-layer filter; requires `semantic: true`
 }
 
 interface SymbolSearchResult {
   id: number;
   filePath: string;
   kind: SymbolKind;
-  name: string;
+  name: string;                    // qualified for members, e.g. "ClassName.methodName"
+  memberName: string | null;       // unqualified member name, or null for top-level
   span: { start: { line: number; column: number }; end: { line: number; column: number } };
   isExported: boolean;
   signature: string | null;
   fingerprint: string | null;
-  detail: Record<string, unknown>;
+  detail: SymbolDetail;            // typed; see below
 }
 
-interface RelationSearchQuery {
-  srcFilePath?: string;
-  srcSymbolName?: string;
-  dstFilePath?: string;
-  dstSymbolName?: string;
-  dstProject?: string;  // filter by destination project
-  type?: 'imports' | 'type-references' | 're-exports' | 'calls' | 'extends' | 'implements';
-  project?: string;
-  limit?: number;       // default: 500
-}
-
-interface CodeRelation {
-  type: 'imports' | 'type-references' | 're-exports' | 'calls' | 'extends' | 'implements';
-  srcFilePath: string;
-  srcSymbolName: string | null;
-  dstFilePath: string;
-  dstSymbolName: string | null;
-  metaJson?: string;
-  meta?: Record<string, unknown>;   // auto-parsed from metaJson
-}
-
-/** CodeRelation enriched with the destination project identifier. */
-interface StoredCodeRelation extends CodeRelation {
-  dstProject: string;
-}
-
-// ── Analysis ────────────────────────────────────────────────────────────
-
-interface FullSymbol extends SymbolSearchResult {
+interface SymbolDetail {
+  parameters?: Parameter[];
+  returnType?: string;
+  heritage?: Array<{ kind: 'extends' | 'implements'; name: string; typeArguments?: string[] }>;
+  decorators?: Decorator[];
+  typeParameters?: string[];
+  modifiers?: Modifier[];
+  initializer?: ExpressionValue;
   members?: Array<{
     name: string;
     kind: string;
@@ -435,13 +445,93 @@ interface FullSymbol extends SymbolSearchResult {
     visibility?: string;
     isStatic?: boolean;
     isReadonly?: boolean;
+    initializer?: ExpressionValue;
+    decorators?: Decorator[];
   }>;
-  jsDoc?: string;
-  parameters?: string;
+  jsDoc?: JsDocBlock;
+}
+
+interface Parameter {
+  name: string;
+  type?: string;                   // type annotation as source text
+  typeImportSource?: string;       // import specifier when the type is imported
+  isOptional: boolean;
+  defaultValue?: string;
+  decorators?: Decorator[];
+}
+
+interface Decorator {
+  name: string;
+  arguments?: ExpressionValue[];   // structured decorator call arguments
+}
+
+type Modifier =
+  | 'async' | 'static' | 'abstract' | 'readonly'
+  | 'private' | 'protected' | 'public'
+  | 'override' | 'declare' | 'const'
+  | 'accessor';                    // TC39 auto-accessor
+
+interface RelationSearchQuery {
+  srcFilePath?: string;
+  srcSymbolName?: string;
+  dstFilePath?: string;
+  dstSymbolName?: string;
+  dstProject?: string;            // filter by destination project
+  /** Glob (Bun.Glob) for source file path; mutually exclusive with srcFilePath. */
+  srcFilePathPattern?: string;
+  /** Glob (Bun.Glob) for destination file path; mutually exclusive with dstFilePath. */
+  dstFilePathPattern?: string;
+  type?: 'imports' | 'type-references' | 're-exports' | 'calls' | 'extends' | 'implements';
+  project?: string;
+  /** Filter by raw import specifier (e.g. `'./foo'`, `'lodash'`). */
+  specifier?: string;
+  /** Filter by external (bare specifier) flag. */
+  isExternal?: boolean;
+  limit?: number;                 // when omitted, no limit is applied
+}
+
+interface CodeRelation {
+  type: 'imports' | 'type-references' | 're-exports' | 'calls' | 'extends' | 'implements';
+  srcFilePath: string;
+  srcSymbolName: string | null;
+  /** `null` when the import target could not be resolved (external package, missing file). */
+  dstFilePath: string | null;
+  dstSymbolName: string | null;
+  metaJson?: string;
+  meta?: Record<string, unknown>;   // auto-parsed from metaJson
+  /**
+   * Verbatim module specifier text as written in the source (`'./foo'`,
+   * `'@zipbul/core'`, `'lodash'`). Always present on module-source-bearing
+   * relations (`'imports'`, `'re-exports'`, `'type-references'`, dynamic
+   * `import()`, `require()`) regardless of `dstFilePath` resolution.
+   * Absent on `'calls'` / `'extends'` / `'implements'`.
+   */
+  specifier?: string;
+}
+
+/** CodeRelation enriched with destination-project identifier and external flag. */
+interface StoredCodeRelation extends Omit<CodeRelation, 'specifier'> {
+  /** Destination project, or `null` for cross-project / unresolved relations. */
+  dstProject: string | null;
+  /** Whether the relation targets an external (bare-specifier) package. */
+  isExternal: boolean;
+  /** Verbatim source specifier (see {@link CodeRelation.specifier}); `null` only on `'calls'` / `'extends'` / `'implements'`. */
+  specifier: string | null;
+}
+
+// ── Analysis ────────────────────────────────────────────────────────────
+
+interface FullSymbol extends SymbolSearchResult {
+  members?: SymbolDetail['members'];
+  jsDoc?: JsDocBlock;
+  parameters?: Parameter[];
   returnType?: string;
-  heritage?: string[];
-  decorators?: Array<{ name: string; arguments?: string }>;
-  typeParameters?: string;
+  heritage?: SymbolDetail['heritage'];
+  decorators?: Decorator[];
+  typeParameters?: string[];
+  initializer?: ExpressionValue;
+  /** Resolved type from the Semantic Layer (available when `semantic: true`). */
+  resolvedType?: ResolvedType;
 }
 
 interface FileStats {
@@ -511,10 +601,48 @@ interface IndexResult {
   changedFiles: string[];
   deletedFiles: string[];
   failedFiles: string[];
+  /** Symbol-level diff against previous index state. */
   changedSymbols: {
-    added: Array<{ name: string; filePath: string; kind: string }>;
-    modified: Array<{ name: string; filePath: string; kind: string }>;
-    removed: Array<{ name: string; filePath: string; kind: string }>;
+    added: Array<{ name: string; filePath: string; kind: string; isExported: boolean }>;
+    modified: Array<{ name: string; filePath: string; kind: string; isExported: boolean }>;
+    removed: Array<{ name: string; filePath: string; kind: string; isExported: boolean }>;
+  };
+  /** Symbols renamed (matched via structural fingerprint). */
+  renamedSymbols: Array<{
+    oldName: string;
+    newName: string;
+    filePath: string;
+    kind: string;
+    isExported: boolean;
+  }>;
+  /** Symbols that moved to a different file (incremental only; matched via fingerprint). */
+  movedSymbols: Array<{
+    name: string;
+    oldFilePath: string;
+    newFilePath: string;
+    kind: string;
+    isExported: boolean;
+  }>;
+  /** Relation-level diff against previous index state. */
+  changedRelations: {
+    added: Array<{
+      type: string;
+      srcFilePath: string;
+      dstFilePath: string | null;
+      srcSymbolName: string | null;
+      dstSymbolName: string | null;
+      dstProject: string | null;
+      metaJson: string | null;
+    }>;
+    removed: Array<{
+      type: string;
+      srcFilePath: string;
+      dstFilePath: string | null;
+      srcSymbolName: string | null;
+      dstSymbolName: string | null;
+      dstProject: string | null;
+      metaJson: string | null;
+    }>;
   };
 }
 
@@ -537,7 +665,7 @@ interface AnnotationSearchQuery {
   symbolName?: string;
   source?: 'jsdoc' | 'line' | 'block';
   project?: string;
-  limit?: number;      // default: 100
+  limit?: number;      // when omitted, no limit is applied
 }
 
 interface AnnotationSearchResult {

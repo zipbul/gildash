@@ -60,9 +60,10 @@ function extractStaticImports(
   for (const imp of module.staticImports) {
     const sourcePath = imp.moduleRequest.value;
     const { resolved, isExternal } = resolveAndClassify(filePath, sourcePath, tsconfigPaths, resolveImportFn);
-    const baseProps = resolved === null
-      ? { dstFilePath: null as string | null, specifier: sourcePath }
-      : { dstFilePath: resolved as string | null };
+    const baseProps = {
+      dstFilePath: resolved as string | null,
+      specifier: sourcePath,
+    };
 
     if (imp.entries.length === 0) {
       // side-effect import: import './foo'
@@ -186,8 +187,8 @@ function extractStaticExports(
         srcSymbolName,
         dstFilePath: resolved,
         dstSymbolName,
+        specifier: sourcePath,
         metaJson: JSON.stringify(meta),
-        ...(resolved === null ? { specifier: sourcePath } : {}),
       });
     }
   }
@@ -213,9 +214,10 @@ function extractStaticImportsFromAst(
       const isType = importNode.importKind === 'type';
       const specifiers: readonly ImportDeclarationSpecifier[] = importNode.specifiers;
 
-      const baseProps = resolved === null
-        ? { dstFilePath: null as string | null, specifier: sourcePath }
-        : { dstFilePath: resolved as string | null };
+      const baseProps = {
+        dstFilePath: resolved as string | null,
+        specifier: sourcePath,
+      };
 
       if (specifiers.length === 0) {
         const meta: Record<string, unknown> = {};
@@ -286,8 +288,8 @@ function extractStaticImportsFromAst(
         srcSymbolName: null,
         dstFilePath: resolved,
         dstSymbolName: aliasName,
+        specifier: sourcePath,
         metaJson: JSON.stringify(meta),
-        ...(resolved === null ? { specifier: sourcePath } : {}),
       });
       continue;
     }
@@ -316,8 +318,8 @@ function extractStaticImportsFromAst(
           srcSymbolName: exported,
           dstFilePath: resolved,
           dstSymbolName: local,
+          specifier: sourcePath,
           metaJson: JSON.stringify(meta),
-          ...(resolved === null ? { specifier: sourcePath } : {}),
         });
       }
     }
@@ -350,8 +352,8 @@ function extractDynamicImports(
         srcSymbolName: null,
         dstFilePath: resolved,
         dstSymbolName: null,
+        specifier: sourceValue,
         metaJson: JSON.stringify(meta),
-        ...(resolved === null ? { specifier: sourceValue } : {}),
       });
     },
     CallExpression(node: CallExpression) {
@@ -396,8 +398,8 @@ function extractDynamicImports(
         srcSymbolName: null,
         dstFilePath: resolved,
         dstSymbolName: null,
+        specifier: sourceValue,
         metaJson: JSON.stringify(meta),
-        ...(resolved === null ? { specifier: sourceValue } : {}),
       });
     },
   });
