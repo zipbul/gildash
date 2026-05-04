@@ -54,10 +54,9 @@ export function getNodeHeader(
  */
 export function isFunctionNode(
   node: Node,
-): node is Extract<
-  Node,
-  { type: 'FunctionDeclaration' | 'FunctionExpression' | 'ArrowFunctionExpression' }
-> {
+): node is Node & {
+  type: 'FunctionDeclaration' | 'FunctionExpression' | 'ArrowFunctionExpression';
+} {
   return (
     node.type === 'FunctionDeclaration' ||
     node.type === 'FunctionExpression' ||
@@ -67,19 +66,19 @@ export function isFunctionNode(
 
 export function isArrowFunctionExpression(
   node: Node,
-): node is Extract<Node, { type: 'ArrowFunctionExpression' }> {
+): node is Node & { type: 'ArrowFunctionExpression' } {
   return node.type === 'ArrowFunctionExpression';
 }
 
 export function isAssignmentExpression(
   node: Node,
-): node is Extract<Node, { type: 'AssignmentExpression' }> {
+): node is Node & { type: 'AssignmentExpression' } {
   return node.type === 'AssignmentExpression';
 }
 
 export function isCallExpression(
   node: Node,
-): node is Extract<Node, { type: 'CallExpression' }> {
+): node is Node & { type: 'CallExpression' } {
   return node.type === 'CallExpression';
 }
 
@@ -92,14 +91,14 @@ export function isCallExpression(
  */
 export function isFunctionDeclaration(
   node: Node,
-): node is Extract<Node, { type: 'FunctionDeclaration' }> {
+): node is Node & { type: 'FunctionDeclaration' } {
   return node.type === 'FunctionDeclaration';
 }
 
 /** See `isFunctionDeclaration` for shared `Function` interface notes. */
 export function isFunctionExpression(
   node: Node,
-): node is Extract<Node, { type: 'FunctionExpression' }> {
+): node is Node & { type: 'FunctionExpression' } {
   return node.type === 'FunctionExpression';
 }
 
@@ -113,7 +112,7 @@ export function isFunctionExpression(
  */
 export function isIdentifier(
   node: Node,
-): node is Extract<Node, { type: 'Identifier' }> {
+): node is Node & { type: 'Identifier' } {
   return node.type === 'Identifier';
 }
 
@@ -126,7 +125,7 @@ export function isIdentifier(
  */
 export function isMemberExpression(
   node: Node,
-): node is Extract<Node, { type: 'MemberExpression' }> {
+): node is Node & { type: 'MemberExpression' } {
   return node.type === 'MemberExpression';
 }
 
@@ -138,13 +137,13 @@ export function isMemberExpression(
  */
 export function isTSQualifiedName(
   node: Node,
-): node is Extract<Node, { type: 'TSQualifiedName' }> {
+): node is Node & { type: 'TSQualifiedName' } {
   return node.type === 'TSQualifiedName';
 }
 
 export function isVariableDeclaration(
   node: Node,
-): node is Extract<Node, { type: 'VariableDeclaration' }> {
+): node is Node & { type: 'VariableDeclaration' } {
   return node.type === 'VariableDeclaration';
 }
 
