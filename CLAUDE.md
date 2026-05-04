@@ -130,3 +130,19 @@ Public API uses throw-based error handling:
 - 확인된 이슈 5건이 미확인 후보 100건보다 가치 있다.
 - "전수조사" 요청이라도 증명되지 않은 항목을 수량 채우기 위해 포함하지 않는다.
 - 불확실한 항목은 보고서에서 제외하거나, "미확인 — 추가 조사 필요"로 명시하고 확인된 이슈와 분리한다.
+
+## oxc-parser / oxc-walker 의존성 업그레이드 체크리스트
+
+`@oxc-project/types`, `oxc-parser`, `oxc-walker` 의 메이저 / 마이너 업그레이드 시 다음을 확인한다 (특히 `Node` union 변동, `WalkOptions` 시그니처 변동, discriminator collision 변동):
+
+- [ ] `node_modules/@oxc-project/types/types.d.ts` 의 `Node` union 변형 추가/제거 여부
+- [ ] `src/parser/ast-utils.ts` 의 type predicate 10종 (`isFunctionNode` + 9 신규) 이 새 변형을 누락하거나 제거된 변형을 가리키지 않는지 점검
+- [ ] discriminator collision 변동 점검:
+  - `Identifier` (현재 6-way: IdentifierName / IdentifierReference / BindingIdentifier / LabelIdentifier / TSThisParameter / TSIndexSignatureName)
+  - `MemberExpression` (현재 3-way: ComputedMemberExpression / StaticMemberExpression / PrivateFieldExpression)
+  - `TSQualifiedName` (현재 2-way: TSQualifiedName / TSImportTypeQualifiedName)
+  - `Function` interface 의 `type` literal 4종 (FunctionDeclaration / FunctionExpression / TSDeclareFunction / TSEmptyBodyFunctionExpression)
+- [ ] collision 변동 시 해당 predicate 의 JSDoc 정정 + README "AST Primitives" 표 갱신
+- [ ] `oxc-walker` 의 `walk` / `parseAndWalk` / `ScopeTracker` 시그니처 변동 시 `src/index.ts` re-export 와 README 의 traversal 섹션 동기화
+- [ ] `test/ast-foundation.test.ts` 의 traversal smoke + `src/parser/ast-utils.spec.ts` 의 collision 테스트가 새 토폴로지에서 여전히 의미 있는지 재검토
+- [ ] breaking 동반 시 changeset 분류 (minor/major) 와 release notes 의 collision 변경 영향 명시

@@ -390,11 +390,76 @@ Requires `semantic: true` at open time.
 | `parseSource(filePath, src, opts?)` | `ParsedFile` | Parse & cache a single file. `opts`: oxc-parser `ParserOptions`. |
 | `extractSymbols(parsed)` | `ExtractedSymbol[]` | Extract symbols from parsed AST |
 | `extractRelations(parsed)` | `CodeRelation[]` | Extract relations from parsed AST |
+
+
 | `getParsedAst(filePath)` | `ParsedFile \| undefined` | Cached AST lookup (read-only) |
 | `getFileInfo(filePath)` | `FileRecord \| null` | File metadata (hash, mtime, size) |
 | `getStats(project?)` | `SymbolStats` | Symbol / file count statistics |
 | `projects` | `ProjectBoundary[]` | Discovered project boundaries |
 | `close(opts?)` | `Promise<void>` | Shutdown (pass `{ cleanup: true }` to delete DB) |
+
+### AST Primitives
+
+gildash exposes the underlying oxc-parser AST surface and a set of helpers
+for consumers building their own static analysis on top of the same parser.
+These are standalone exports — no `Gildash` instance required — and follow
+the upstream oxc-parser / oxc-walker semver.
+
+#### Parsing & extraction
+
+| Export | Returns | Description |
+|--------|---------|-------------|
+| `parseSource(file, src, opts?)` | `Result<ParsedFile, GildashError>` | Parse a single source string |
+| `extractSymbols(parsed)` | `ExtractedSymbol[]` | Symbols from a parsed AST |
+| `extractRelations(ast, file, ...)` | `CodeRelation[]` | Relations from a parsed AST |
+
+#### Traversal
+
+Re-exported from `oxc-walker` and `oxc-parser`:
+
+| Export | Description |
+|--------|-------------|
+| `walk(node, { enter, leave })` | Generic preorder walker. `enter` receives `(node, parent, ctx)`; call `this.skip()` to prune the subtree. |
+| `parseAndWalk(code, file, cb)` | Parse + walk in one call |
+| `ScopeTracker` | Identifier-declaration tracker that integrates with `walk` |
+| `Visitor` | Per-node-type callback object form (`new Visitor({ CallExpression(...) })`) |
+| `visitorKeys` | `Record<string, string[]>` — child key list per node type |
+
+#### Type predicates over `Node`
+
+Each predicate has the signature `(node: Node) => node is Extract<Node, { type: 'X' }>`.
+
+| Predicate | Discriminator | Notes |
+|-----------|---------------|-------|
+| `isArrowFunctionExpression` | `ArrowFunctionExpression` | |
+| `isAssignmentExpression` | `AssignmentExpression` | |
+| `isCallExpression` | `CallExpression` | |
+| `isFunctionDeclaration` | `FunctionDeclaration` | Narrows to the `Function` interface, which structurally also accepts `TSDeclareFunction` and `TSEmptyBodyFunctionExpression` literals — those return `false` at runtime. |
+| `isFunctionExpression` | `FunctionExpression` | Same `Function`-interface caveat as above. |
+| `isFunctionNode` | `FunctionDeclaration` \| `FunctionExpression` \| `ArrowFunctionExpression` | Union shorthand for "any function-shape node". |
+| `isIdentifier` | `Identifier` | 6-way collision: `IdentifierName`, `IdentifierReference`, `BindingIdentifier`, `LabelIdentifier`, `TSThisParameter`, `TSIndexSignatureName`. All expose `.name`. |
+| `isMemberExpression` | `MemberExpression` | 3-way collision: `ComputedMemberExpression`, `StaticMemberExpression`, `PrivateFieldExpression`. All expose `.object`. |
+| `isTSQualifiedName` | `TSQualifiedName` | 2-way collision: `TSQualifiedName`, `TSImportTypeQualifiedName`. Both expose `.left` / `.right` (different shapes). |
+| `isVariableDeclaration` | `VariableDeclaration` | |
+
+```ts
+import { parseSource, walk, isCallExpression } from '@zipbul/gildash';
+
+const parsed = parseSource('a.ts', 'foo()');
+if (!('stack' in parsed)) {
+  walk(parsed.program, {
+    enter(node) {
+      if (isCallExpression(node)) {
+        console.log(node.callee, node.arguments);
+      }
+    },
+  });
+}
+```
+
+#### AST utility types
+
+`Program`, `Node`, `VisitorObject`, `WalkOptions`, `WalkerEnter`, `WalkerLeave`, `WalkerCallbackContext`, `ScopeTrackerNode`, `ScopeTrackerOptions`, `SourcePosition`, `SourceSpan`, `ParsedFile`, plus `buildLineOffsets` / `getLineColumn` for byte ↔ line/column conversion.
 
 <br>
 
