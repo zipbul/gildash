@@ -6,7 +6,16 @@ export {
 } from './source-position';
 export {
   getNodeHeader,
+  isArrowFunctionExpression,
+  isAssignmentExpression,
+  isCallExpression,
+  isFunctionDeclaration,
+  isFunctionExpression,
   isFunctionNode,
+  isIdentifier,
+  isMemberExpression,
+  isTSQualifiedName,
+  isVariableDeclaration,
   getNodeName,
   getStringLiteralValue,
   getQualifiedName,

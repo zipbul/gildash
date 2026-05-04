@@ -43,3 +43,31 @@ export type { SourcePosition, SourceSpan } from './parser/types';
 export type { Program, Node } from 'oxc-parser';
 export { Visitor, visitorKeys } from 'oxc-parser';
 export type { VisitorObject } from 'oxc-parser';
+
+// AST traversal primitives (re-exported from oxc-walker; gildash assumes the
+// upstream contract — changes there are reflected via gildash releases).
+export { walk, parseAndWalk, ScopeTracker } from 'oxc-walker';
+export type {
+  WalkerEnter,
+  WalkerLeave,
+  WalkerCallbackContext,
+  WalkerThisContextEnter,
+  WalkerThisContextLeave,
+  WalkOptions,
+  ScopeTrackerNode,
+  ScopeTrackerOptions,
+} from 'oxc-walker';
+
+// AST type predicates over the oxc-parser Node union
+export {
+  isArrowFunctionExpression,
+  isAssignmentExpression,
+  isCallExpression,
+  isFunctionDeclaration,
+  isFunctionExpression,
+  isFunctionNode,
+  isIdentifier,
+  isMemberExpression,
+  isTSQualifiedName,
+  isVariableDeclaration,
+} from './parser/ast-utils';

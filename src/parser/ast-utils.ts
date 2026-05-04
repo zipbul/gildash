@@ -1,3 +1,5 @@
+import type { Node } from 'oxc-parser';
+
 import type { QualifiedName } from '../extractor/types';
 
 export function getNodeHeader(
@@ -39,12 +41,111 @@ export function getNodeHeader(
   return 'anonymous';
 }
 
-export function isFunctionNode(node: Record<string, unknown>): boolean {
+/**
+ * Type predicate for the union of FunctionDeclaration / FunctionExpression /
+ * ArrowFunctionExpression discriminators.
+ *
+ * Note: `FunctionDeclaration` and `FunctionExpression` both narrow to the
+ * `Function` interface in @oxc-project/types — that interface's `type` field
+ * is also satisfied by `TSDeclareFunction` and `TSEmptyBodyFunctionExpression`,
+ * but those discriminators return `false` here at runtime. Callers reading
+ * `.params` / `.body` should be aware that `body` may be `null` only on the
+ * declare/empty-body variants (excluded by this predicate).
+ */
+export function isFunctionNode(
+  node: Node,
+): node is Extract<
+  Node,
+  { type: 'FunctionDeclaration' | 'FunctionExpression' | 'ArrowFunctionExpression' }
+> {
   return (
     node.type === 'FunctionDeclaration' ||
     node.type === 'FunctionExpression' ||
     node.type === 'ArrowFunctionExpression'
   );
+}
+
+export function isArrowFunctionExpression(
+  node: Node,
+): node is Extract<Node, { type: 'ArrowFunctionExpression' }> {
+  return node.type === 'ArrowFunctionExpression';
+}
+
+export function isAssignmentExpression(
+  node: Node,
+): node is Extract<Node, { type: 'AssignmentExpression' }> {
+  return node.type === 'AssignmentExpression';
+}
+
+export function isCallExpression(
+  node: Node,
+): node is Extract<Node, { type: 'CallExpression' }> {
+  return node.type === 'CallExpression';
+}
+
+/**
+ * Note: discriminator `"FunctionDeclaration"` narrows to the `Function`
+ * interface, which structurally also accepts `type: 'TSDeclareFunction'` and
+ * `type: 'TSEmptyBodyFunctionExpression'` — but those literals fail this
+ * runtime check. Narrowed result has `.params` (always) and `.body` (typed
+ * `FunctionBody | null`; non-null for FunctionDeclaration / FunctionExpression).
+ */
+export function isFunctionDeclaration(
+  node: Node,
+): node is Extract<Node, { type: 'FunctionDeclaration' }> {
+  return node.type === 'FunctionDeclaration';
+}
+
+/** See `isFunctionDeclaration` for shared `Function` interface notes. */
+export function isFunctionExpression(
+  node: Node,
+): node is Extract<Node, { type: 'FunctionExpression' }> {
+  return node.type === 'FunctionExpression';
+}
+
+/**
+ * Note: discriminator `"Identifier"` is shared by 6 interfaces in
+ * @oxc-project/types — IdentifierName, IdentifierReference, BindingIdentifier,
+ * LabelIdentifier, TSThisParameter, TSIndexSignatureName. All 6 expose `.name`
+ * (string; literal `"this"` for TSThisParameter). The narrowed result is the
+ * union of all 6; callers needing finer distinction must check additional
+ * fields (e.g. TSThisParameter has `decorators: []` and `optional: false`).
+ */
+export function isIdentifier(
+  node: Node,
+): node is Extract<Node, { type: 'Identifier' }> {
+  return node.type === 'Identifier';
+}
+
+/**
+ * Note: discriminator `"MemberExpression"` is shared by 3 interfaces —
+ * ComputedMemberExpression, StaticMemberExpression, PrivateFieldExpression.
+ * All 3 expose `.object` and a property-side field (`.property` /
+ * `.field`). Callers needing finer distinction should check `.computed`
+ * (Computed only) or the property-side field shape.
+ */
+export function isMemberExpression(
+  node: Node,
+): node is Extract<Node, { type: 'MemberExpression' }> {
+  return node.type === 'MemberExpression';
+}
+
+/**
+ * Note: discriminator `"TSQualifiedName"` is shared by 2 interfaces —
+ * TSQualifiedName and TSImportTypeQualifiedName. Both expose `.left` and
+ * `.right`, but `.left` shape differs (TSQualifiedName: TSQualifiedName |
+ * IdentifierName; TSImportTypeQualifiedName: TSImportTypeQualifier).
+ */
+export function isTSQualifiedName(
+  node: Node,
+): node is Extract<Node, { type: 'TSQualifiedName' }> {
+  return node.type === 'TSQualifiedName';
+}
+
+export function isVariableDeclaration(
+  node: Node,
+): node is Extract<Node, { type: 'VariableDeclaration' }> {
+  return node.type === 'VariableDeclaration';
 }
 
 export function getNodeName(node: unknown): string | null {
