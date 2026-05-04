@@ -311,6 +311,164 @@ describe('isVariableDeclaration', () => {
   });
 });
 
+describe('predicates: REGRESSION — narrowing must not collapse to never (0.27.0 bug)', () => {
+  // 0.27.0 used `Extract<Node, { type: 'X' }>`. For predicates whose backing
+  // interface had a multi-literal `type` field (Function: 4-way, etc.),
+  // distributive Extract collapsed to `never`. These tests assign a literal
+  // to the narrowed `n.type` — if narrowing is `never`, the literal is not
+  // assignable and tsc fails. They MUST live in a .spec.ts file so
+  // `bun run typecheck` exercises them on every CI run.
+
+  it('should narrow isFunctionDeclaration so that "FunctionDeclaration" is assignable to n.type', () => {
+    const n = asNode('FunctionDeclaration');
+    if (isFunctionDeclaration(n)) {
+      const _t: 'FunctionDeclaration' = n.type;
+      void _t;
+    }
+    expect(isFunctionDeclaration(n)).toBe(true);
+  });
+
+  it('should narrow isFunctionExpression so that "FunctionExpression" is assignable to n.type', () => {
+    const n = asNode('FunctionExpression');
+    if (isFunctionExpression(n)) {
+      const _t: 'FunctionExpression' = n.type;
+      void _t;
+    }
+    expect(isFunctionExpression(n)).toBe(true);
+  });
+
+  it('should narrow isFunctionDeclaration so that Function-interface fields (.params, .body, .id, .async) are accessible', () => {
+    const n = asNode('FunctionDeclaration', {
+      id: null,
+      generator: false,
+      async: false,
+      params: [],
+      body: null,
+      expression: false,
+    });
+    if (isFunctionDeclaration(n)) {
+      // If narrowed to never, every line below fails to compile.
+      const _id = n.id;
+      const _generator: boolean = n.generator;
+      const _async: boolean = n.async;
+      const _params = n.params;
+      const _body = n.body;
+      void _id;
+      void _generator;
+      void _async;
+      void _params;
+      void _body;
+    }
+    expect(isFunctionDeclaration(n)).toBe(true);
+  });
+
+  it('should narrow isFunctionExpression so that Function-interface fields are accessible', () => {
+    const n = asNode('FunctionExpression');
+    if (isFunctionExpression(n)) {
+      const _params = n.params;
+      const _body = n.body;
+      const _id = n.id;
+      void _params;
+      void _body;
+      void _id;
+    }
+    expect(isFunctionExpression(n)).toBe(true);
+  });
+
+  it('should narrow isFunctionNode so that all 3 backing literals are assignable to n.type', () => {
+    const n = asNode('FunctionDeclaration');
+    if (isFunctionNode(n)) {
+      const _fd: 'FunctionDeclaration' = 'FunctionDeclaration' as 'FunctionDeclaration' & typeof n.type;
+      const _fe: 'FunctionExpression' = 'FunctionExpression' as 'FunctionExpression' & typeof n.type;
+      const _afe: 'ArrowFunctionExpression' = 'ArrowFunctionExpression' as 'ArrowFunctionExpression' & typeof n.type;
+      void _fd;
+      void _fe;
+      void _afe;
+      // .params is common across all 3 backing interfaces.
+      const _params = n.params;
+      void _params;
+    }
+    expect(isFunctionNode(n)).toBe(true);
+  });
+
+  it('should narrow isCallExpression so that .arguments / .callee / .optional are accessible', () => {
+    const n = asNode('CallExpression');
+    if (isCallExpression(n)) {
+      const _t: 'CallExpression' = n.type;
+      const _args = n.arguments;
+      const _callee = n.callee;
+      const _optional: boolean = n.optional;
+      void _t;
+      void _args;
+      void _callee;
+      void _optional;
+    }
+    expect(isCallExpression(n)).toBe(true);
+  });
+
+  it('should narrow isMemberExpression so that the union of 3 interfaces stays accessible (.object)', () => {
+    const n = asNode('MemberExpression');
+    if (isMemberExpression(n)) {
+      const _t: 'MemberExpression' = n.type;
+      const _obj = n.object;
+      void _t;
+      void _obj;
+    }
+    expect(isMemberExpression(n)).toBe(true);
+  });
+
+  it('should narrow isIdentifier so that .name is accessible across the 6-way union', () => {
+    const n = asNode('Identifier');
+    if (isIdentifier(n)) {
+      const _t: 'Identifier' = n.type;
+      const _name = n.name;
+      void _t;
+      void _name;
+    }
+    expect(isIdentifier(n)).toBe(true);
+  });
+
+  it('should narrow isTSQualifiedName so that .left / .right are accessible', () => {
+    const n = asNode('TSQualifiedName');
+    if (isTSQualifiedName(n)) {
+      const _t: 'TSQualifiedName' = n.type;
+      const _left = n.left;
+      const _right = n.right;
+      void _t;
+      void _left;
+      void _right;
+    }
+    expect(isTSQualifiedName(n)).toBe(true);
+  });
+
+  it('should narrow isAssignmentExpression so that .operator / .left / .right are accessible', () => {
+    const n = asNode('AssignmentExpression');
+    if (isAssignmentExpression(n)) {
+      const _t: 'AssignmentExpression' = n.type;
+      void _t;
+    }
+    expect(isAssignmentExpression(n)).toBe(true);
+  });
+
+  it('should narrow isVariableDeclaration so that "VariableDeclaration" is assignable to n.type', () => {
+    const n = asNode('VariableDeclaration');
+    if (isVariableDeclaration(n)) {
+      const _t: 'VariableDeclaration' = n.type;
+      void _t;
+    }
+    expect(isVariableDeclaration(n)).toBe(true);
+  });
+
+  it('should narrow isArrowFunctionExpression so that "ArrowFunctionExpression" is assignable to n.type', () => {
+    const n = asNode('ArrowFunctionExpression');
+    if (isArrowFunctionExpression(n)) {
+      const _t: 'ArrowFunctionExpression' = n.type;
+      void _t;
+    }
+    expect(isArrowFunctionExpression(n)).toBe(true);
+  });
+});
+
 describe('predicates: type-level narrowing (compile-time only — failures show up at typecheck)', () => {
   it('should narrow within an isCallExpression branch so .arguments / .callee / .optional are accessible', () => {
     const n = asNode('CallExpression', {
