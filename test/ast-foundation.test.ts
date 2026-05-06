@@ -17,6 +17,7 @@ import {
   isTSQualifiedName,
   isVariableDeclaration,
   isAssignmentExpression,
+  is,
 } from '../src';
 import type { Node } from '../src';
 
@@ -298,5 +299,144 @@ describe('AST foundation: type predicates against a real parsed program', () => 
       },
     });
     expect(saw).toBe(true);
+  });
+});
+
+describe('AST foundation: `is` namespace against a real parsed program', () => {
+  it('should produce identical counts to the hand-written predicates for the overlapping discriminator set', () => {
+    const parsed = parseOk(SAMPLE);
+    const counts = {
+      named: { call: 0, fnDecl: 0, fnExpr: 0, arrow: 0, id: 0, member: 0, qual: 0, assign: 0, varDecl: 0 },
+      proxy: { call: 0, fnDecl: 0, fnExpr: 0, arrow: 0, id: 0, member: 0, qual: 0, assign: 0, varDecl: 0 },
+    };
+    walk(parsed.program, {
+      enter(node) {
+        if (isCallExpression(node)) counts.named.call += 1;
+        if (isFunctionDeclaration(node)) counts.named.fnDecl += 1;
+        if (isFunctionExpression(node)) counts.named.fnExpr += 1;
+        if (isArrowFunctionExpression(node)) counts.named.arrow += 1;
+        if (isIdentifier(node)) counts.named.id += 1;
+        if (isMemberExpression(node)) counts.named.member += 1;
+        if (isTSQualifiedName(node)) counts.named.qual += 1;
+        if (isAssignmentExpression(node)) counts.named.assign += 1;
+        if (isVariableDeclaration(node)) counts.named.varDecl += 1;
+
+        if (is.CallExpression(node)) counts.proxy.call += 1;
+        if (is.FunctionDeclaration(node)) counts.proxy.fnDecl += 1;
+        if (is.FunctionExpression(node)) counts.proxy.fnExpr += 1;
+        if (is.ArrowFunctionExpression(node)) counts.proxy.arrow += 1;
+        if (is.Identifier(node)) counts.proxy.id += 1;
+        if (is.MemberExpression(node)) counts.proxy.member += 1;
+        if (is.TSQualifiedName(node)) counts.proxy.qual += 1;
+        if (is.AssignmentExpression(node)) counts.proxy.assign += 1;
+        if (is.VariableDeclaration(node)) counts.proxy.varDecl += 1;
+      },
+    });
+    expect(counts.proxy).toEqual(counts.named);
+  });
+
+  it('should cover the new top-level discriminators (Class/Import/Export/New/Return) from a representative source', () => {
+    const code = `
+      import { foo } from 'mod';
+      export class A {}
+      export default function bar() { return new Map(); }
+      export const x = 1;
+    `;
+    const parsed = parseOk(code, 'cover.ts');
+    let importDecl = 0;
+    let classDecl = 0;
+    let exportNamed = 0;
+    let exportDefault = 0;
+    let newExpr = 0;
+    let returnStmt = 0;
+    walk(parsed.program, {
+      enter(node) {
+        if (is.ImportDeclaration(node)) importDecl += 1;
+        if (is.ClassDeclaration(node)) classDecl += 1;
+        if (is.ExportNamedDeclaration(node)) exportNamed += 1;
+        if (is.ExportDefaultDeclaration(node)) exportDefault += 1;
+        if (is.NewExpression(node)) newExpr += 1;
+        if (is.ReturnStatement(node)) returnStmt += 1;
+      },
+    });
+    expect(importDecl).toBe(1);
+    expect(classDecl).toBe(1);
+    // export class A {} + export const x = 1 — both wrapped in ExportNamedDeclaration.
+    expect(exportNamed).toBe(2);
+    expect(exportDefault).toBe(1);
+    expect(newExpr).toBe(1);
+    expect(returnStmt).toBe(1);
+  });
+
+  it('should be usable as a direct Array#filter / find callback without re-binding (cached identity contract)', () => {
+    const parsed = parseOk(SAMPLE);
+    const collected: Node[] = [];
+    walk(parsed.program, {
+      enter(node) {
+        collected.push(node);
+      },
+    });
+    const calls = collected.filter(is.CallExpression);
+    const fnDecls = collected.filter(is.FunctionDeclaration);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(fnDecls.length).toBe(1);
+    // Each filtered element is type-narrowed inside the function — type assertion below
+    // would fail at typecheck if the predicate signature regressed.
+    for (const c of calls) {
+      const _t: 'CallExpression' = c.type;
+      void _t;
+    }
+  });
+
+  it('should compose with sym.span discovery via name-match — the official two-layer composition pattern', () => {
+    // This mirrors the README example: find a target symbol via outer-node
+    // walk + name match, then drill into its subtree using `is.X` predicates
+    // and raw `node.start` / `node.end` for source slicing.
+    const code = `function target(x: number) { return x + foo() + bar(); }`;
+    const parsed = parseOk(code, 'compose.ts');
+
+    let outerFnFound = false;
+    const callTexts: string[] = [];
+    walk(parsed.program, {
+      enter(node) {
+        if (is.FunctionDeclaration(node) && node.id?.name === 'target') {
+          outerFnFound = true;
+          // Drill into the body — collect every CallExpression's source slice.
+          if (node.body) {
+            walk(node.body, {
+              enter(inner) {
+                if (is.CallExpression(inner)) {
+                  callTexts.push(code.slice(inner.start, inner.end));
+                }
+              },
+            });
+          }
+          this.skip();
+        }
+      },
+    });
+    expect(outerFnFound).toBe(true);
+    expect(callTexts).toEqual(['foo()', 'bar()']);
+  });
+
+  it('should survive walking with predicates that have never been accessed before in this run (cold-cache path)', () => {
+    // Exercises the Proxy `get` trap on a discriminator that the cache may
+    // not have seen yet (depending on test ordering). Validates the lazy
+    // initialisation path explicitly.
+    const code = `try { throw new Error('x'); } catch (e) { if (e) {} }`;
+    const parsed = parseOk(code, 'cold.ts');
+    let tryCount = 0;
+    let throwCount = 0;
+    let ifCount = 0;
+    walk(parsed.program, {
+      enter(node) {
+        if (is.TryStatement(node)) tryCount += 1;
+        if (is.ThrowStatement(node)) throwCount += 1;
+        if (is.IfStatement(node)) ifCount += 1;
+      },
+    });
+    expect(tryCount).toBe(1);
+    expect(throwCount).toBe(1);
+    expect(ifCount).toBe(1);
   });
 });

@@ -70,4 +70,6 @@ export {
   isMemberExpression,
   isTSQualifiedName,
   isVariableDeclaration,
+  is,
 } from './parser/ast-utils';
+export type { IsNamespace, NodeTypePredicate } from './parser/ast-utils';

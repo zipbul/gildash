@@ -427,39 +427,106 @@ Re-exported from `oxc-walker` and `oxc-parser`:
 
 #### Type predicates over `Node`
 
-Each predicate has the signature `(node: Node) => node is Extract<Node, { type: 'X' }>`.
+##### `is` namespace — primary surface
 
-| Predicate | Discriminator | Notes |
-|-----------|---------------|-------|
-| `isArrowFunctionExpression` | `ArrowFunctionExpression` | |
-| `isAssignmentExpression` | `AssignmentExpression` | |
-| `isCallExpression` | `CallExpression` | |
-| `isFunctionDeclaration` | `FunctionDeclaration` | Narrows to the `Function` interface, which structurally also accepts `TSDeclareFunction` and `TSEmptyBodyFunctionExpression` literals — those return `false` at runtime. |
-| `isFunctionExpression` | `FunctionExpression` | Same `Function`-interface caveat as above. |
-| `isFunctionNode` | `FunctionDeclaration` \| `FunctionExpression` \| `ArrowFunctionExpression` | Union shorthand for "any function-shape node". |
-| `isIdentifier` | `Identifier` | 6-way collision: `IdentifierName`, `IdentifierReference`, `BindingIdentifier`, `LabelIdentifier`, `TSThisParameter`, `TSIndexSignatureName`. All expose `.name`. |
-| `isMemberExpression` | `MemberExpression` | 3-way collision: `ComputedMemberExpression`, `StaticMemberExpression`, `PrivateFieldExpression`. All expose `.object`. |
-| `isTSQualifiedName` | `TSQualifiedName` | 2-way collision: `TSQualifiedName`, `TSImportTypeQualifiedName`. Both expose `.left` / `.right` (different shapes). |
-| `isVariableDeclaration` | `VariableDeclaration` | |
+`is.X(node)` returns `true` when `node.type === 'X'` and narrows the type to `Node & { type: 'X' }`. Covers every `Node['type']` discriminator that `oxc-parser` exposes — and any future discriminator the upstream union adds — without per-type hand-written code.
 
 ```ts
-import { parseSource, walk, isCallExpression } from '@zipbul/gildash';
+import { parseSource, walk, is } from '@zipbul/gildash';
 
-const parsed = parseSource('a.ts', 'foo()');
+const parsed = parseSource('a.ts', 'class A {}; foo();');
 if (!('stack' in parsed)) {
   walk(parsed.program, {
     enter(node) {
-      if (isCallExpression(node)) {
-        console.log(node.callee, node.arguments);
-      }
+      if (is.CallExpression(node)) console.log(node.arguments);
+      if (is.ClassDeclaration(node)) console.log(node.id?.name);
+      if (is.ImportDeclaration(node)) console.log(node.source.value);
     },
   });
 }
 ```
 
+Predicate functions are cached by discriminator, so `is.CallExpression === is.CallExpression` holds across calls — safe to pass directly to `Array#filter`. Only PascalCase property names mint predicates; symbols, lowercase typos (`is.callExpression`), and Object-prototype names (`then`, `toString`, `toJSON`, `valueOf`, `constructor`, `hasOwnProperty`) fall through so `String(is)`, `JSON.stringify(is)`, and `await Promise.resolve(is)` behave like a plain object. Calling a predicate with `null` / `undefined` returns `false`.
+
+`Node & { type: K }` is used at the type level (rather than `Extract<Node, { type: K }>`) so that fields on backing interfaces with multi-literal `type` unions — `Function` (4-way), `Class` (2-way) — remain accessible inside the narrowed branch.
+
+##### Hand-written predicates — kept for documented runtime semantics
+
+These remain exported alongside `is.X` because their JSDoc encodes runtime semantics that the bare discriminator does not. Use them when the caveat matters at the call site; otherwise prefer `is.X`.
+
+| Predicate | Why hand-written |
+|-----------|------------------|
+| `isFunctionDeclaration` / `isFunctionExpression` | `Function` interface caveat — `TSDeclareFunction` / `TSEmptyBodyFunctionExpression` structurally satisfy the interface but are excluded by the runtime discriminator check. |
+| `isIdentifier` | 6-way collision: `IdentifierName`, `IdentifierReference`, `BindingIdentifier`, `LabelIdentifier`, `TSThisParameter`, `TSIndexSignatureName`. All expose `.name`. |
+| `isMemberExpression` | 3-way collision: `ComputedMemberExpression`, `StaticMemberExpression`, `PrivateFieldExpression`. All expose `.object`. |
+| `isTSQualifiedName` | 2-way collision: `TSQualifiedName`, `TSImportTypeQualifiedName`. Both expose `.left` / `.right` (different shapes). |
+| `isFunctionNode` | Union shorthand for `FunctionDeclaration \| FunctionExpression \| ArrowFunctionExpression`. The only published predicate that narrows to a *union* of multiple discriminators — no `is.X` equivalent. |
+
+`isArrowFunctionExpression`, `isAssignmentExpression`, `isCallExpression`, `isVariableDeclaration` are also exported for backward compatibility; pointwise-equivalent to `is.X`.
+
+##### Migration from named predicates
+
+| Named import | `is`-namespace equivalent |
+|--------------|---------------------------|
+| `isArrowFunctionExpression(n)` | `is.ArrowFunctionExpression(n)` |
+| `isAssignmentExpression(n)` | `is.AssignmentExpression(n)` |
+| `isCallExpression(n)` | `is.CallExpression(n)` |
+| `isFunctionDeclaration(n)` | `is.FunctionDeclaration(n)` |
+| `isFunctionExpression(n)` | `is.FunctionExpression(n)` |
+| `isIdentifier(n)` | `is.Identifier(n)` |
+| `isMemberExpression(n)` | `is.MemberExpression(n)` |
+| `isTSQualifiedName(n)` | `is.TSQualifiedName(n)` |
+| `isVariableDeclaration(n)` | `is.VariableDeclaration(n)` |
+| `isFunctionNode(n)` | *(no `is.X` equivalent — keep the named import)* |
+
+##### Composing the `is` namespace with the index layer
+
+`Gildash.searchSymbols` (semantic / indexed view) and `parseSource` + `walk` (raw / positional view) are designed as two layers that compose. Use `searchSymbols` to locate the symbol, then re-enter the raw AST for the same file to drill into sub-expressions and slice source by `node.start` / `node.end`:
+
+```ts
+import { Gildash, parseSource, walk, is } from '@zipbul/gildash';
+
+const ledger = await Gildash.open({ projectRoot });
+
+// 1. Index layer: locate the symbol
+const [sym] = ledger.searchSymbols({ text: 'target', exact: true, kind: 'function' });
+if (!sym) return;
+
+// 2. Raw layer: re-parse the file (gildash also caches it via `getParsedAst`)
+const src = await Bun.file(sym.filePath).text();
+const parsed = parseSource(sym.filePath, src);
+if ('stack' in parsed) throw parsed;
+
+// 3. Compose: outer-node walk + name match → drill into the matched subtree
+walk(parsed.program, {
+  enter(node) {
+    if (is.FunctionDeclaration(node) && node.id?.name === sym.name) {
+      // Inside the symbol's subtree — use `is.X` predicates and raw byte
+      // offsets directly. `src.slice(n.start, n.end)` recovers source text.
+      if (node.body) {
+        walk(node.body, {
+          enter(inner) {
+            if (is.CallExpression(inner)) {
+              const calleeText = src.slice(inner.callee.start, inner.callee.end);
+              const argSpans = inner.arguments.map((a) => [a.start, a.end] as const);
+              // ...transform / collect / inject
+              void calleeText;
+              void argSpans;
+            }
+          },
+        });
+      }
+      this.skip();
+    }
+  },
+});
+```
+
+This pattern keeps the two layers cleanly separated: the indexed view answers *which* symbols and *where* (`sym.filePath`, `sym.span`); the raw view answers *what shape* and *what byte range* (`is.X(node)`, `node.start` / `node.end`).
+
 #### AST utility types
 
-`Program`, `Node`, `VisitorObject`, `WalkOptions`, `WalkerEnter`, `WalkerLeave`, `WalkerCallbackContext`, `ScopeTrackerNode`, `ScopeTrackerOptions`, `SourcePosition`, `SourceSpan`, `ParsedFile`, plus `buildLineOffsets` / `getLineColumn` for byte ↔ line/column conversion.
+`Program`, `Node`, `VisitorObject`, `WalkOptions`, `WalkerEnter`, `WalkerLeave`, `WalkerCallbackContext`, `ScopeTrackerNode`, `ScopeTrackerOptions`, `SourcePosition`, `SourceSpan`, `ParsedFile`, `IsNamespace`, `NodeTypePredicate`, plus `buildLineOffsets` / `getLineColumn` for byte ↔ line/column conversion.
 
 <br>
 

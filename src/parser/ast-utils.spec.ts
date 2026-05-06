@@ -15,6 +15,7 @@ import {
   getNodeName,
   getStringLiteralValue,
   getQualifiedName,
+  is,
 } from './ast-utils';
 
 // Build a minimal Node-shaped value for runtime branch testing. The runtime
@@ -760,5 +761,422 @@ describe('getQualifiedName (additional coverage)', () => {
       computed: false,
     };
     expect(getQualifiedName(node)).toBeNull();
+  });
+});
+
+describe('is namespace: runtime positive matches across every Node["type"] discriminator', () => {
+  // Every literal in oxc-parser Node['type'] union must round-trip through
+  // is.X(asNode('X')) === true. Failing this for a known literal indicates
+  // the Proxy lookup or caching path regressed.
+  const literals = [
+    // Top-level
+    'Program',
+    // Expressions
+    'CallExpression',
+    'NewExpression',
+    'MemberExpression',
+    'AssignmentExpression',
+    'BinaryExpression',
+    'LogicalExpression',
+    'UnaryExpression',
+    'UpdateExpression',
+    'ConditionalExpression',
+    'SequenceExpression',
+    'ArrayExpression',
+    'ObjectExpression',
+    'ArrowFunctionExpression',
+    'FunctionExpression',
+    'YieldExpression',
+    'AwaitExpression',
+    'ChainExpression',
+    'SpreadElement',
+    'ThisExpression',
+    'Super',
+    'TaggedTemplateExpression',
+    'TemplateLiteral',
+    // Declarations
+    'FunctionDeclaration',
+    'ClassDeclaration',
+    'VariableDeclaration',
+    'VariableDeclarator',
+    'ImportDeclaration',
+    'ExportNamedDeclaration',
+    'ExportDefaultDeclaration',
+    'ExportAllDeclaration',
+    // Statements
+    'ReturnStatement',
+    'IfStatement',
+    'BlockStatement',
+    'ExpressionStatement',
+    'ForStatement',
+    'WhileStatement',
+    'TryStatement',
+    'ThrowStatement',
+    // Identifiers / literals
+    'Identifier',
+    'PrivateIdentifier',
+    'StringLiteral',
+    'NumericLiteral',
+    'BooleanLiteral',
+    'NullLiteral',
+    // TS
+    'TSQualifiedName',
+    'TSDeclareFunction',
+    'TSEmptyBodyFunctionExpression',
+    'TSTypeReference',
+    'TSInterfaceDeclaration',
+    'TSTypeAliasDeclaration',
+    'TSEnumDeclaration',
+  ];
+
+  for (const lit of literals) {
+    it(`should return true on is.${lit}(asNode('${lit}'))`, () => {
+      const fn = (is as unknown as Record<string, (n: Node) => boolean>)[lit];
+      expect(typeof fn).toBe('function');
+      expect(fn!(asNode(lit))).toBe(true);
+    });
+
+    it(`should return false on is.${lit}(asNode('Identifier')) when discriminator differs`, () => {
+      if (lit === 'Identifier') return; // not a useful negation
+      const fn = (is as unknown as Record<string, (n: Node) => boolean>)[lit];
+      expect(fn!(asNode('Identifier'))).toBe(false);
+    });
+  }
+});
+
+describe('is namespace: equivalence with the hand-written predicates', () => {
+  // For every hand-written predicate, is.X(node) must match isX(node) on every
+  // probe in this list — including negative matches and the relevant collision
+  // cases. This is the contract that justifies the migration story (named ↔
+  // is.X are pointwise-equal).
+  const probes = [
+    'CallExpression',
+    'NewExpression',
+    'MemberExpression',
+    'AssignmentExpression',
+    'BinaryExpression',
+    'ArrowFunctionExpression',
+    'FunctionExpression',
+    'FunctionDeclaration',
+    'TSDeclareFunction',
+    'TSEmptyBodyFunctionExpression',
+    'Identifier',
+    'PrivateIdentifier',
+    'TSQualifiedName',
+    'TSTypeReference',
+    'VariableDeclaration',
+    'VariableDeclarator',
+    'ClassDeclaration',
+    'Program',
+    'ReturnStatement',
+    'ImportDeclaration',
+    'ExportNamedDeclaration',
+    'ExportDefaultDeclaration',
+    '',
+    'SomeFutureNodeType',
+  ];
+
+  const pairs: Array<{ named: (n: Node) => boolean; key: string }> = [
+    { named: isCallExpression, key: 'CallExpression' },
+    { named: isMemberExpression, key: 'MemberExpression' },
+    { named: isIdentifier, key: 'Identifier' },
+    { named: isAssignmentExpression, key: 'AssignmentExpression' },
+    { named: isArrowFunctionExpression, key: 'ArrowFunctionExpression' },
+    { named: isFunctionDeclaration, key: 'FunctionDeclaration' },
+    { named: isFunctionExpression, key: 'FunctionExpression' },
+    { named: isTSQualifiedName, key: 'TSQualifiedName' },
+    { named: isVariableDeclaration, key: 'VariableDeclaration' },
+  ];
+
+  for (const { named, key } of pairs) {
+    it(`should match the hand-written is${key} runtime decision pointwise across the probe set`, () => {
+      const proxyFn = (is as unknown as Record<string, (n: Node) => boolean>)[key]!;
+      for (const lit of probes) {
+        const node = asNode(lit);
+        expect(proxyFn(node)).toBe(named(node));
+      }
+    });
+  }
+});
+
+describe('is namespace: predicate function identity (caching)', () => {
+  it('should return the same function reference across repeated property accesses', () => {
+    const a = is.CallExpression;
+    const b = is.CallExpression;
+    expect(a).toBe(b);
+  });
+
+  it('should return distinct function references for distinct discriminators', () => {
+    expect(is.CallExpression as unknown).not.toBe(is.NewExpression as unknown);
+  });
+
+  it('should remain stable when assigned and used as an Array#filter callback', () => {
+    const filter = is.CallExpression;
+    const nodes = [asNode('CallExpression'), asNode('Identifier'), asNode('CallExpression')];
+    expect(nodes.filter(filter).length).toBe(2);
+  });
+});
+
+describe('is namespace: defensive runtime cases', () => {
+  it('should not satisfy the Promise thenable probe — `await Promise.resolve(is)` resolves to `is` itself within a tight deadline (regression: Proxy serving `then` deadlocks)', async () => {
+    // If `is.then` returned a callable, V8 would treat `is` as a thenable and
+    // invoke `then(resolve, reject)`. A predicate would ignore both callbacks
+    // and return false → the promise would never settle. Guard with a 500ms
+    // race; passing means `then` is unreachable as a callable.
+    const result = await Promise.race([
+      Promise.resolve(is).then((v) => (v === is ? 'self' : 'other')),
+      new Promise<string>((resolve) => setTimeout(() => resolve('DEADLOCK'), 500)),
+    ]);
+    expect(result).toBe('self');
+  });
+
+  it('should return undefined for `is.then` so the Proxy does not present a thenable interface', () => {
+    expect((is as unknown as { then?: unknown }).then).toBeUndefined();
+  });
+
+  it('should preserve `Object.prototype.toString` so `String(is)` returns "[object Object]" (regression: lowercase Proxy returns broke debug logging)', () => {
+    expect(String(is)).toBe('[object Object]');
+  });
+
+  it('should preserve serialisation so `JSON.stringify(is)` returns "{}" (regression: Proxy `toJSON` predicate broke logging)', () => {
+    expect(JSON.stringify(is)).toBe('{}');
+  });
+
+  it('should return undefined for lowercase typos so users see TypeError instead of silent false (e.g. `is.callExpression` is a typo for `is.CallExpression`)', () => {
+    expect((is as unknown as Record<string, unknown>).callExpression).toBeUndefined();
+    expect((is as unknown as Record<string, unknown>).identifier).toBeUndefined();
+  });
+
+  it('should return undefined for symbol property access (Symbol.iterator / Symbol.toPrimitive)', () => {
+    expect((is as unknown as Record<symbol, unknown>)[Symbol.iterator]).toBeUndefined();
+    expect((is as unknown as Record<symbol, unknown>)[Symbol.toPrimitive]).toBeUndefined();
+  });
+
+  it('should return undefined for Object.prototype-shadowing string keys so the prototype chain stays intact', () => {
+    // These all start lowercase and are filtered to fall through to
+    // Reflect.get on the empty target → returns whatever Object.prototype
+    // exposes (which is the actual function, not a fake predicate).
+    const probe = is as unknown as Record<string, unknown>;
+    expect(typeof probe.toString).toBe('function');
+    expect(typeof probe.valueOf).toBe('function');
+    expect(typeof probe.hasOwnProperty).toBe('function');
+    // `constructor` resolves to Object via prototype chain.
+    expect(probe.constructor).toBe(Object);
+  });
+
+  it('should return false (not throw) when the input is null', () => {
+    expect((is.CallExpression as (n: unknown) => boolean)(null)).toBe(false);
+  });
+
+  it('should return false (not throw) when the input is undefined', () => {
+    expect((is.CallExpression as (n: unknown) => boolean)(undefined)).toBe(false);
+  });
+
+  it('should return false when the input is a primitive number', () => {
+    expect((is.CallExpression as (n: unknown) => boolean)(42)).toBe(false);
+  });
+
+  it('should return false when the input is an empty object', () => {
+    expect((is.CallExpression as (n: unknown) => boolean)({})).toBe(false);
+  });
+
+  it('should return false when the input has a non-string type field', () => {
+    expect((is.CallExpression as (n: unknown) => boolean)({ type: 42 })).toBe(false);
+    expect((is.CallExpression as (n: unknown) => boolean)({ type: null })).toBe(false);
+  });
+});
+
+describe('is namespace: type-level narrowing (compile-time only)', () => {
+  // These tests fail at `bun run typecheck` if the IsNamespace mapped type
+  // regresses. They mirror the existing handful of regression tests for the
+  // hand-written predicates.
+
+  it('should narrow is.CallExpression so .arguments / .callee / .optional are accessible', () => {
+    const n = asNode('CallExpression', {
+      callee: { type: 'Identifier', name: 'fn' },
+      arguments: [],
+      optional: false,
+    });
+    if (is.CallExpression(n)) {
+      const _t: 'CallExpression' = n.type;
+      const _args = n.arguments;
+      const _callee = n.callee;
+      const _optional: boolean = n.optional;
+      void _t;
+      void _args;
+      void _callee;
+      void _optional;
+    }
+    expect(is.CallExpression(n)).toBe(true);
+  });
+
+  it('should narrow is.NewExpression so .arguments / .callee are accessible', () => {
+    const n = asNode('NewExpression');
+    if (is.NewExpression(n)) {
+      const _t: 'NewExpression' = n.type;
+      const _args = n.arguments;
+      const _callee = n.callee;
+      void _t;
+      void _args;
+      void _callee;
+    }
+    expect(is.NewExpression(n)).toBe(true);
+  });
+
+  it('should narrow is.ClassDeclaration so .id / .body are accessible', () => {
+    const n = asNode('ClassDeclaration');
+    if (is.ClassDeclaration(n)) {
+      const _t: 'ClassDeclaration' = n.type;
+      void _t;
+    }
+    expect(is.ClassDeclaration(n)).toBe(true);
+  });
+
+  it('should narrow is.ImportDeclaration so .source is accessible', () => {
+    const n = asNode('ImportDeclaration');
+    if (is.ImportDeclaration(n)) {
+      const _t: 'ImportDeclaration' = n.type;
+      void _t;
+    }
+    expect(is.ImportDeclaration(n)).toBe(true);
+  });
+
+  it('should narrow is.ExportNamedDeclaration so the literal type matches', () => {
+    const n = asNode('ExportNamedDeclaration');
+    if (is.ExportNamedDeclaration(n)) {
+      const _t: 'ExportNamedDeclaration' = n.type;
+      void _t;
+    }
+    expect(is.ExportNamedDeclaration(n)).toBe(true);
+  });
+
+  it('should narrow is.ExportDefaultDeclaration so the literal type matches', () => {
+    const n = asNode('ExportDefaultDeclaration');
+    if (is.ExportDefaultDeclaration(n)) {
+      const _t: 'ExportDefaultDeclaration' = n.type;
+      void _t;
+    }
+    expect(is.ExportDefaultDeclaration(n)).toBe(true);
+  });
+
+  it('should narrow is.ReturnStatement so .argument is accessible', () => {
+    const n = asNode('ReturnStatement');
+    if (is.ReturnStatement(n)) {
+      const _t: 'ReturnStatement' = n.type;
+      void _t;
+    }
+    expect(is.ReturnStatement(n)).toBe(true);
+  });
+
+  it('should narrow is.Identifier preserving the 6-way collision union (.name accessible)', () => {
+    const n = asNode('Identifier', { name: 'foo' });
+    if (is.Identifier(n)) {
+      const _t: 'Identifier' = n.type;
+      const _name = n.name;
+      void _t;
+      void _name;
+    }
+    expect(is.Identifier(n)).toBe(true);
+  });
+
+  it('should narrow is.MemberExpression preserving the 3-way collision union (.object accessible)', () => {
+    const n = asNode('MemberExpression');
+    if (is.MemberExpression(n)) {
+      const _t: 'MemberExpression' = n.type;
+      const _obj = n.object;
+      void _t;
+      void _obj;
+    }
+    expect(is.MemberExpression(n)).toBe(true);
+  });
+
+  it('should narrow is.TSQualifiedName preserving the 2-way collision union (.left / .right accessible)', () => {
+    const n = asNode('TSQualifiedName');
+    if (is.TSQualifiedName(n)) {
+      const _t: 'TSQualifiedName' = n.type;
+      const _left = n.left;
+      const _right = n.right;
+      void _t;
+      void _left;
+      void _right;
+    }
+    expect(is.TSQualifiedName(n)).toBe(true);
+  });
+
+  it('should narrow is.ClassDeclaration so Class-interface fields stay accessible (regression — Class is multi-literal: ClassDeclaration | ClassExpression)', () => {
+    const n = asNode('ClassDeclaration', {
+      id: null,
+      superClass: null,
+      body: { type: 'ClassBody', body: [] },
+      decorators: [],
+      typeParameters: null,
+      superTypeArguments: null,
+      implements: [],
+      abstract: false,
+      declare: false,
+    });
+    if (is.ClassDeclaration(n)) {
+      const _id = n.id;
+      const _super = n.superClass;
+      const _body = n.body;
+      const _decorators = n.decorators;
+      const _abstract: boolean | undefined = n.abstract;
+      void _id;
+      void _super;
+      void _body;
+      void _decorators;
+      void _abstract;
+    }
+    expect(is.ClassDeclaration(n)).toBe(true);
+  });
+
+  it('should narrow is.ClassExpression so Class-interface fields stay accessible (the OTHER literal of the Class multi-literal)', () => {
+    const n = asNode('ClassExpression');
+    if (is.ClassExpression(n)) {
+      const _t: 'ClassExpression' = n.type;
+      const _id = n.id;
+      const _body = n.body;
+      void _t;
+      void _id;
+      void _body;
+    }
+    expect(is.ClassExpression(n)).toBe(true);
+  });
+
+  it('should narrow is.FunctionExpression so Function-interface fields stay accessible (regression — Function is 4-way multi-literal)', () => {
+    const n = asNode('FunctionExpression');
+    if (is.FunctionExpression(n)) {
+      const _params = n.params;
+      const _body = n.body;
+      const _id = n.id;
+      const _async: boolean = n.async;
+      const _generator: boolean = n.generator;
+      void _params;
+      void _body;
+      void _id;
+      void _async;
+      void _generator;
+    }
+    expect(is.FunctionExpression(n)).toBe(true);
+  });
+
+  it('should narrow is.FunctionDeclaration so Function-interface fields stay accessible (regression for never-collapse)', () => {
+    const n = asNode('FunctionDeclaration', {
+      id: null,
+      generator: false,
+      async: false,
+      params: [],
+      body: null,
+      expression: false,
+    });
+    if (is.FunctionDeclaration(n)) {
+      const _params = n.params;
+      const _body = n.body;
+      const _id = n.id;
+      void _params;
+      void _body;
+      void _id;
+    }
+    expect(is.FunctionDeclaration(n)).toBe(true);
   });
 });
