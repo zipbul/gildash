@@ -19,6 +19,8 @@ export {
   getNodeName,
   getStringLiteralValue,
   getQualifiedName,
+  is,
 } from './ast-utils';
+export type { IsNamespace, NodeTypePredicate } from './ast-utils';
 export { parseJsDoc } from './jsdoc-parser';
 export type { ParsedFile, SourcePosition, SourceSpan } from './types';

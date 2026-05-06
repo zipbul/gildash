@@ -147,6 +147,96 @@ export function isVariableDeclaration(
   return node.type === 'VariableDeclaration';
 }
 
+/**
+ * Per-Node-type predicate signature: narrows a `Node` to the union of
+ * interfaces sharing the discriminator literal `K`.
+ *
+ * Uses the `Node & { type: K }` intersection form rather than `Extract<Node, { type: K }>`
+ * because some backing interfaces in `@oxc-project/types` declare `type` as a
+ * multi-literal union (e.g. `Function`'s `'FunctionDeclaration' | 'FunctionExpression'
+ * | 'TSDeclareFunction' | 'TSEmptyBodyFunctionExpression'`, `Class`'s
+ * `'ClassDeclaration' | 'ClassExpression'`). Distributive `Extract` against a
+ * single literal evaluates the constraint as broader than the field and drops
+ * those branches to `never`, breaking field access inside the narrowed branch.
+ * Intersection narrows the discriminator while preserving the backing interface's
+ * structural fields. See commit 1c73175 for the original fix on the hand-written
+ * predicates.
+ */
+export type NodeTypePredicate<K extends Node['type']> = (
+  node: Node,
+) => node is Node & { type: K };
+
+/**
+ * Object-shape of the {@link is} namespace: one predicate per `Node['type']`
+ * literal. Resolved lazily via a Proxy — every `is.X` access returns a stable
+ * predicate function (cached by discriminator).
+ */
+export type IsNamespace = {
+  [K in Node['type']]: NodeTypePredicate<K>;
+};
+
+const isPredicateCache = new Map<string, (node: Node) => boolean>();
+
+/**
+ * Per-`Node['type']` predicate namespace. Covers every discriminator literal
+ * that oxc-parser's `Node` union currently exposes (and any future variants
+ * automatically), without per-type hand-written code.
+ *
+ * Usage:
+ *
+ * ```ts
+ * if (is.CallExpression(node)) {
+ *   // node: CallExpression
+ *   console.log(node.arguments);
+ * }
+ * ```
+ *
+ * Each `is.X` call is equivalent to `node?.type === 'X'` at runtime and to
+ * `node is Extract<Node, { type: 'X' }>` at the type level. Predicate
+ * functions are cached by discriminator, so `is.CallExpression ===
+ * is.CallExpression` holds across calls — safe to pass directly to
+ * `Array#filter` etc.
+ *
+ * Hand-written predicates with non-trivial JSDoc caveats (collision narrowing
+ * or union shorthand) — `isIdentifier`, `isMemberExpression`,
+ * `isTSQualifiedName`, `isFunctionDeclaration`, `isFunctionExpression`,
+ * `isFunctionNode` — remain exported alongside this namespace and continue to
+ * carry the documented runtime semantics.
+ *
+ * Defensive runtime behaviour: any non-string property access (Symbol keys),
+ * any string key that is not a PascalCase discriminator candidate (`then`,
+ * `toString`, `toJSON`, `valueOf`, `constructor`, `hasOwnProperty`, etc.), and
+ * any lowercase typo (`is.callExpression`) all return `undefined`. This is
+ * mandatory for hostable behaviour: without it, `is.then` would satisfy the
+ * Promise thenable probe — `await Promise.resolve(is)` deadlocks because the
+ * generated predicate ignores `resolve`/`reject`. Likewise `is.toString` would
+ * shadow `Object.prototype.toString`, making `String(is)` return `"false"` and
+ * `JSON.stringify(is)` return `"false"`. Calling a predicate with `null` /
+ * `undefined` returns `false`.
+ */
+export const is: IsNamespace = new Proxy({} as IsNamespace, {
+  get(target, key, receiver) {
+    // Every `Node['type']` discriminator in oxc-parser is PascalCase. For
+    // anything else — symbols, lowercase keys (`then`, `toString`, `toJSON`,
+    // `valueOf`, `constructor`, `hasOwnProperty`, …), or PascalCase typos
+    // we don't want to mint predicates for — fall through to the default
+    // lookup. This makes `String(is)`, `JSON.stringify(is)`, and
+    // `await Promise.resolve(is)` behave like a plain object instead of
+    // satisfying probes with a fake predicate that always returns `false`.
+    if (typeof key !== 'string') return Reflect.get(target, key, receiver);
+    const firstCharCode = key.charCodeAt(0);
+    if (firstCharCode < 65 /* 'A' */ || firstCharCode > 90 /* 'Z' */) {
+      return Reflect.get(target, key, receiver);
+    }
+    let fn = isPredicateCache.get(key);
+    if (fn === undefined) {
+      fn = (node: Node) => node !== null && node !== undefined && node.type === key;
+      isPredicateCache.set(key, fn);
+    }
+    return fn;
+  },
+});
+
 export function getNodeName(node: unknown): string | null {
   if (!node || typeof node !== 'object' || Array.isArray(node)) return null;
   const record = node as Record<string, unknown>;
