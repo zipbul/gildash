@@ -1,5 +1,48 @@
 # @zipbul/gildash
 
+## 0.28.0
+
+### Minor Changes
+
+- [#123](https://github.com/zipbul/gildash/pull/123) [`ab57244`](https://github.com/zipbul/gildash/commit/ab5724445563026488a3f7e979bed60e54ff4792) Thanks [@parkrevil](https://github.com/parkrevil)! - feat(ast): expose `is` namespace covering every `Node['type']` discriminator
+
+  A new `is` namespace exposes a per-discriminator type predicate for every literal in the oxc-parser `Node['type']` union — and for any literal upstream adds in the future — without per-type hand-written code:
+
+  ```ts
+  import { is, walk, parseSource } from "@zipbul/gildash";
+
+  walk(program, {
+    enter(node) {
+      if (is.CallExpression(node)) console.log(node.arguments);
+      if (is.ClassDeclaration(node)) console.log(node.id?.name);
+      if (is.ImportDeclaration(node)) console.log(node.source.value);
+    },
+  });
+  ```
+
+  **Type-level shape**: `is.X(node)` narrows to `Node & { type: 'X' }`. The intersection form is used (rather than `Extract<Node, { type: 'X' }>`) so fields on backing interfaces with multi-literal `type` unions — `Function` (4-way) and `Class` (2-way) — remain accessible inside the narrowed branch.
+
+  **Runtime shape**: backed by a `Proxy` whose `get` trap accepts only PascalCase keys; symbols, lowercase typos (`is.callExpression`), and Object-prototype names (`then`, `toString`, `toJSON`, `valueOf`, `constructor`, `hasOwnProperty`) fall through to the empty target via `Reflect.get`. As a result `String(is)` returns `"[object Object]"`, `JSON.stringify(is)` returns `"{}"`, and `await Promise.resolve(is)` resolves to `is` itself instead of deadlocking on a fake thenable. Predicate functions are cached by discriminator, so `is.CallExpression === is.CallExpression` holds — safe to pass directly to `Array#filter`. Calling a predicate with `null` / `undefined` returns `false`.
+
+  **Hand-written predicates kept**: `isFunctionDeclaration`, `isFunctionExpression`, `isIdentifier`, `isMemberExpression`, `isTSQualifiedName`, and `isFunctionNode` remain exported because their JSDoc encodes runtime semantics that the bare discriminator does not (collision narrowing, Function-interface caveat, union shorthand). The four single-discriminator legacy predicates (`isArrowFunctionExpression`, `isAssignmentExpression`, `isCallExpression`, `isVariableDeclaration`) also stay for backward compatibility — pointwise-equivalent to `is.X`. No deprecations.
+
+  **New types exported**: `IsNamespace` and `NodeTypePredicate<K>`.
+
+  **README**: "AST Primitives" section adds a primary `is` subsection, a migration table from the named predicates, and a composition example showing how `searchSymbols` (indexed view) and `parseSource` + `walk` + `is.X` (raw / positional view) compose via `sym.span` + name match without requiring byte offsets on `ExpressionValue`.
+
+### Patch Changes
+
+- [#123](https://github.com/zipbul/gildash/pull/123) [`ab57244`](https://github.com/zipbul/gildash/commit/ab5724445563026488a3f7e979bed60e54ff4792) Thanks [@parkrevil](https://github.com/parkrevil)! - chore(docs): tighten CLAUDE.md scope, move oxc upgrade runbook to `docs/runbooks/`
+
+  `CLAUDE.md` had grown to host content that did not belong there — an architecture diagram duplicating the README, the `bun test` / `bun run build` command list duplicating `package.json` scripts, and a 15-line oxc-parser upgrade checklist that was a narrow operational runbook (not an AI behavior rule). All three were paid as a permanent context tax on every Claude Code session.
+
+  This release:
+
+  - **Compresses `CLAUDE.md`** to its actual scope: project context (1 paragraph), conventions, test conventions, error-handling boundary rules, and the Gate 1–6 audit rules. 148 → 63 lines.
+  - **Moves the oxc upgrade checklist** to `docs/runbooks/upgrading-oxc.md` and adds an entry covering the new `is` namespace / `IsNamespace` mapped type (which TypeScript validates against the new `Node['type']` automatically — no manual sync).
+
+  No public API changes. No behavior changes. Pure docs/runbook reorganization.
+
 ## 0.27.1
 
 ### Patch Changes
