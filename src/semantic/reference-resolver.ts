@@ -111,6 +111,13 @@ export class ReferenceResolver {
       const declarations = symbol.declarations;
       if (!declarations || declarations.length === 0) continue;
 
+      // Skip symbols declared *only* as object members — their references are
+      // member accesses (which we don't collect), so they would otherwise appear
+      // as bindings with incomplete reference sets. Bare-name value bindings
+      // (var/let/const/param/function/class/import) always have a non-member
+      // declaration; a parameter property keeps its `Parameter` declaration.
+      if (declarations.every(isMemberDeclaration)) continue;
+
       const isAmbient = declarations.every(isAmbientDeclaration);
       const declNameNodes = new Set<ts.Node>(
         declarations
@@ -208,7 +215,37 @@ function isPropertyName(node: ts.Identifier): boolean {
   return (
     (ts.isPropertyAccessExpression(p) && p.name === node) ||
     (ts.isQualifiedName(p) && p.right === node) ||
-    (ts.isPropertyAssignment(p) && p.name === node)
+    (ts.isPropertyAssignment(p) && p.name === node) ||
+    // `const { b: bb } = o` — `b` is the source object's key, not a binding.
+    (ts.isBindingElement(p) && p.propertyName === node) ||
+    (ts.isJsxAttribute(p) && p.name === node) ||
+    // `import { a as b }` — `a` is the source-module export name, not a local binding.
+    (ts.isImportSpecifier(p) && p.propertyName === node) ||
+    // the `global` name of a `declare global { … }` augmentation denotes a scope,
+    // not a value binding (resolves to the synthetic `__global` symbol).
+    (ts.isModuleDeclaration(p) &&
+      p.name === node &&
+      (p.flags & ts.NodeFlags.GlobalAugmentation) !== 0)
+  );
+}
+
+/**
+ * Whether a declaration is an object member (accessed via `.`, not by bare name)
+ * — class fields/methods/accessors, interface members, enum members. Symbols
+ * declared *only* as such are out of scope for bare-name binding resolution.
+ */
+function isMemberDeclaration(d: ts.Declaration): boolean {
+  return (
+    ts.isPropertyDeclaration(d) ||
+    ts.isPropertySignature(d) ||
+    ts.isMethodDeclaration(d) ||
+    ts.isMethodSignature(d) ||
+    ts.isGetAccessorDeclaration(d) ||
+    ts.isSetAccessorDeclaration(d) ||
+    ts.isEnumMember(d) ||
+    // index-signature parameter (`[key: string]`) is type-level syntax, not a
+    // bare-name value binding.
+    (ts.isParameter(d) && ts.isIndexSignatureDeclaration(d.parent))
   );
 }
 
@@ -228,7 +265,14 @@ function resolveBindingSymbol(
     return checker.getShorthandAssignmentValueSymbol(parent);
   }
   if (ts.isExportSpecifier(parent)) {
-    return checker.getExportSpecifierLocalTargetSymbol(parent);
+    // Re-export `export { x } from './m'` — the target binding lives in the other
+    // module, not this file. NamedExports → ExportDeclaration carries the source.
+    const exportDecl = parent.parent.parent;
+    if (ts.isExportDeclaration(exportDecl) && exportDecl.moduleSpecifier) return undefined;
+    // `export { x as y }` — only the local target (`x`) references a binding; the
+    // export-facing alias (`y`) does not. Both children share the same parent.
+    const localName = parent.propertyName ?? parent.name;
+    return localName === node ? checker.getExportSpecifierLocalTargetSymbol(parent) : undefined;
   }
   return checker.getSymbolAtLocation(node);
 }
