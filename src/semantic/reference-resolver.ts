@@ -6,7 +6,7 @@
  */
 
 import ts from "typescript";
-import type { EnrichedReference, SemanticReference } from "./types";
+import type { EnrichedReference, FileBinding, SemanticReference } from "./types";
 import type { TscProgram } from "./tsc-program";
 import { findNodeAtPosition } from "./ast-node-utils";
 import { classifyWriteKind, getEnclosingScope, isAmbientDeclaration } from "./reference-classifier";
@@ -71,6 +71,85 @@ export class ReferenceResolver {
         });
       }
     }
+    return results;
+  }
+
+  /**
+   * Collect every binding referenced in `filePath`, grouped by symbol, in a
+   * single AST pass (no per-symbol `findReferences`). Each group lists the
+   * references that occur in this file enriched with `writeKind` / `isAmbient` /
+   * `enclosingScope`. Returns `[]` if disposed or the file is unknown.
+   */
+  findFileBindings(filePath: string): FileBinding[] {
+    if (this.#program.isDisposed) return [];
+
+    const tsProgram = this.#program.getProgram();
+    const sourceFile = tsProgram.getSourceFile(filePath);
+    if (!sourceFile) return [];
+
+    const checker = tsProgram.getTypeChecker();
+
+    // Single pass: group every identifier by its resolved symbol identity
+    // (the binder handles var hoisting / shadowing, so a block `var` and an
+    // outer read land in the same group).
+    const groups = new Map<ts.Symbol, ts.Identifier[]>();
+    const visit = (node: ts.Node): void => {
+      if (ts.isIdentifier(node)) {
+        const symbol = checker.getSymbolAtLocation(node);
+        if (symbol) {
+          const existing = groups.get(symbol);
+          if (existing) existing.push(node);
+          else groups.set(symbol, [node]);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(sourceFile, visit);
+
+    const results: FileBinding[] = [];
+    for (const [symbol, idents] of groups) {
+      const declarations = symbol.declarations;
+      if (!declarations || declarations.length === 0) continue;
+
+      const isAmbient = declarations.every(isAmbientDeclaration);
+      const declNameNodes = new Set<ts.Node>(
+        declarations
+          .map((d) => ts.getNameOfDeclaration(d))
+          .filter((n): n is NonNullable<typeof n> => n !== undefined),
+      );
+      const firstDecl = declarations[0]!;
+      const declName = ts.getNameOfDeclaration(firstDecl) ?? firstDecl;
+      const declSourceFile = firstDecl.getSourceFile();
+
+      const references: EnrichedReference[] = idents.map((id) => {
+        const start = id.getStart(sourceFile);
+        const { line: lineZero, character: column } =
+          sourceFile.getLineAndCharacterOfPosition(start);
+        const writeKind = classifyWriteKind(id);
+        return {
+          filePath: sourceFile.fileName,
+          position: start,
+          line: lineZero + 1,
+          column,
+          isDefinition: declNameNodes.has(id),
+          isWrite: writeKind !== undefined,
+          writeKind,
+          isAmbient,
+          enclosingScope: getEnclosingScope(id),
+        };
+      });
+
+      results.push({
+        declaration: {
+          filePath: declSourceFile.fileName,
+          position: declName.getStart(declSourceFile),
+          name: symbol.getName(),
+          isAmbient,
+        },
+        references,
+      });
+    }
+
     return results;
   }
 

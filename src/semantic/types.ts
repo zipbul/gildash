@@ -98,6 +98,29 @@ export interface EnrichedReference extends SemanticReference {
 }
 
 /**
+ * All references to a single binding within one file, grouped by symbol identity.
+ *
+ * Produced by a single-pass walk + `getSymbolAtLocation` (no per-symbol
+ * `findReferences`), so collecting every binding in a file is `O(identifiers)`
+ * rather than `O(symbols × program)`. References are limited to the queried file
+ * (dataflow is intra-file); the declaration may live elsewhere.
+ */
+export interface FileBinding {
+  /** The binding's declaration site (may be in another file, e.g. an import). */
+  declaration: {
+    filePath: string;
+    /** Zero-based offset of the declaration name. */
+    position: number;
+    /** Symbol name. */
+    name: string;
+    /** Whether the binding is ambient (no runtime definition). */
+    isAmbient: boolean;
+  };
+  /** Every reference to this binding that occurs in the queried file. */
+  references: EnrichedReference[];
+}
+
+/**
  * A concrete implementation of an interface or abstract class,
  * found via `LanguageService.getImplementationAtPosition` and
  * `TypeChecker.isTypeAssignableTo`.

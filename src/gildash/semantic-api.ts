@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { SymbolSearchResult } from '../search/symbol-search';
 import { GildashError } from '../errors';
-import type { ResolvedType, SemanticReference, EnrichedReference, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
+import type { ResolvedType, SemanticReference, EnrichedReference, FileBinding, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
 import type { SymbolNode } from '../semantic/symbol-graph';
 import type { GildashContext } from './context';
 
@@ -304,6 +304,19 @@ export function getEnrichedReferencesAtPosition(
   } catch (e) {
     if (e instanceof GildashError) throw e;
     throw new GildashError('semantic', 'Gildash: getEnrichedReferencesAtPosition failed', { cause: e });
+  }
+}
+
+/** Collect all bindings in a file (single-pass), each with its in-file enriched references. */
+export function getFileBindings(ctx: GildashContext, filePath: string): FileBinding[] {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    return ctx.semanticLayer.getFileBindings(absPath);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: getFileBindings failed', { cause: e });
   }
 }
 

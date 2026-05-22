@@ -250,6 +250,30 @@ describe("SemanticLayer", () => {
     layer.dispose();
   });
 
+  // 5c. [HP] getFileBindings → ReferenceResolver.findFileBindings 위임, 심볼별 그룹
+  it("should delegate getFileBindings and group references per binding", () => {
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const filePath = "/project/src/bindings.ts";
+    const content = "let x = 1;\nx = 2;\nconsole.log(x);";
+    layer.notifyFileChanged(filePath, content);
+
+    const bindings = layer.getFileBindings(filePath);
+    const x = bindings.find((b) => b.declaration.name === "x");
+
+    expect(x).toBeDefined();
+    expect(x!.references.length).toBeGreaterThanOrEqual(3);
+    expect(x!.references.map((r) => r.writeKind)).toContain("assignment");
+    layer.dispose();
+  });
+
   // 6. [HP] findImplementations → ImplementationFinder.findAt 위임 호출됨
   it("should delegate findImplementations to ImplementationFinder.findAt", () => {
     // Arrange

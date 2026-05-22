@@ -8,6 +8,7 @@ import {
   getSemanticReferences,
   getEnrichedReferences,
   getEnrichedReferencesAtPosition,
+  getFileBindings,
   getImplementations,
   getSemanticModuleInterface,
   getBaseTypes,
@@ -40,6 +41,7 @@ function makeSemanticLayer(overrides?: Record<string, unknown>) {
     collectTypeAt: mock(() => ({ type: 'string', text: 'string' })),
     findReferences: mock(() => []),
     findEnrichedReferences: mock(() => []),
+    getFileBindings: mock(() => []),
     findImplementations: mock(() => []),
     getModuleInterface: mock(() => ({ exports: [] })),
     getSymbolNode: mock(() => null),
@@ -366,6 +368,57 @@ describe('getEnrichedReferencesAtPosition', () => {
 
     try {
       getEnrichedReferencesAtPosition(ctx, '/a.ts', 0);
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GildashError);
+      expect((e as GildashError).type).toBe('semantic');
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
+});
+
+// ─── getFileBindings ────────────────────────────────────────────────
+
+describe('getFileBindings', () => {
+  it('should delegate to getFileBindings with absolute path', () => {
+    const bindings = [{ declaration: { filePath: '/b.ts', position: 0, name: 'x', isAmbient: false }, references: [] }];
+    const getFB = mock(() => bindings);
+    const layer = makeSemanticLayer({ getFileBindings: getFB });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    const result = getFileBindings(ctx, '/project/src/a.ts');
+
+    expect(result).toBe(bindings as any);
+    expect(getFB).toHaveBeenCalledWith('/project/src/a.ts');
+  });
+
+  it('should resolve relative path via projectRoot', () => {
+    const getFB = mock(() => []);
+    const layer = makeSemanticLayer({ getFileBindings: getFB });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    getFileBindings(ctx, 'src/a.ts');
+
+    expect(getFB).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'));
+  });
+
+  it('should throw when closed', () => {
+    const ctx = makeCtx({ closed: true });
+    expect(() => getFileBindings(ctx, '/a.ts')).toThrow(GildashError);
+  });
+
+  it('should throw when semantic layer is null', () => {
+    const ctx = makeCtx({ semanticLayer: null });
+    expect(() => getFileBindings(ctx, '/a.ts')).toThrow(GildashError);
+  });
+
+  it('should catch exception and throw GildashError with cause', () => {
+    const error = new Error('fb fail');
+    const layer = makeSemanticLayer({ getFileBindings: mock(() => { throw error; }) });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    try {
+      getFileBindings(ctx, '/a.ts');
       expect.unreachable('should have thrown');
     } catch (e) {
       expect(e).toBeInstanceOf(GildashError);

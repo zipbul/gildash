@@ -697,3 +697,95 @@ describe("ReferenceResolver.findEnrichedAt", () => {
     expect(resolver.findEnrichedAt(filePath, 6)).toEqual([]);
   });
 });
+
+// ── ReferenceResolver.findFileBindings ─────────────────────────────────────────
+
+describe("ReferenceResolver.findFileBindings", () => {
+  function bindingFor(bindings: ReturnType<ReferenceResolver["findFileBindings"]>, name: string) {
+    return bindings.find((b) => b.declaration.name === name);
+  }
+
+  // 1. [BUGFIX] block-scoped `var` and outer read group into ONE binding (symbol identity).
+  it("should group a block-scoped var with its outer read into a single binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fb1.ts";
+    const content = "function f() {\n  if (true) { var c = 1; }\n  return c;\n}";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const b = bindingFor(resolver.findFileBindings(filePath), "c");
+
+    expect(b).toBeDefined();
+    expect(b!.references.length).toBeGreaterThanOrEqual(2);
+    expect(b!.references.some((r) => r.isWrite)).toBe(true);
+    expect(b!.references.some((r) => !r.isWrite)).toBe(true);
+  });
+
+  // 2. [HP] writeKind populated per reference; declaration points at the binding site.
+  it("should populate writeKind and declaration for a local binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fb2.ts";
+    const content = "let c = 1;\nc = 2;\nc += 3;\nuse(c);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const b = bindingFor(resolver.findFileBindings(filePath), "c");
+
+    expect(b).toBeDefined();
+    expect(b!.declaration.filePath).toBe(filePath);
+    expect(b!.declaration.isAmbient).toBe(false);
+    const kinds = b!.references.map((r) => r.writeKind);
+    expect(kinds).toContain("declaration");
+    expect(kinds).toContain("assignment");
+    expect(kinds).toContain("compound-assignment");
+  });
+
+  // 3. [HP] one binding entry per symbol (grouping, not per-reference).
+  it("should return exactly one binding per distinct symbol", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fb3.ts";
+    const content = "const a = 1;\nconst b = a + a + a;";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const bindings = resolver.findFileBindings(filePath);
+    const a = bindingFor(bindings, "a");
+
+    expect(a).toBeDefined();
+    expect(a!.references.length).toBe(4); // 1 decl + 3 reads
+    expect(bindings.filter((x) => x.declaration.name === "a").length).toBe(1);
+  });
+
+  // 4. [HP] ambient binding flagged.
+  it("should flag an ambient binding's references as ambient", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fb4.ts";
+    const content = "declare const amb: number;\nuse(amb);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const b = bindingFor(resolver.findFileBindings(filePath), "amb");
+
+    expect(b).toBeDefined();
+    expect(b!.declaration.isAmbient).toBe(true);
+    expect(b!.references.every((r) => r.isAmbient)).toBe(true);
+  });
+
+  // 5. [EX] disposed program → empty.
+  it("should return an empty array when the program is disposed", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fb5.ts";
+    prog.notifyFileChanged(filePath, "const x = 1;\nuse(x);");
+    const resolver = new ReferenceResolver(prog);
+    prog.dispose();
+
+    expect(resolver.findFileBindings(filePath)).toEqual([]);
+  });
+
+  // 6. [EX] unknown file → empty.
+  it("should return an empty array for an unknown file", () => {
+    const prog = makeProg();
+    const resolver = new ReferenceResolver(prog);
+    expect(resolver.findFileBindings("/project/src/missing.ts")).toEqual([]);
+  });
+});
