@@ -789,3 +789,93 @@ describe("ReferenceResolver.findFileBindings", () => {
     expect(resolver.findFileBindings("/project/src/missing.ts")).toEqual([]);
   });
 });
+
+describe("ReferenceResolver.findFileBindings — symbol-resolution edge cases", () => {
+  function bindingFor(bindings: ReturnType<ReferenceResolver["findFileBindings"]>, name: string) {
+    return bindings.filter((b) => b.declaration.name === name);
+  }
+
+  // shorthand `{ x }` value reference must group with the x binding (not split off).
+  it("should group a shorthand-property read with its binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fbs1.ts";
+    const content = "let x = 1;\nconst o = { x };\nuse(x);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const xs = bindingFor(resolver.findFileBindings(filePath), "x");
+    expect(xs.length).toBe(1); // not split into two groups
+    expect(xs[0]!.references.length).toBe(3); // decl + shorthand + use
+  });
+
+  // `export { x }` local target must group with the x binding.
+  it("should group an export specifier with its local binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fbs2.ts";
+    const content = "let x = 1;\nx;\nexport { x };";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const xs = bindingFor(resolver.findFileBindings(filePath), "x");
+    expect(xs.length).toBe(1);
+    expect(xs[0]!.references.length).toBe(3); // decl + read + export
+  });
+
+  // shadowing across nested functions → two distinct bindings.
+  it("should keep shadowed bindings in separate groups", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fbs3.ts";
+    const content = "function f() {\n  let a = 1;\n  function g() { let a = 2; return a; }\n  return a + g();\n}";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const as = bindingFor(resolver.findFileBindings(filePath), "a");
+    expect(as.length).toBe(2); // outer a and inner a are distinct bindings
+  });
+
+  // a function parameter appears as a definition.
+  it("should record a parameter as a definition", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fbs4.ts";
+    const content = "function f(p: number) { return p; }";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const p = bindingFor(resolver.findFileBindings(filePath), "p")[0];
+    expect(p).toBeDefined();
+    expect(p!.references.some((r) => r.isDefinition && r.writeKind === "declaration")).toBe(true);
+  });
+
+  // destructuring assignment write groups with the binding as a write.
+  it("should record a destructuring-assignment write on the binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fbs5.ts";
+    const content = "let x = 1;\n({ x } = o);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const x = bindingFor(resolver.findFileBindings(filePath), "x")[0];
+    expect(x).toBeDefined();
+    expect(x!.references.some((r) => r.writeKind === "assignment")).toBe(true);
+  });
+
+  // property names must not form spurious binding groups.
+  it("should not create a binding for a member-access property name", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fbs6.ts";
+    const content = "const obj = { prop: 1 };\nuse(obj.prop);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const bindings = resolver.findFileBindings(filePath);
+    // `prop` appears as an object-literal key and a member-access name — neither
+    // is a standalone binding, so no binding named `prop` from those positions.
+    const propRefs = bindings
+      .filter((b) => b.declaration.name === "prop")
+      .flatMap((b) => b.references)
+      .filter((r) => r.enclosingScope.kind !== undefined);
+    // The only `prop` symbol is the object property; its member-access use is skipped.
+    expect(bindings.some((b) => b.declaration.name === "obj")).toBe(true);
+    expect(propRefs.every((r) => r.position !== content.indexOf("obj.prop") + 4)).toBe(true);
+  });
+});

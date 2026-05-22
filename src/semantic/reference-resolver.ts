@@ -94,8 +94,8 @@ export class ReferenceResolver {
     // outer read land in the same group).
     const groups = new Map<ts.Symbol, ts.Identifier[]>();
     const visit = (node: ts.Node): void => {
-      if (ts.isIdentifier(node)) {
-        const symbol = checker.getSymbolAtLocation(node);
+      if (ts.isIdentifier(node) && !isPropertyName(node)) {
+        const symbol = resolveBindingSymbol(node, checker);
         if (symbol) {
           const existing = groups.get(symbol);
           if (existing) existing.push(node);
@@ -196,6 +196,41 @@ export class ReferenceResolver {
 
     return declarations.every(isAmbientDeclaration);
   }
+}
+
+/**
+ * Whether `node` is a property name (not a variable reference) — the `.name` of a
+ * member access or the right side of a qualified name. These never denote a
+ * binding, and resolving them triggers needless type resolution.
+ */
+function isPropertyName(node: ts.Identifier): boolean {
+  const p = node.parent;
+  return (
+    (ts.isPropertyAccessExpression(p) && p.name === node) ||
+    (ts.isQualifiedName(p) && p.right === node) ||
+    (ts.isPropertyAssignment(p) && p.name === node)
+  );
+}
+
+/**
+ * Resolve the *binding* symbol for an identifier, using TypeScript's dedicated
+ * helpers where `getSymbolAtLocation` would otherwise return a different symbol:
+ * shorthand `{ x }` → the referenced value binding; `export { x }` → the local
+ * target binding. Keeping these in the same group as the declaration is what a
+ * dataflow consumer needs.
+ */
+function resolveBindingSymbol(
+  node: ts.Identifier,
+  checker: ts.TypeChecker,
+): ts.Symbol | undefined {
+  const parent = node.parent;
+  if (ts.isShorthandPropertyAssignment(parent)) {
+    return checker.getShorthandAssignmentValueSymbol(parent);
+  }
+  if (ts.isExportSpecifier(parent)) {
+    return checker.getExportSpecifierLocalTargetSymbol(parent);
+  }
+  return checker.getSymbolAtLocation(node);
 }
 
 /** Map a tsc reference entry to the base {@link SemanticReference} shape. */
