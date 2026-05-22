@@ -5,6 +5,8 @@
  * The Semantic Layer is opt-in via `Gildash.open({ semantic: true })`.
  */
 
+import type { WriteKind, EnclosingScope } from './reference-classifier';
+
 /**
  * The resolved type of a TypeScript symbol, as determined by the tsc TypeChecker.
  *
@@ -68,6 +70,31 @@ export interface SemanticReference {
   isDefinition: boolean;
   /** Whether this reference is a write (assignment) rather than a read. */
   isWrite: boolean;
+}
+
+/**
+ * A {@link SemanticReference} enriched with the syntactic classification that
+ * tsc's `findReferences` does not provide on its own: the kind of write, whether
+ * the binding is ambient (no runtime definition), and the lexical scope in which
+ * the reference occurs.
+ *
+ * Binding identity (which declaration each reference binds to, including `var`
+ * hoisting and shadowing) is supplied authoritatively by tsc; these fields layer
+ * dataflow-relevant metadata on top.
+ */
+export interface EnrichedReference extends SemanticReference {
+  /**
+   * The kind of write, or `undefined` for reads. Compound/logical/update writes
+   * also read their target — splitting that read-component is the consumer's job.
+   */
+  writeKind?: WriteKind;
+  /**
+   * `true` when the binding has no runtime definition (all declarations are
+   * ambient: `declare` / `.d.ts`). Computed across the symbol's declarations.
+   */
+  isAmbient: boolean;
+  /** The lexical scope in which this reference occurs. */
+  enclosingScope: EnclosingScope;
 }
 
 /**
