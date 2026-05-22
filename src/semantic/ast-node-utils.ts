@@ -5,19 +5,27 @@
 import ts from "typescript";
 
 /**
- * `pos` 위치의 가장 작은(innermost) 노드를 반환한다.
- * 범위 밖이면 `undefined`.
+ * `pos` 위치를 포함하는 가장 작은(innermost) 노드를 반환한다.
+ * 범위 밖이거나 트리비아 위치면 `undefined`.
  *
- * tsc 내부의 `getTokenAtPosition`을 사용하여 최적화된 탐색을 수행한다.
+ * 공개 API(`forEachChild`)만으로 하강 탐색한다 — `pos`를 실제로 포함하는
+ * (`getStart() <= pos < getEnd()`) 자식으로만 재귀하므로 가이드된 하강이다.
  */
 export function findNodeAtPosition(
   sourceFile: ts.SourceFile,
   pos: number,
 ): ts.Node | undefined {
   if (pos < 0 || pos >= sourceFile.getEnd()) return undefined;
-  const token = (ts as unknown as { getTokenAtPosition(sf: ts.SourceFile, pos: number): ts.Node }).getTokenAtPosition(sourceFile, pos);
-  // getTokenAtPosition may return the next token when pos is on whitespace/trivia.
-  // Verify the token actually contains the requested position.
-  if (token.getStart(sourceFile, false) > pos) return undefined;
-  return token;
+
+  let result: ts.Node | undefined;
+  const visit = (node: ts.Node): void => {
+    // `getStart` skips leading trivia; nodes whose start is past `pos`
+    // (i.e. `pos` sits in their leading trivia) are not entered.
+    if (pos < node.getStart(sourceFile, false) || pos >= node.getEnd()) return;
+    result = node; // contains `pos` — keep descending for a narrower match
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+
+  return result;
 }
