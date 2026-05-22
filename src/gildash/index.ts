@@ -9,7 +9,7 @@ import type { RelationSearchQuery } from '../search/relation-search';
 import type { SymbolStats } from '../store/repositories/symbol.repository';
 import type { FileRecord } from '../store/repositories/file.repository';
 import type { PatternMatch } from '../search/pattern-search';
-import type { ResolvedType, SemanticReference, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
+import type { ResolvedType, SemanticReference, EnrichedReference, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
 import type { SymbolNode } from '../semantic/symbol-graph';
 import type { GildashContext } from './context';
 import type { FileChangeEvent } from '../watcher/types';
@@ -486,6 +486,20 @@ export class Gildash {
   }
 
   /**
+   * Like {@link getSemanticReferences}, but each reference is enriched with
+   * `writeKind`, `isAmbient`, and `enclosingScope` for dataflow analysis.
+   *
+   * @param symbolName - Exact symbol name.
+   * @param filePath - Relative path to the declaring file.
+   * @param project - Project name. Defaults to the primary project.
+   * @returns Array of enriched reference locations. Empty array if none found.
+   * @throws {GildashError} With type `'semantic'` if tsc initialisation fails.
+   */
+  getEnrichedReferences(symbolName: string, filePath: string, project?: string): EnrichedReference[] {
+    return semanticApi.getEnrichedReferences(this._ctx, symbolName, filePath, project);
+  }
+
+  /**
    * Find all implementations of an interface or abstract class member.
    *
    * @param symbolName - Exact symbol name.
@@ -617,6 +631,19 @@ export class Gildash {
    */
   getSemanticReferencesAtPosition(filePath: string, position: number): SemanticReference[] {
     return semanticApi.getSemanticReferencesAtPosition(this._ctx, filePath, position);
+  }
+
+  /**
+   * Like {@link getSemanticReferencesAtPosition}, but each reference is enriched
+   * with `writeKind`, `isAmbient`, and `enclosingScope` for dataflow analysis.
+   *
+   * @param filePath - Relative path to the file.
+   * @param position - 0-based byte offset of the symbol.
+   * @returns Array of enriched reference locations. Empty array if none found.
+   * @throws {GildashError} With type `'semantic'` if tsc initialisation fails.
+   */
+  getEnrichedReferencesAtPosition(filePath: string, position: number): EnrichedReference[] {
+    return semanticApi.getEnrichedReferencesAtPosition(this._ctx, filePath, position);
   }
 
   /**

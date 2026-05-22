@@ -20,7 +20,8 @@ export type { WatcherRole, FileChangeEvent } from "./watcher/types";
 export type { ParsedFile } from "./parser/types";
 export type { FileRecord } from "./store/repositories/file.repository";
 
-export type { ResolvedType, SemanticReference, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from "./semantic/types";
+export type { ResolvedType, SemanticReference, EnrichedReference, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from "./semantic/types";
+export type { WriteKind, ScopeKind, EnclosingScope } from "./semantic/reference-classifier";
 export type { SymbolNode } from "./semantic/symbol-graph";
 
 export type { AnnotationSource, ExtractedAnnotation } from "./extractor/types";

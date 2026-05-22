@@ -337,6 +337,7 @@ Requires `semantic: true` at open time.
 |--------|---------|-------------|
 | `getResolvedType(name, filePath)` | `ResolvedType \| null` | Resolved type via tsc TypeChecker |
 | `getSemanticReferences(name, filePath)` | `SemanticReference[]` | All references to a symbol |
+| `getEnrichedReferences(name, filePath)` | `EnrichedReference[]` | References enriched with `writeKind` / `isAmbient` / `enclosingScope` (dataflow) |
 | `getImplementations(name, filePath)` | `Implementation[]` | Interface / abstract class implementations |
 | `getSemanticModuleInterface(filePath)` | `SemanticModuleInterface` | Module exports with resolved types |
 | `isTypeAssignableTo(opts)` | `boolean` | Whether one symbol's type is assignable to another's |
@@ -351,6 +352,7 @@ Requires `semantic: true` at open time.
 | `getResolvedTypeAtPosition(filePath, position)` | `ResolvedType \| null` | Resolved type at a byte position |
 | `getResolvedTypesAtPositions(filePath, positions)` | `Map<number, ResolvedType>` | Batch type lookup across positions |
 | `getSemanticReferencesAtPosition(filePath, position)` | `SemanticReference[]` | References to the symbol at a position |
+| `getEnrichedReferencesAtPosition(filePath, position)` | `EnrichedReference[]` | Enriched references to the symbol at a position |
 | `getImplementationsAtPosition(filePath, position)` | `Implementation[]` | Implementations of the symbol at a position |
 | `isTypeAssignableToAtPosition(opts)` | `boolean` | Assignability check between two byte positions |
 | `isTypeAssignableToTypeAtPositions(opts)` | `boolean` | Assignability check from a position to an arbitrary type string |

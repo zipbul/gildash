@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { SymbolSearchResult } from '../search/symbol-search';
 import { GildashError } from '../errors';
-import type { ResolvedType, SemanticReference, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
+import type { ResolvedType, SemanticReference, EnrichedReference, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
 import type { SymbolNode } from '../semantic/symbol-graph';
 import type { GildashContext } from './context';
 
@@ -77,6 +77,27 @@ export function getSemanticReferences(
   } catch (e) {
     if (e instanceof GildashError) throw e;
     throw new GildashError('search', 'Gildash: getSemanticReferences failed', { cause: e });
+  }
+}
+
+/** Find all references to a symbol, enriched with writeKind / isAmbient / enclosingScope. */
+export function getEnrichedReferences(
+  ctx: GildashContext,
+  symbolName: string,
+  filePath: string,
+  project?: string,
+): EnrichedReference[] {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const resolved = resolveSymbolPosition(ctx, symbolName, filePath, project);
+    if (!resolved) {
+      throw new GildashError('search', `Gildash: symbol '${symbolName}' not found in '${filePath}'`);
+    }
+    return ctx.semanticLayer.findEnrichedReferences(resolved.absPath, resolved.position);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('search', 'Gildash: getEnrichedReferences failed', { cause: e });
   }
 }
 
@@ -266,6 +287,23 @@ export function getSemanticReferencesAtPosition(
   } catch (e) {
     if (e instanceof GildashError) throw e;
     throw new GildashError('semantic', 'Gildash: getSemanticReferencesAtPosition failed', { cause: e });
+  }
+}
+
+/** Find all enriched references at a byte offset. */
+export function getEnrichedReferencesAtPosition(
+  ctx: GildashContext,
+  filePath: string,
+  position: number,
+): EnrichedReference[] {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    return ctx.semanticLayer.findEnrichedReferences(absPath, position);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: getEnrichedReferencesAtPosition failed', { cause: e });
   }
 }
 

@@ -223,6 +223,33 @@ describe("SemanticLayer", () => {
     layer.dispose();
   });
 
+  // 5b. [HP] findEnrichedReferences → ReferenceResolver.findEnrichedAt 위임, 분류 필드 포함
+  it("should delegate findEnrichedReferences and populate writeKind/isAmbient/enclosingScope", () => {
+    // Arrange
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const filePath = "/project/src/enriched.ts";
+    const content = "let x = 1;\nx = 2;\nconsole.log(x);";
+    layer.notifyFileChanged(filePath, content);
+
+    // Act
+    const refs = layer.findEnrichedReferences(filePath, pos(content, "x"));
+
+    // Assert
+    expect(refs.length).toBeGreaterThanOrEqual(2);
+    expect(refs.map((r) => r.writeKind)).toContain("assignment");
+    expect(refs.every((r) => r.isAmbient === false)).toBe(true);
+    expect(refs.every((r) => typeof r.enclosingScope.kind === "string")).toBe(true);
+    layer.dispose();
+  });
+
   // 6. [HP] findImplementations → ImplementationFinder.findAt 위임 호출됨
   it("should delegate findImplementations to ImplementationFinder.findAt", () => {
     // Arrange

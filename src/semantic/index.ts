@@ -17,6 +17,7 @@ import { findNodeAtPosition } from "./ast-node-utils";
 import type {
   ResolvedType,
   SemanticReference,
+  EnrichedReference,
   Implementation,
   SemanticModuleInterface,
   SemanticExport,
@@ -159,6 +160,11 @@ export class SemanticLayer {
   findReferences(filePath: string, position: number): SemanticReference[] {
     this.#assertNotDisposed();
     return this.#referenceResolver.findAt(filePath, position);
+  }
+
+  findEnrichedReferences(filePath: string, position: number): EnrichedReference[] {
+    this.#assertNotDisposed();
+    return this.#referenceResolver.findEnrichedAt(filePath, position);
   }
 
   // ── Implementations ─────────────────────────────────────────────────────

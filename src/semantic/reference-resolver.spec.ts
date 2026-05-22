@@ -587,3 +587,113 @@ describe("ReferenceResolver", () => {
     }
   });
 });
+
+// ── ReferenceResolver.findEnrichedAt ───────────────────────────────────────────
+
+describe("ReferenceResolver.findEnrichedAt", () => {
+  // 1. [BUGFIX] var hoisting: a `var` in a block and an outer read resolve to the
+  //    same symbol — the exact case the syntactic ScopeTracker got wrong.
+  it("should unify a block-scoped var declaration with an outer read via symbol identity", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/e1.ts";
+    const content = "function f() {\n  if (true) { var c = 1; }\n  return c;\n}";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const refs = resolver.findEnrichedAt(filePath, content.indexOf("c = 1"));
+
+    // The write (`var c = 1`) and the read (`return c`) are the same binding.
+    expect(refs.some((r) => r.isWrite)).toBe(true);
+    expect(refs.some((r) => !r.isWrite && !r.isDefinition)).toBe(true);
+    expect(refs.length).toBeGreaterThanOrEqual(2);
+  });
+
+  // 2. [HP] writeKind populated per reference.
+  it("should classify the writeKind of each reference", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/e2.ts";
+    const content = "let c = 1;\nc = 2;\nc += 3;\nuse(c);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const refs = resolver.findEnrichedAt(filePath, pos(content, "c"));
+
+    const kinds = refs.map((r) => r.writeKind);
+    expect(kinds).toContain("declaration");
+    expect(kinds).toContain("assignment");
+    expect(kinds).toContain("compound-assignment");
+    // the read `use(c)` has no writeKind
+    expect(refs.some((r) => r.writeKind === undefined && !r.isDefinition)).toBe(true);
+  });
+
+  // 3. [HP] ambient binding flagged across declarations.
+  it("should flag an ambient declaration's references as ambient", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/e3.ts";
+    const content = "declare const amb: number;\nuse(amb);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const refs = resolver.findEnrichedAt(filePath, pos(content, "amb"));
+
+    expect(refs.length).toBeGreaterThan(0);
+    expect(refs.every((r) => r.isAmbient)).toBe(true);
+  });
+
+  // 3b. [BVA] multi-declaration symbol (overloads + implementation): isAmbient is
+  //     evaluated across ALL declarations (`.every`), not just the definition.
+  //     A runtime implementation means the binding is not ambient.
+  it("should evaluate ambientness across all declarations of an overloaded function", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/e3b.ts";
+    const content =
+      "function f(x: number): void;\nfunction f(x: string): void;\nfunction f(x: unknown) {}\nf(1);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const refs = resolver.findEnrichedAt(filePath, pos(content, "f(1)"));
+
+    expect(refs.length).toBeGreaterThan(0);
+    // Multiple declarations, none ambient → not ambient.
+    expect(refs.every((r) => r.isAmbient === false)).toBe(true);
+  });
+
+  // 4. [HP] non-ambient binding not flagged.
+  it("should not flag a normal declaration's references as ambient", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/e4.ts";
+    const content = "const ok = 1;\nuse(ok);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const refs = resolver.findEnrichedAt(filePath, pos(content, "ok"));
+
+    expect(refs.length).toBeGreaterThan(0);
+    expect(refs.every((r) => !r.isAmbient)).toBe(true);
+  });
+
+  // 5. [HP] enclosingScope reflects the lexical scope of each reference.
+  it("should report the enclosing scope of a reference inside a function", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/e5.ts";
+    const content = "function f() {\n  let local = 1;\n  return local;\n}";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const refs = resolver.findEnrichedAt(filePath, pos(content, "local"));
+
+    expect(refs.length).toBeGreaterThan(0);
+    expect(refs.every((r) => r.enclosingScope.kind === "function")).toBe(true);
+  });
+
+  // 6. [EX] disposed program → empty.
+  it("should return an empty array when the program is disposed", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/e6.ts";
+    prog.notifyFileChanged(filePath, "const x = 1;\nuse(x);");
+    const resolver = new ReferenceResolver(prog);
+    prog.dispose();
+
+    expect(resolver.findEnrichedAt(filePath, 6)).toEqual([]);
+  });
+});
