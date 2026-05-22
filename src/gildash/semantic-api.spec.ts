@@ -6,6 +6,8 @@ import {
   resolveSymbolPosition,
   getResolvedType,
   getSemanticReferences,
+  getEnrichedReferences,
+  getEnrichedReferencesAtPosition,
   getImplementations,
   getSemanticModuleInterface,
   getBaseTypes,
@@ -37,6 +39,7 @@ function makeSemanticLayer(overrides?: Record<string, unknown>) {
     findNamePosition: mock(() => 50),
     collectTypeAt: mock(() => ({ type: 'string', text: 'string' })),
     findReferences: mock(() => []),
+    findEnrichedReferences: mock(() => []),
     findImplementations: mock(() => []),
     getModuleInterface: mock(() => ({ exports: [] })),
     getSymbolNode: mock(() => null),
@@ -267,6 +270,108 @@ describe('getSemanticReferences', () => {
 
     expect(() => getSemanticReferences(ctx, 'Missing', '/project/src/a.ts')).toThrow(GildashError);
     expect(() => getSemanticReferences(ctx, 'Missing', '/project/src/a.ts')).toThrow(/Missing/);
+  });
+});
+
+// ─── getEnrichedReferences ──────────────────────────────────────────
+
+describe('getEnrichedReferences', () => {
+  it('should return findEnrichedReferences result when symbol is resolved', () => {
+    const refs = [{ filePath: '/src/b.ts', position: 10, line: 10, column: 5, isDefinition: false, isWrite: true, isAmbient: false, enclosingScope: { kind: 'module', pos: 0, end: 1 } }];
+    const layer = makeSemanticLayer({ findEnrichedReferences: mock(() => refs) });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    const result = getEnrichedReferences(ctx, 'Foo', '/project/src/a.ts');
+
+    expect(result).toBe(refs as any);
+  });
+
+  it('should throw with type closed when ctx is closed', () => {
+    const ctx = makeCtx({ closed: true });
+
+    expect(() => getEnrichedReferences(ctx, 'Foo', '/project/src/a.ts')).toThrow(GildashError);
+  });
+
+  it('should throw when semantic layer is null', () => {
+    const ctx = makeCtx({ semanticLayer: null });
+
+    expect(() => getEnrichedReferences(ctx, 'Foo', '/project/src/a.ts')).toThrow(GildashError);
+  });
+
+  it('should catch exception and throw GildashError with cause', () => {
+    const error = new Error('enriched fail');
+    const layer = makeSemanticLayer({ findEnrichedReferences: mock(() => { throw error; }) });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    try {
+      getEnrichedReferences(ctx, 'Foo', '/project/src/a.ts');
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GildashError);
+      expect((e as GildashError).type).toBe('search');
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
+
+  it('should throw when resolveSymbolPosition returns null', () => {
+    const layer = makeSemanticLayer();
+    const ctx = makeCtx({
+      semanticLayer: layer as any,
+      symbolSearchFn: mock(() => []) as any,
+    });
+
+    expect(() => getEnrichedReferences(ctx, 'Missing', '/project/src/a.ts')).toThrow(/Missing/);
+  });
+});
+
+// ─── getEnrichedReferencesAtPosition ────────────────────────────────
+
+describe('getEnrichedReferencesAtPosition', () => {
+  it('should delegate to findEnrichedReferences with absolute path', () => {
+    const refs = [{ filePath: '/b.ts', position: 10, line: 1, column: 0, isDefinition: false, isWrite: false, isAmbient: false, enclosingScope: { kind: 'module', pos: 0, end: 1 } }];
+    const findEnrichedReferences = mock(() => refs);
+    const layer = makeSemanticLayer({ findEnrichedReferences });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    const result = getEnrichedReferencesAtPosition(ctx, '/project/src/a.ts', 50);
+
+    expect(result).toBe(refs as any);
+    expect(findEnrichedReferences).toHaveBeenCalledWith('/project/src/a.ts', 50);
+  });
+
+  it('should resolve relative path via projectRoot', () => {
+    const findEnrichedReferences = mock(() => []);
+    const layer = makeSemanticLayer({ findEnrichedReferences });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    getEnrichedReferencesAtPosition(ctx, 'src/a.ts', 50);
+
+    expect(findEnrichedReferences).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'), 50);
+  });
+
+  it('should throw when closed', () => {
+    const ctx = makeCtx({ closed: true });
+    expect(() => getEnrichedReferencesAtPosition(ctx, '/a.ts', 0)).toThrow(GildashError);
+  });
+
+  it('should throw when semantic layer is null', () => {
+    const ctx = makeCtx({ semanticLayer: null });
+    expect(() => getEnrichedReferencesAtPosition(ctx, '/a.ts', 0)).toThrow(GildashError);
+  });
+
+  it('should catch exception and throw GildashError with cause', () => {
+    const error = new Error('enriched fail');
+    const layer = makeSemanticLayer({ findEnrichedReferences: mock(() => { throw error; }) });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    try {
+      getEnrichedReferencesAtPosition(ctx, '/a.ts', 0);
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GildashError);
+      expect((e as GildashError).type).toBe('semantic');
+      expect((e as GildashError).cause).toBe(error);
+    }
   });
 });
 
