@@ -353,6 +353,7 @@ Requires `semantic: true` at open time.
 | `getResolvedTypesAtPositions(filePath, positions)` | `Map<number, ResolvedType>` | Batch type lookup across positions |
 | `getSemanticReferencesAtPosition(filePath, position)` | `SemanticReference[]` | References to the symbol at a position |
 | `getEnrichedReferencesAtPosition(filePath, position)` | `EnrichedReference[]` | Enriched references to the symbol at a position |
+| `getFileBindings(filePath)` | `FileBinding[]` | All bindings in a file (single pass), each with its in-file enriched references — `O(identifiers)` for dataflow |
 | `getImplementationsAtPosition(filePath, position)` | `Implementation[]` | Implementations of the symbol at a position |
 | `isTypeAssignableToAtPosition(opts)` | `boolean` | Assignability check between two byte positions |
 | `isTypeAssignableToTypeAtPositions(opts)` | `boolean` | Assignability check from a position to an arbitrary type string |

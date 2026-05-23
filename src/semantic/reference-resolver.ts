@@ -6,7 +6,7 @@
  */
 
 import ts from "typescript";
-import type { EnrichedReference, SemanticReference } from "./types";
+import type { EnrichedReference, FileBinding, SemanticReference } from "./types";
 import type { TscProgram } from "./tsc-program";
 import { findNodeAtPosition } from "./ast-node-utils";
 import { classifyWriteKind, getEnclosingScope, isAmbientDeclaration } from "./reference-classifier";
@@ -75,6 +75,92 @@ export class ReferenceResolver {
   }
 
   /**
+   * Collect every binding referenced in `filePath`, grouped by symbol, in a
+   * single AST pass (no per-symbol `findReferences`). Each group lists the
+   * references that occur in this file enriched with `writeKind` / `isAmbient` /
+   * `enclosingScope`. Returns `[]` if disposed or the file is unknown.
+   */
+  findFileBindings(filePath: string): FileBinding[] {
+    if (this.#program.isDisposed) return [];
+
+    const tsProgram = this.#program.getProgram();
+    const sourceFile = tsProgram.getSourceFile(filePath);
+    if (!sourceFile) return [];
+
+    const checker = tsProgram.getTypeChecker();
+
+    // Single pass: group every identifier by its resolved symbol identity
+    // (the binder handles var hoisting / shadowing, so a block `var` and an
+    // outer read land in the same group).
+    const groups = new Map<ts.Symbol, ts.Identifier[]>();
+    const visit = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && !isPropertyName(node)) {
+        const symbol = resolveBindingSymbol(node, checker);
+        if (symbol) {
+          const existing = groups.get(symbol);
+          if (existing) existing.push(node);
+          else groups.set(symbol, [node]);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(sourceFile, visit);
+
+    const results: FileBinding[] = [];
+    for (const [symbol, idents] of groups) {
+      const declarations = symbol.declarations;
+      if (!declarations || declarations.length === 0) continue;
+
+      // Skip symbols declared *only* as object members — their references are
+      // member accesses (which we don't collect), so they would otherwise appear
+      // as bindings with incomplete reference sets. Bare-name value bindings
+      // (var/let/const/param/function/class/import) always have a non-member
+      // declaration; a parameter property keeps its `Parameter` declaration.
+      if (declarations.every(isMemberDeclaration)) continue;
+
+      const isAmbient = declarations.every(isAmbientDeclaration);
+      const declNameNodes = new Set<ts.Node>(
+        declarations
+          .map((d) => ts.getNameOfDeclaration(d))
+          .filter((n): n is NonNullable<typeof n> => n !== undefined),
+      );
+      const firstDecl = declarations[0]!;
+      const declName = ts.getNameOfDeclaration(firstDecl) ?? firstDecl;
+      const declSourceFile = firstDecl.getSourceFile();
+
+      const references: EnrichedReference[] = idents.map((id) => {
+        const start = id.getStart(sourceFile);
+        const { line: lineZero, character: column } =
+          sourceFile.getLineAndCharacterOfPosition(start);
+        const writeKind = classifyWriteKind(id);
+        return {
+          filePath: sourceFile.fileName,
+          position: start,
+          line: lineZero + 1,
+          column,
+          isDefinition: declNameNodes.has(id),
+          isWrite: writeKind !== undefined,
+          writeKind,
+          isAmbient,
+          enclosingScope: getEnclosingScope(id),
+        };
+      });
+
+      results.push({
+        declaration: {
+          filePath: declSourceFile.fileName,
+          position: declName.getStart(declSourceFile),
+          name: symbol.getName(),
+          isAmbient,
+        },
+        references,
+      });
+    }
+
+    return results;
+  }
+
+  /**
    * Shared preamble for {@link findAt} / {@link findEnrichedAt}: validates the
    * program/file/identifier and runs `findReferences`. Returns `null` when the
    * query yields nothing (disposed, unknown file, non-identifier, no references).
@@ -117,6 +203,78 @@ export class ReferenceResolver {
 
     return declarations.every(isAmbientDeclaration);
   }
+}
+
+/**
+ * Whether `node` is a property name (not a variable reference) — the `.name` of a
+ * member access or the right side of a qualified name. These never denote a
+ * binding, and resolving them triggers needless type resolution.
+ */
+function isPropertyName(node: ts.Identifier): boolean {
+  const p = node.parent;
+  return (
+    (ts.isPropertyAccessExpression(p) && p.name === node) ||
+    (ts.isQualifiedName(p) && p.right === node) ||
+    (ts.isPropertyAssignment(p) && p.name === node) ||
+    // `const { b: bb } = o` — `b` is the source object's key, not a binding.
+    (ts.isBindingElement(p) && p.propertyName === node) ||
+    (ts.isJsxAttribute(p) && p.name === node) ||
+    // `import { a as b }` — `a` is the source-module export name, not a local binding.
+    (ts.isImportSpecifier(p) && p.propertyName === node) ||
+    // the `global` name of a `declare global { … }` augmentation denotes a scope,
+    // not a value binding (resolves to the synthetic `__global` symbol).
+    (ts.isModuleDeclaration(p) &&
+      p.name === node &&
+      (p.flags & ts.NodeFlags.GlobalAugmentation) !== 0)
+  );
+}
+
+/**
+ * Whether a declaration is an object member (accessed via `.`, not by bare name)
+ * — class fields/methods/accessors, interface members, enum members. Symbols
+ * declared *only* as such are out of scope for bare-name binding resolution.
+ */
+function isMemberDeclaration(d: ts.Declaration): boolean {
+  return (
+    ts.isPropertyDeclaration(d) ||
+    ts.isPropertySignature(d) ||
+    ts.isMethodDeclaration(d) ||
+    ts.isMethodSignature(d) ||
+    ts.isGetAccessorDeclaration(d) ||
+    ts.isSetAccessorDeclaration(d) ||
+    ts.isEnumMember(d) ||
+    // index-signature parameter (`[key: string]`) is type-level syntax, not a
+    // bare-name value binding.
+    (ts.isParameter(d) && ts.isIndexSignatureDeclaration(d.parent))
+  );
+}
+
+/**
+ * Resolve the *binding* symbol for an identifier, using TypeScript's dedicated
+ * helpers where `getSymbolAtLocation` would otherwise return a different symbol:
+ * shorthand `{ x }` → the referenced value binding; `export { x }` → the local
+ * target binding. Keeping these in the same group as the declaration is what a
+ * dataflow consumer needs.
+ */
+function resolveBindingSymbol(
+  node: ts.Identifier,
+  checker: ts.TypeChecker,
+): ts.Symbol | undefined {
+  const parent = node.parent;
+  if (ts.isShorthandPropertyAssignment(parent)) {
+    return checker.getShorthandAssignmentValueSymbol(parent);
+  }
+  if (ts.isExportSpecifier(parent)) {
+    // Re-export `export { x } from './m'` — the target binding lives in the other
+    // module, not this file. NamedExports → ExportDeclaration carries the source.
+    const exportDecl = parent.parent.parent;
+    if (ts.isExportDeclaration(exportDecl) && exportDecl.moduleSpecifier) return undefined;
+    // `export { x as y }` — only the local target (`x`) references a binding; the
+    // export-facing alias (`y`) does not. Both children share the same parent.
+    const localName = parent.propertyName ?? parent.name;
+    return localName === node ? checker.getExportSpecifierLocalTargetSymbol(parent) : undefined;
+  }
+  return checker.getSymbolAtLocation(node);
 }
 
 /** Map a tsc reference entry to the base {@link SemanticReference} shape. */

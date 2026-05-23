@@ -18,6 +18,7 @@ import type {
   ResolvedType,
   SemanticReference,
   EnrichedReference,
+  FileBinding,
   Implementation,
   SemanticModuleInterface,
   SemanticExport,
@@ -165,6 +166,11 @@ export class SemanticLayer {
   findEnrichedReferences(filePath: string, position: number): EnrichedReference[] {
     this.#assertNotDisposed();
     return this.#referenceResolver.findEnrichedAt(filePath, position);
+  }
+
+  getFileBindings(filePath: string): FileBinding[] {
+    this.#assertNotDisposed();
+    return this.#referenceResolver.findFileBindings(filePath);
   }
 
   // ── Implementations ─────────────────────────────────────────────────────

@@ -697,3 +697,407 @@ describe("ReferenceResolver.findEnrichedAt", () => {
     expect(resolver.findEnrichedAt(filePath, 6)).toEqual([]);
   });
 });
+
+// ── ReferenceResolver.findFileBindings ─────────────────────────────────────────
+
+describe("ReferenceResolver.findFileBindings", () => {
+  function bindingFor(bindings: ReturnType<ReferenceResolver["findFileBindings"]>, name: string) {
+    return bindings.find((b) => b.declaration.name === name);
+  }
+
+  // 1. [BUGFIX] block-scoped `var` and outer read group into ONE binding (symbol identity).
+  it("should group a block-scoped var with its outer read into a single binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fb1.ts";
+    const content = "function f() {\n  if (true) { var c = 1; }\n  return c;\n}";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const b = bindingFor(resolver.findFileBindings(filePath), "c");
+
+    expect(b).toBeDefined();
+    expect(b!.references.length).toBeGreaterThanOrEqual(2);
+    expect(b!.references.some((r) => r.isWrite)).toBe(true);
+    expect(b!.references.some((r) => !r.isWrite)).toBe(true);
+  });
+
+  // 2. [HP] writeKind populated per reference; declaration points at the binding site.
+  it("should populate writeKind and declaration for a local binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fb2.ts";
+    const content = "let c = 1;\nc = 2;\nc += 3;\nuse(c);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const b = bindingFor(resolver.findFileBindings(filePath), "c");
+
+    expect(b).toBeDefined();
+    expect(b!.declaration.filePath).toBe(filePath);
+    expect(b!.declaration.isAmbient).toBe(false);
+    const kinds = b!.references.map((r) => r.writeKind);
+    expect(kinds).toContain("declaration");
+    expect(kinds).toContain("assignment");
+    expect(kinds).toContain("compound-assignment");
+  });
+
+  // 3. [HP] one binding entry per symbol (grouping, not per-reference).
+  it("should return exactly one binding per distinct symbol", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fb3.ts";
+    const content = "const a = 1;\nconst b = a + a + a;";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const bindings = resolver.findFileBindings(filePath);
+    const a = bindingFor(bindings, "a");
+
+    expect(a).toBeDefined();
+    expect(a!.references.length).toBe(4); // 1 decl + 3 reads
+    expect(bindings.filter((x) => x.declaration.name === "a").length).toBe(1);
+  });
+
+  // 4. [HP] ambient binding flagged.
+  it("should flag an ambient binding's references as ambient", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fb4.ts";
+    const content = "declare const amb: number;\nuse(amb);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const b = bindingFor(resolver.findFileBindings(filePath), "amb");
+
+    expect(b).toBeDefined();
+    expect(b!.declaration.isAmbient).toBe(true);
+    expect(b!.references.every((r) => r.isAmbient)).toBe(true);
+  });
+
+  // 5. [EX] disposed program → empty.
+  it("should return an empty array when the program is disposed", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fb5.ts";
+    prog.notifyFileChanged(filePath, "const x = 1;\nuse(x);");
+    const resolver = new ReferenceResolver(prog);
+    prog.dispose();
+
+    expect(resolver.findFileBindings(filePath)).toEqual([]);
+  });
+
+  // 6. [EX] unknown file → empty.
+  it("should return an empty array for an unknown file", () => {
+    const prog = makeProg();
+    const resolver = new ReferenceResolver(prog);
+    expect(resolver.findFileBindings("/project/src/missing.ts")).toEqual([]);
+  });
+});
+
+describe("ReferenceResolver.findFileBindings — symbol-resolution edge cases", () => {
+  function bindingFor(bindings: ReturnType<ReferenceResolver["findFileBindings"]>, name: string) {
+    return bindings.filter((b) => b.declaration.name === name);
+  }
+
+  // shorthand `{ x }` value reference must group with the x binding (not split off).
+  it("should group a shorthand-property read with its binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fbs1.ts";
+    const content = "let x = 1;\nconst o = { x };\nuse(x);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const xs = bindingFor(resolver.findFileBindings(filePath), "x");
+    expect(xs.length).toBe(1); // not split into two groups
+    expect(xs[0]!.references.length).toBe(3); // decl + shorthand + use
+  });
+
+  // `export { x }` local target must group with the x binding.
+  it("should group an export specifier with its local binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fbs2.ts";
+    const content = "let x = 1;\nx;\nexport { x };";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const xs = bindingFor(resolver.findFileBindings(filePath), "x");
+    expect(xs.length).toBe(1);
+    expect(xs[0]!.references.length).toBe(3); // decl + read + export
+  });
+
+  // shadowing across nested functions → two distinct bindings.
+  it("should keep shadowed bindings in separate groups", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fbs3.ts";
+    const content = "function f() {\n  let a = 1;\n  function g() { let a = 2; return a; }\n  return a + g();\n}";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const as = bindingFor(resolver.findFileBindings(filePath), "a");
+    expect(as.length).toBe(2); // outer a and inner a are distinct bindings
+  });
+
+  // a function parameter appears as a definition.
+  it("should record a parameter as a definition", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fbs4.ts";
+    const content = "function f(p: number) { return p; }";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const p = bindingFor(resolver.findFileBindings(filePath), "p")[0];
+    expect(p).toBeDefined();
+    expect(p!.references.some((r) => r.isDefinition && r.writeKind === "declaration")).toBe(true);
+  });
+
+  // destructuring assignment write groups with the binding as a write.
+  it("should record a destructuring-assignment write on the binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fbs5.ts";
+    const content = "let x = 1;\n({ x } = o);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const x = bindingFor(resolver.findFileBindings(filePath), "x")[0];
+    expect(x).toBeDefined();
+    expect(x!.references.some((r) => r.writeKind === "assignment")).toBe(true);
+  });
+
+  // property names must not form spurious binding groups.
+  it("should not create a binding for a member-access property name", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/fbs6.ts";
+    const content = "const obj = { prop: 1 };\nuse(obj.prop);";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const bindings = resolver.findFileBindings(filePath);
+    // `prop` appears as an object-literal key and a member-access name — neither
+    // is a standalone binding, so no binding named `prop` from those positions.
+    const propRefs = bindings
+      .filter((b) => b.declaration.name === "prop")
+      .flatMap((b) => b.references)
+      .filter((r) => r.enclosingScope.kind !== undefined);
+    // The only `prop` symbol is the object property; its member-access use is skipped.
+    expect(bindings.some((b) => b.declaration.name === "obj")).toBe(true);
+    expect(propRefs.every((r) => r.position !== content.indexOf("obj.prop") + 4)).toBe(true);
+  });
+});
+
+describe("ReferenceResolver.findFileBindings — alias & member scope", () => {
+  function names(bindings: ReturnType<ReferenceResolver["findFileBindings"]>) {
+    return bindings.map((b) => b.declaration.name);
+  }
+  function one(bindings: ReturnType<ReferenceResolver["findFileBindings"]>, name: string) {
+    const m = bindings.filter((b) => b.declaration.name === name);
+    return m.length === 1 ? m[0] : undefined;
+  }
+
+  // export rename: the alias `y` must NOT be attributed to local binding `x`.
+  it("should not attribute an export alias to its local binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/al1.ts";
+    const content = "let x = 1;\nx;\nexport { x as y };";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const x = one(resolver.findFileBindings(filePath), "x");
+    expect(x).toBeDefined();
+    expect(x!.references.length).toBe(3); // decl + read + export-local (not the alias)
+    const aliasPos = content.indexOf("y", content.indexOf("as"));
+    expect(x!.references.every((r) => r.position !== aliasPos)).toBe(true);
+  });
+
+  // import rename: `b` binding holds its uses; propertyName `a` is not mixed in.
+  it("should group an import alias's uses under the local name", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/al2.ts";
+    const content = 'import { a as b } from "m";\nuse(b);\nuse(b);';
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const b = one(resolver.findFileBindings(filePath), "b");
+    expect(b).toBeDefined();
+    expect(b!.references.length).toBe(3); // import decl + 2 uses
+  });
+
+  // namespace import groups all member-qualified uses under the namespace name.
+  it("should group namespace-import uses under the namespace binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/al3.ts";
+    const content = 'import * as ns from "m";\nns.foo;\nns.bar;';
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const ns = one(resolver.findFileBindings(filePath), "ns");
+    expect(ns).toBeDefined();
+    expect(ns!.references.length).toBe(3); // import + 2 qualified uses
+  });
+
+  // enum members are object members → excluded; the enum container is kept.
+  it("should exclude enum members and keep the enum binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/al4.ts";
+    const content = "enum E { A }\nconst v = E.A;";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const bindings = resolver.findFileBindings(filePath);
+    expect(names(bindings)).not.toContain("A");
+    expect(one(bindings, "E")!.references.length).toBe(2); // decl + E.A use
+  });
+
+  // class fields, methods, accessors are members → excluded; the class is kept.
+  it("should exclude class fields/methods/accessors", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/al5.ts";
+    const content = "class C { x = 1; m() { return this.x; } get g() { return 2; } }";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const ns = names(resolver.findFileBindings(filePath));
+    expect(ns).toContain("C");
+    expect(ns).not.toContain("x");
+    expect(ns).not.toContain("m");
+    expect(ns).not.toContain("g");
+  });
+
+  // A constructor parameter property keeps its Parameter-declared binding (not
+  // excluded as a member). tsc models it as both a parameter and a property
+  // symbol, so it may surface as more than one binding; both are Parameter-
+  // declared and kept. (firebat does not target parameter properties.)
+  it("should keep a constructor parameter property as a binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/al6.ts";
+    const content = "class C { constructor(private px: number) { return px; } }";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    expect(
+      resolver.findFileBindings(filePath).some((b) => b.declaration.name === "px"),
+    ).toBe(true);
+  });
+
+  // JSX attribute names are not bindings.
+  it("should not create a binding for a JSX attribute name", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/al7.tsx";
+    const content = "const x = 1;\nconst el = <Foo prop={x} />;";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const ns = names(resolver.findFileBindings(filePath));
+    expect(ns).not.toContain("prop");
+    expect(ns).toContain("x");
+  });
+
+  // a variable used as a computed property key is a real reference.
+  it("should group a computed-property-key variable reference", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/al8.ts";
+    const content = "const k = 'a';\nconst o = { [k]: 1 };";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const k = one(resolver.findFileBindings(filePath), "k");
+    expect(k).toBeDefined();
+    expect(k!.references.length).toBe(2); // decl + computed-key use
+  });
+
+  // nested destructuring parameter binding is captured.
+  it("should capture a nested destructuring parameter binding", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/al9.ts";
+    const content = "function f({ a: { b } }: { a: { b: number } }) { return b; }";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const b = one(resolver.findFileBindings(filePath), "b");
+    expect(b).toBeDefined();
+    expect(b!.references.length).toBe(2); // binding + return read
+  });
+});
+
+describe("ReferenceResolver.findFileBindings — round-2 regressions", () => {
+  function names(b: ReturnType<ReferenceResolver["findFileBindings"]>) {
+    return b.map((x) => x.declaration.name);
+  }
+
+  // import alias with a RESOLVABLE module: the source-export name must NOT become
+  // a phantom binding (the blind spot that hid the import-specifier defect).
+  it("should not create a phantom binding for an import propertyName (resolvable module)", () => {
+    const prog = makeProg();
+    const dep = "/project/src/dep.ts";
+    prog.notifyFileChanged(dep, "export const a = 1;\n");
+    const filePath = "/project/src/imp.ts";
+    const content = 'import { a as b } from "./dep";\nuse(b);';
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const ns = names(resolver.findFileBindings(filePath));
+    expect(ns).toContain("b"); // local binding kept
+    expect(ns).not.toContain("a"); // source-module export name is not a local binding
+  });
+
+  // index-signature parameter is type-level syntax, not a value binding.
+  it("should not create a binding for an index-signature parameter", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/idx.ts";
+    const content = "interface I { [key: string]: number }\nlet v: I;";
+    prog.notifyFileChanged(filePath, content);
+    const resolver = new ReferenceResolver(prog);
+
+    const ns = names(resolver.findFileBindings(filePath));
+    expect(ns).not.toContain("key");
+    expect(ns).toContain("v");
+  });
+});
+
+describe("ReferenceResolver.findFileBindings — round-3 regressions", () => {
+  function names(b: ReturnType<ReferenceResolver["findFileBindings"]>) {
+    return b.map((x) => x.declaration.name);
+  }
+
+  // re-export `export { x } from './dep'` — target lives in another module, not a
+  // local binding of this file.
+  it("should not create a binding for a re-export specifier", () => {
+    const prog = makeProg();
+    prog.notifyFileChanged("/project/src/dep.ts", "export const x = 1;\n");
+    const filePath = "/project/src/re.ts";
+    prog.notifyFileChanged(filePath, 'export { x } from "./dep";');
+    const resolver = new ReferenceResolver(prog);
+
+    expect(names(resolver.findFileBindings(filePath))).not.toContain("x");
+  });
+
+  // a local `export { x }` (no `from`) IS a real local-binding reference — kept.
+  it("should keep a local export specifier as a reference", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/lex.ts";
+    prog.notifyFileChanged(filePath, "const x = 1;\nexport { x };");
+    const resolver = new ReferenceResolver(prog);
+
+    expect(names(resolver.findFileBindings(filePath))).toContain("x");
+  });
+
+  // `declare global { … }` — the `global` augmentation name is not a value binding.
+  it("should not create a binding for a declare-global augmentation name", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/dg.ts";
+    prog.notifyFileChanged(filePath, "declare global { var gv: number; }");
+    const resolver = new ReferenceResolver(prog);
+
+    expect(names(resolver.findFileBindings(filePath))).not.toContain("__global");
+  });
+});
+
+describe("ReferenceResolver.findFileBindings — round-4 regression", () => {
+  // renamed destructuring `{ b: bb }` — `b` is the source key, not a binding.
+  it("should not create a binding for a renamed-destructuring property key", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/rd.ts";
+    prog.notifyFileChanged(filePath, "const o = { a: 1, b: 2 };\nconst { a, b: bb } = o;");
+    const resolver = new ReferenceResolver(prog);
+
+    const names = resolver.findFileBindings(filePath).map((x) => x.declaration.name);
+    expect(names).toContain("bb"); // the real local binding
+    expect(names).toContain("a"); // shorthand local binding
+    expect(names).not.toContain("b"); // source property key — not a binding
+  });
+});

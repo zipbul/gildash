@@ -9,7 +9,7 @@ import type { RelationSearchQuery } from '../search/relation-search';
 import type { SymbolStats } from '../store/repositories/symbol.repository';
 import type { FileRecord } from '../store/repositories/file.repository';
 import type { PatternMatch } from '../search/pattern-search';
-import type { ResolvedType, SemanticReference, EnrichedReference, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
+import type { ResolvedType, SemanticReference, EnrichedReference, FileBinding, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
 import type { SymbolNode } from '../semantic/symbol-graph';
 import type { GildashContext } from './context';
 import type { FileChangeEvent } from '../watcher/types';
@@ -644,6 +644,21 @@ export class Gildash {
    */
   getEnrichedReferencesAtPosition(filePath: string, position: number): EnrichedReference[] {
     return semanticApi.getEnrichedReferencesAtPosition(this._ctx, filePath, position);
+  }
+
+  /**
+   * Collect every binding in a file in a single pass, each grouped with its
+   * in-file references (enriched with `writeKind` / `isAmbient` / `enclosingScope`).
+   *
+   * One call per file — `O(identifiers)` — replacing per-symbol
+   * {@link getEnrichedReferences} loops for dataflow / dead-store analysis.
+   *
+   * @param filePath - Relative path to the file.
+   * @returns One {@link FileBinding} per distinct binding referenced in the file.
+   * @throws {GildashError} With type `'semantic'` if tsc initialisation fails.
+   */
+  getFileBindings(filePath: string): FileBinding[] {
+    return semanticApi.getFileBindings(this._ctx, filePath);
   }
 
   /**
