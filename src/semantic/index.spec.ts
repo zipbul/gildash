@@ -435,8 +435,8 @@ describe("SemanticLayer", () => {
     layer.dispose();
   });
 
-  // 9. [HP] notifyFileChanged → TscProgram.notifyFileChanged + SymbolGraph.invalidate
-  it("should call TscProgram.notifyFileChanged and SymbolGraph.invalidate on notifyFileChanged", () => {
+  // 9. [HP] notifyFileChanged → TscProgram.notifyFileChanged + SymbolGraph.clear
+  it("should call TscProgram.notifyFileChanged and clear the SymbolGraph cache on notifyFileChanged", () => {
     // Arrange
     const result = SemanticLayer.create(TSCONFIG_PATH, {
       readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),

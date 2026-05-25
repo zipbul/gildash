@@ -376,27 +376,6 @@ describe("SymbolGraph", () => {
     expect(node!.exports!.some((e) => e.name === "exFn")).toBe(true);
   });
 
-  // 20. [CO] get(A) → cache; invalidate(A's file) → get(A) → fresh compute (cache miss)
-  it("should recompute after invalidation when the file was previously cached", () => {
-    // Arrange
-    const prog = makeProg();
-    const filePath = "/project/src/co2.ts";
-    const content = "class CoA {}";
-    prog.notifyFileChanged(filePath, content);
-    const graph = new SymbolGraph(prog);
-
-    // Act
-    const first = graph.get(filePath, pos(content, "CoA"));
-    graph.invalidate(filePath);
-    const second = graph.get(filePath, pos(content, "CoA"));
-
-    // Assert
-    expect(first).not.toBeNull();
-    expect(second).not.toBeNull();
-    expect(second!.name).toBe("CoA");
-    expect(second).not.toBe(first); // cache missed → new object
-  });
-
   // 21. [CO] get(A) → cache; clear() → get(A) → fresh compute
   it("should recompute after clear when entry was previously cached", () => {
     // Arrange
@@ -447,8 +426,8 @@ describe("SymbolGraph", () => {
     expect(secondB).not.toBe(firstB); // B was evicted and recomputed
   });
 
-  // 23. [CO] multiple files cached; invalidate(file1) → file2 entries intact
-  it("should preserve other file entries when invalidating a specific file", () => {
+  // 23. [CO] clear() wipes ALL files' entries (cross-file derived nodes can go stale)
+  it("should clear entries for all files, not just one", () => {
     // Arrange
     const prog = makeProg();
     const file1 = "/project/src/co5a.ts";
@@ -460,15 +439,15 @@ describe("SymbolGraph", () => {
     const graph = new SymbolGraph(prog, 100);
 
     // Act
-    graph.get(file1, pos(content1, "File1Class"));
+    const cachedFile1 = graph.get(file1, pos(content1, "File1Class"));
     const cachedFile2 = graph.get(file2, pos(content2, "File2Class"));
-    graph.invalidate(file1);
-    const afterInvalidate = graph.get(file2, pos(content2, "File2Class"));
+    graph.clear();
+    const afterFile1 = graph.get(file1, pos(content1, "File1Class"));
+    const afterFile2 = graph.get(file2, pos(content2, "File2Class"));
 
-    // Assert
-    expect(cachedFile2).not.toBeNull();
-    expect(afterInvalidate).not.toBeNull();
-    expect(afterInvalidate).toBe(cachedFile2); // file2 still cached (same object)
+    // Assert — both recomputed (fresh objects), neither survived the clear
+    expect(afterFile1).not.toBe(cachedFile1);
+    expect(afterFile2).not.toBe(cachedFile2);
   });
 
   // 24. [ST] construct → get → 두 번째 같은 키 get → cache hit (same object)
@@ -487,26 +466,6 @@ describe("SymbolGraph", () => {
     // Assert
     expect(first).not.toBeNull();
     expect(second).toBe(first); // exact same object reference (cache hit)
-  });
-
-  // 25. [ST] get → invalidate → get → fresh SymbolNode (not same object)
-  it("should return new SymbolNode after invalidate when same position is requested again", () => {
-    // Arrange
-    const prog = makeProg();
-    const filePath = "/project/src/st2.ts";
-    const content = "class StB {}";
-    prog.notifyFileChanged(filePath, content);
-    const graph = new SymbolGraph(prog);
-
-    // Act
-    const before = graph.get(filePath, pos(content, "StB"));
-    graph.invalidate(filePath);
-    const after = graph.get(filePath, pos(content, "StB"));
-
-    // Assert
-    expect(before).not.toBeNull();
-    expect(after).not.toBeNull();
-    expect(after).not.toBe(before); // different object (cache was cleared)
   });
 
   // 26. [ST] get(A) → clear() → get(A) → fresh SymbolNode
