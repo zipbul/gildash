@@ -9,6 +9,9 @@ import {
   getEnrichedReferences,
   getEnrichedReferencesAtPosition,
   getFileBindings,
+  getFileBindingsBatch,
+  notifyFileChanged,
+  notifyFileDeleted,
   getImplementations,
   getSemanticModuleInterface,
   getBaseTypes,
@@ -42,6 +45,8 @@ function makeSemanticLayer(overrides?: Record<string, unknown>) {
     findReferences: mock(() => []),
     findEnrichedReferences: mock(() => []),
     getFileBindings: mock(() => []),
+    getFileBindingsBatch: mock(() => new Map()),
+    notifyFileDeleted: mock(() => {}),
     findImplementations: mock(() => []),
     getModuleInterface: mock(() => ({ exports: [] })),
     getSymbolNode: mock(() => null),
@@ -423,6 +428,128 @@ describe('getFileBindings', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(GildashError);
       expect((e as GildashError).type).toBe('semantic');
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
+});
+
+// ─── getFileBindingsBatch ───────────────────────────────────────────
+
+describe('getFileBindingsBatch', () => {
+  it('should batch-resolve and re-key results by the caller filePath', () => {
+    const b = [{ declaration: { filePath: '/x.ts', position: 0, name: 'a', isAmbient: false }, references: [] }];
+    const layerFn = mock((files: ReadonlyArray<{ filePath: string }>) => {
+      const m = new Map<string, unknown>();
+      for (const f of files) m.set(f.filePath, b);
+      return m;
+    });
+    const layer = makeSemanticLayer({ getFileBindingsBatch: layerFn });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    const result = getFileBindingsBatch(ctx, [{ filePath: 'src/a.ts', content: 'const a=1;' }]);
+
+    // keyed by original (relative) path; layer received the resolved absolute path
+    expect(result.get('src/a.ts')).toBe(b as any);
+    expect(layerFn).toHaveBeenCalledWith([
+      { filePath: path.resolve('/project', 'src/a.ts'), content: 'const a=1;' },
+    ]);
+  });
+
+  it('should map unknown files to an empty array', () => {
+    const layer = makeSemanticLayer({ getFileBindingsBatch: mock(() => new Map()) });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    const result = getFileBindingsBatch(ctx, [{ filePath: '/a.ts', content: 'x' }]);
+
+    expect(result.get('/a.ts')).toEqual([]);
+  });
+
+  it('should throw when closed', () => {
+    const ctx = makeCtx({ closed: true });
+    expect(() => getFileBindingsBatch(ctx, [])).toThrow(GildashError);
+  });
+
+  it('should throw when semantic layer is null', () => {
+    const ctx = makeCtx({ semanticLayer: null });
+    expect(() => getFileBindingsBatch(ctx, [])).toThrow(GildashError);
+  });
+
+  it('should catch exception and throw GildashError with cause', () => {
+    const error = new Error('batch fail');
+    const layer = makeSemanticLayer({ getFileBindingsBatch: mock(() => { throw error; }) });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    try {
+      getFileBindingsBatch(ctx, [{ filePath: '/a.ts', content: 'x' }]);
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect((e as GildashError).type).toBe('semantic');
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
+});
+
+// ─── notifyFileChanged / notifyFileDeleted ──────────────────────────
+
+describe('notifyFileChanged', () => {
+  it('should delegate to the layer with the resolved absolute path', () => {
+    const fn = mock(() => {});
+    const layer = makeSemanticLayer({ notifyFileChanged: fn });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    notifyFileChanged(ctx, 'src/a.ts', 'const a=1;');
+
+    expect(fn).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'), 'const a=1;');
+  });
+
+  it('should throw when closed', () => {
+    expect(() => notifyFileChanged(makeCtx({ closed: true }), '/a.ts', 'x')).toThrow(GildashError);
+  });
+
+  it('should throw when semantic layer is null', () => {
+    expect(() => notifyFileChanged(makeCtx({ semanticLayer: null }), '/a.ts', 'x')).toThrow(GildashError);
+  });
+
+  it('should catch exception and throw GildashError with cause', () => {
+    const error = new Error('notify fail');
+    const layer = makeSemanticLayer({ notifyFileChanged: mock(() => { throw error; }) });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+    try {
+      notifyFileChanged(ctx, '/a.ts', 'x');
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
+});
+
+describe('notifyFileDeleted', () => {
+  it('should delegate to the layer with the resolved absolute path', () => {
+    const fn = mock(() => {});
+    const layer = makeSemanticLayer({ notifyFileDeleted: fn });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    notifyFileDeleted(ctx, 'src/a.ts');
+
+    expect(fn).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'));
+  });
+
+  it('should throw when closed', () => {
+    expect(() => notifyFileDeleted(makeCtx({ closed: true }), '/a.ts')).toThrow(GildashError);
+  });
+
+  it('should throw when semantic layer is null', () => {
+    expect(() => notifyFileDeleted(makeCtx({ semanticLayer: null }), '/a.ts')).toThrow(GildashError);
+  });
+
+  it('should catch exception and throw GildashError with cause', () => {
+    const error = new Error('del fail');
+    const layer = makeSemanticLayer({ notifyFileDeleted: mock(() => { throw error; }) });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+    try {
+      notifyFileDeleted(ctx, '/a.ts');
+      expect.unreachable('should have thrown');
+    } catch (e) {
       expect((e as GildashError).cause).toBe(error);
     }
   });

@@ -354,6 +354,9 @@ Requires `semantic: true` at open time.
 | `getSemanticReferencesAtPosition(filePath, position)` | `SemanticReference[]` | References to the symbol at a position |
 | `getEnrichedReferencesAtPosition(filePath, position)` | `EnrichedReference[]` | Enriched references to the symbol at a position |
 | `getFileBindings(filePath)` | `FileBinding[]` | All bindings in a file (single pass), each with its in-file enriched references — `O(identifiers)` for dataflow |
+| `getFileBindingsBatch(files)` | `Map<string, FileBinding[]>` | Batch `getFileBindings` over many in-memory `{ filePath, content }` — one tsc rebuild for the whole batch |
+| `notifyFileChanged(filePath, content)` | `void` | Register/replace an ad-hoc in-memory source (idempotent on identical content) |
+| `notifyFileDeleted(filePath)` | `void` | Remove an ad-hoc in-memory source |
 | `getImplementationsAtPosition(filePath, position)` | `Implementation[]` | Implementations of the symbol at a position |
 | `isTypeAssignableToAtPosition(opts)` | `boolean` | Assignability check between two byte positions |
 | `isTypeAssignableToTypeAtPositions(opts)` | `boolean` | Assignability check from a position to an arbitrary type string |

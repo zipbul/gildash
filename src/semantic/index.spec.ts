@@ -274,6 +274,86 @@ describe("SemanticLayer", () => {
     layer.dispose();
   });
 
+  // 5d. [HP] getFileBindingsBatch → 여러 파일 등록 후 일괄 binding, 파일별 키
+  it("should batch-register files and return bindings keyed per file", () => {
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const files = [
+      { filePath: "/project/src/b1.ts", content: "export function f1() { let a = 1; return a; }" },
+      { filePath: "/project/src/b2.ts", content: "export function f2() { let b = 2; b = 3; return b; }" },
+    ];
+
+    const bindings = layer.getFileBindingsBatch(files);
+
+    expect(bindings.size).toBe(2);
+    expect(bindings.get("/project/src/b1.ts")!.some((x) => x.declaration.name === "a")).toBe(true);
+    const b2 = bindings.get("/project/src/b2.ts")!.find((x) => x.declaration.name === "b");
+    expect(b2!.references.map((r) => r.writeKind)).toContain("assignment");
+    layer.dispose();
+  });
+
+  // 5e. [HP] getFileBindingsBatch invalidates the SymbolGraph cache (no stale read)
+  it("should invalidate the SymbolGraph cache when a file is mutated via batch", () => {
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const filePath = "/project/src/cache.ts";
+    // "export const aaa = 1;" — `aaa` starts at offset 13.
+    layer.notifyFileChanged(filePath, "export const aaa = 1;");
+    const pos = "export const aaa = 1;".indexOf("aaa");
+    expect(layer.getSymbolNode(filePath, pos)!.name).toBe("aaa"); // prime cache
+
+    // Mutate via batch (same offset now holds `bbb`).
+    layer.getFileBindingsBatch([{ filePath, content: "export const bbb = 1;" }]);
+
+    // Must reflect the new content, not the stale cached `aaa`.
+    expect(layer.getSymbolNode(filePath, pos)!.name).toBe("bbb");
+    layer.dispose();
+  });
+
+  // 5f. [HP] cross-file getSymbolNode is not stale after a dependency changes
+  it("should not return a stale dependent symbol node when a dependency file changes", () => {
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const a = "/project/src/dep-a.ts";
+    const b = "/project/src/dep-b.ts";
+    const bSrc = 'import { Foo } from "./dep-a";\nexport const f: Foo = new Foo();';
+    layer.notifyFileChanged(a, "export class Foo { x = 1; }");
+    layer.notifyFileChanged(b, bSrc);
+
+    const pos = bSrc.indexOf("Foo"); // the type reference to Foo
+    const primed = layer.getSymbolNode(b, pos);
+    expect(primed!.members?.map((m) => m.name)).toEqual(["x"]); // prime cache
+
+    // Change ONLY the dependency file.
+    layer.notifyFileChanged(a, "export class Foo { x = 1; y = 2; }");
+
+    // The dependent's cached node must reflect the dependency change.
+    const after = layer.getSymbolNode(b, pos);
+    expect(after!.members?.map((m) => m.name)).toEqual(["x", "y"]);
+    layer.dispose();
+  });
+
   // 6. [HP] findImplementations → ImplementationFinder.findAt 위임 호출됨
   it("should delegate findImplementations to ImplementationFinder.findAt", () => {
     // Arrange
@@ -355,8 +435,8 @@ describe("SemanticLayer", () => {
     layer.dispose();
   });
 
-  // 9. [HP] notifyFileChanged → TscProgram.notifyFileChanged + SymbolGraph.invalidate
-  it("should call TscProgram.notifyFileChanged and SymbolGraph.invalidate on notifyFileChanged", () => {
+  // 9. [HP] notifyFileChanged → TscProgram.notifyFileChanged + SymbolGraph.clear
+  it("should call TscProgram.notifyFileChanged and clear the SymbolGraph cache on notifyFileChanged", () => {
     // Arrange
     const result = SemanticLayer.create(TSCONFIG_PATH, {
       readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),

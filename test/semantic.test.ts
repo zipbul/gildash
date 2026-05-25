@@ -201,6 +201,41 @@ describe('Gildash Semantic integration', () => {
       expect(refs.some((r) => r.isDefinition)).toBe(true);
     });
 
+    // 3a. [HP] getEnrichedReferences → enriched fields populated
+    it('should return enriched references for an exported function', () => {
+      const refs = g.getEnrichedReferences('createService', 'src/service.ts');
+      expect(refs.length).toBeGreaterThanOrEqual(1);
+      expect(refs.every((r) => typeof r.isAmbient === 'boolean')).toBe(true);
+      expect(refs.every((r) => typeof r.enclosingScope.kind === 'string')).toBe(true);
+    });
+
+    // 3b. [HP] notifyFileChanged + getFileBindings on an ad-hoc in-memory file
+    it('should resolve bindings for an ad-hoc file registered via notifyFileChanged', () => {
+      const adhoc = join(tmpDir, 'src', 'adhoc.ts');
+      g.notifyFileChanged(adhoc, 'export function h() { let z = 1; z = 2; return z; }');
+      const bindings = g.getFileBindings(adhoc);
+      const z = bindings.find((b) => b.declaration.name === 'z');
+      expect(z).toBeDefined();
+      expect(z!.references.map((r) => r.writeKind)).toContain('assignment');
+      g.notifyFileDeleted(adhoc);
+      expect(g.getFileBindings(adhoc)).toEqual([]);
+    });
+
+    // 3c. [HP] getFileBindingsBatch → multiple ad-hoc files, keyed per file
+    it('should batch-resolve bindings for multiple ad-hoc files', () => {
+      const f1 = join(tmpDir, 'src', 'batch1.ts');
+      const f2 = join(tmpDir, 'src', 'batch2.ts');
+      const result = g.getFileBindingsBatch([
+        { filePath: f1, content: 'export function a() { let p = 1; return p; }' },
+        { filePath: f2, content: 'export function b() { let q = 2; return q; }' },
+      ]);
+      expect(result.size).toBe(2);
+      expect(result.get(f1)!.some((x) => x.declaration.name === 'p')).toBe(true);
+      expect(result.get(f2)!.some((x) => x.declaration.name === 'q')).toBe(true);
+      g.notifyFileDeleted(f1);
+      g.notifyFileDeleted(f2);
+    });
+
     // 4. [HP] getImplementations for interface → finds implementing class
     it('should find implementing class for an interface', () => {
       const impls = g.getImplementations('IService', 'src/types.ts');

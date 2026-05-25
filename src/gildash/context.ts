@@ -104,6 +104,7 @@ export type SemanticLayerLike = Pick<
   | 'findReferences'
   | 'findEnrichedReferences'
   | 'getFileBindings'
+  | 'getFileBindingsBatch'
   | 'findImplementations'
   | 'isTypeAssignableTo'
   | 'isTypeAssignableToType'

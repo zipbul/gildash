@@ -243,6 +243,9 @@ class TscLanguageServiceHost implements ts.LanguageServiceHost {
   updateFile(filePath: string, content: string): void {
     const existing = this.#files.get(filePath);
     if (existing) {
+      // Idempotent: identical content is a no-op, so the version is not bumped
+      // and the next query does not trigger a needless Program recompute.
+      if (existing.content === content) return;
       // Remove stale snapshot cache entry
       this.#snapshotCache.delete(`${filePath}:${existing.version}`);
       existing.version += 1;

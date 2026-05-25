@@ -137,8 +137,6 @@ function buildSymbolNode(symbol: InternalSymbol, depth = 0, checker?: ts.TypeChe
 export class SymbolGraph {
   readonly #program: TscProgram;
   readonly #cache: LruCache<string, SymbolNode>;
-  /** filePath → Set<cacheKey> (invalidate 효율화용) */
-  readonly #fileKeys = new Map<string, Set<string>>();
 
   constructor(program: TscProgram, capacity = DEFAULT_CAPACITY) {
     this.#program = program;
@@ -177,34 +175,17 @@ export class SymbolGraph {
     const symbolNode = buildSymbolNode(symbol as InternalSymbol, 0, checker);
     this.#cache.set(cacheKey, symbolNode);
 
-    // filePath → keys 인덱스 갱신
-    let keys = this.#fileKeys.get(filePath);
-    if (!keys) {
-      keys = new Set<string>();
-      this.#fileKeys.set(filePath, keys);
-    }
-    keys.add(cacheKey);
-
     return symbolNode;
   }
 
   /**
-   * `filePath`에 해당하는 캐시 항목을 모두 제거한다.
-   * 파일 변경 시 호출하여 stale 결과를 무효화한다.
+   * 캐시 전체를 초기화한다.
+   *
+   * 캐시된 `members`/`exports`는 cross-file로 파생될 수 있으므로(`getAliasedSymbol`),
+   * 어떤 파일이든 변경되면 의존 노드가 stale해진다. 따라서 파일 단위가 아니라
+   * 전체를 비운다. (편의 캐시이며 tsc Program 재계산을 좌우하지 않는다.)
    */
-  invalidate(filePath: string): void {
-    const keys = this.#fileKeys.get(filePath);
-    if (keys) {
-      for (const key of keys) {
-        this.#cache.delete(key);
-      }
-      this.#fileKeys.delete(filePath);
-    }
-  }
-
-  /** 캐시 전체를 초기화한다. */
   clear(): void {
     this.#cache.clear();
-    this.#fileKeys.clear();
   }
 }

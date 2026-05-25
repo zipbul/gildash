@@ -662,6 +662,40 @@ export class Gildash {
   }
 
   /**
+   * Register the given in-memory `files` and collect every file's bindings in one
+   * batch, keyed by the caller's `filePath`. The tsc Program rebuilds once for the
+   * whole batch — use this instead of interleaving {@link notifyFileChanged} with
+   * per-file {@link getFileBindings}, which forces a rebuild per file.
+   *
+   * @throws {GildashError} With type `'semantic'` if the semantic layer is off.
+   */
+  getFileBindingsBatch(
+    files: ReadonlyArray<{ filePath: string; content: string }>,
+  ): Map<string, FileBinding[]> {
+    return semanticApi.getFileBindingsBatch(this._ctx, files);
+  }
+
+  /**
+   * Register or replace an in-memory file in the semantic layer (tsc Program).
+   * Identical content is a no-op (no recompute). Pair with {@link getFileBindings}
+   * for ad-hoc sources not backed by disk.
+   *
+   * @throws {GildashError} With type `'semantic'` if the semantic layer is off.
+   */
+  notifyFileChanged(filePath: string, content: string): void {
+    semanticApi.notifyFileChanged(this._ctx, filePath, content);
+  }
+
+  /**
+   * Remove an in-memory file from the semantic layer (tsc Program).
+   *
+   * @throws {GildashError} With type `'semantic'` if the semantic layer is off.
+   */
+  notifyFileDeleted(filePath: string): void {
+    semanticApi.notifyFileDeleted(this._ctx, filePath);
+  }
+
+  /**
    * Find all implementations of the symbol at a specific byte position.
    *
    * @param filePath - Relative path to the file.
