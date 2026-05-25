@@ -320,6 +320,61 @@ export function getFileBindings(ctx: GildashContext, filePath: string): FileBind
   }
 }
 
+/**
+ * Register in-memory `files` then collect every file's bindings in one batch,
+ * keyed by the caller's filePath. Amortizes the tsc Program rebuild to once for
+ * the whole batch (vs once per file when notify/query are interleaved).
+ */
+export function getFileBindingsBatch(
+  ctx: GildashContext,
+  files: ReadonlyArray<{ filePath: string; content: string }>,
+): Map<string, FileBinding[]> {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const resolved = files.map((f) => ({
+      orig: f.filePath,
+      abs: path.isAbsolute(f.filePath) ? f.filePath : path.resolve(ctx.projectRoot, f.filePath),
+      content: f.content,
+    }));
+    const byAbs = ctx.semanticLayer.getFileBindingsBatch(
+      resolved.map((r) => ({ filePath: r.abs, content: r.content })),
+    );
+    const out = new Map<string, FileBinding[]>();
+    for (const r of resolved) out.set(r.orig, byAbs.get(r.abs) ?? []);
+    return out;
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: getFileBindingsBatch failed', { cause: e });
+  }
+}
+
+/** Register/replace an in-memory file in the semantic layer (tsc Program). */
+export function notifyFileChanged(ctx: GildashContext, filePath: string, content: string): void {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    ctx.semanticLayer.notifyFileChanged(absPath, content);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: notifyFileChanged failed', { cause: e });
+  }
+}
+
+/** Remove an in-memory file from the semantic layer (tsc Program). */
+export function notifyFileDeleted(ctx: GildashContext, filePath: string): void {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    ctx.semanticLayer.notifyFileDeleted(absPath);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: notifyFileDeleted failed', { cause: e });
+  }
+}
+
 /** Find implementations at a byte offset. */
 export function getImplementationsAtPosition(
   ctx: GildashContext,

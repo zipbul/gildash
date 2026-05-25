@@ -159,6 +159,26 @@ describe("TscProgram", () => {
     expect(version).toBe("3");
   });
 
+  // 7b. [HP] 동일 content 재통보 → version 불변 (idempotent, 불필요한 재계산 방지)
+  it("should not bump version when notified with identical content", () => {
+    // Arrange
+    const prog = createOrThrow();
+    const filePath = "/project/src/b-idem.ts";
+
+    // Act
+    prog.notifyFileChanged(filePath, "const a = 1;"); // version 1
+    prog.notifyFileChanged(filePath, "const a = 1;"); // identical → no-op
+    prog.notifyFileChanged(filePath, "const a = 1;"); // identical → no-op
+    const sameVersion = prog.__testing__.host.getScriptVersion(filePath);
+
+    prog.notifyFileChanged(filePath, "const a = 2;"); // changed → bump
+    const bumpedVersion = prog.__testing__.host.getScriptVersion(filePath);
+
+    // Assert
+    expect(sameVersion).toBe("1");
+    expect(bumpedVersion).toBe("2");
+  });
+
   // 8. [HP] notifyFileChanged 후 getScriptFileNames → 파일 포함
   it("should include newly tracked file when getScriptFileNames is called after notify", () => {
     // Arrange

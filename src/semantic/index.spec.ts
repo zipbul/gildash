@@ -274,6 +274,31 @@ describe("SemanticLayer", () => {
     layer.dispose();
   });
 
+  // 5d. [HP] getFileBindingsBatch → 여러 파일 등록 후 일괄 binding, 파일별 키
+  it("should batch-register files and return bindings keyed per file", () => {
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const files = [
+      { filePath: "/project/src/b1.ts", content: "export function f1() { let a = 1; return a; }" },
+      { filePath: "/project/src/b2.ts", content: "export function f2() { let b = 2; b = 3; return b; }" },
+    ];
+
+    const bindings = layer.getFileBindingsBatch(files);
+
+    expect(bindings.size).toBe(2);
+    expect(bindings.get("/project/src/b1.ts")!.some((x) => x.declaration.name === "a")).toBe(true);
+    const b2 = bindings.get("/project/src/b2.ts")!.find((x) => x.declaration.name === "b");
+    expect(b2!.references.map((r) => r.writeKind)).toContain("assignment");
+    layer.dispose();
+  });
+
   // 6. [HP] findImplementations → ImplementationFinder.findAt 위임 호출됨
   it("should delegate findImplementations to ImplementationFinder.findAt", () => {
     // Arrange

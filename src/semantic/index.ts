@@ -173,6 +173,23 @@ export class SemanticLayer {
     return this.#referenceResolver.findFileBindings(filePath);
   }
 
+  /**
+   * Register all `files` then collect their bindings, keyed by file path. Notifies
+   * every file *before* any query so the Program rebuilds once (O(1)) instead of
+   * once per file — interleaved notify/query otherwise forces a rebuild per query.
+   */
+  getFileBindingsBatch(
+    files: ReadonlyArray<{ filePath: string; content: string }>,
+  ): Map<string, FileBinding[]> {
+    this.#assertNotDisposed();
+    for (const f of files) this.#program.notifyFileChanged(f.filePath, f.content);
+    const result = new Map<string, FileBinding[]>();
+    for (const f of files) {
+      result.set(f.filePath, this.#referenceResolver.findFileBindings(f.filePath));
+    }
+    return result;
+  }
+
   // ── Implementations ─────────────────────────────────────────────────────
 
   findImplementations(filePath: string, position: number): Implementation[] {
