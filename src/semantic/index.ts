@@ -182,7 +182,9 @@ export class SemanticLayer {
     files: ReadonlyArray<{ filePath: string; content: string }>,
   ): Map<string, FileBinding[]> {
     this.#assertNotDisposed();
-    for (const f of files) this.#program.notifyFileChanged(f.filePath, f.content);
+    // Route through notifyFileChanged (not #program directly) so the SymbolGraph
+    // cache is invalidated per file — otherwise a primed getSymbolNode goes stale.
+    for (const f of files) this.notifyFileChanged(f.filePath, f.content);
     const result = new Map<string, FileBinding[]>();
     for (const f of files) {
       result.set(f.filePath, this.#referenceResolver.findFileBindings(f.filePath));
@@ -336,7 +338,12 @@ export class SemanticLayer {
   notifyFileChanged(filePath: string, content: string): void {
     if (this.#isDisposed) return;
     this.#program.notifyFileChanged(filePath, content);
-    this.#symbolGraph.invalidate(filePath);
+    // Clear the whole SymbolGraph cache, not just this file: a cached node's
+    // members/exports may be derived cross-file (via getAliasedSymbol), so a
+    // dependent file's node goes stale when this file changes. The cache is a
+    // cheap convenience layer (it does not gate the tsc Program recompute), so
+    // clearing it wholesale is correct without undermining the notify dedup.
+    this.#symbolGraph.clear();
   }
 
   /**
@@ -350,7 +357,9 @@ export class SemanticLayer {
   notifyFileDeleted(filePath: string): void {
     if (this.#isDisposed) return;
     this.#program.removeFile(filePath);
-    this.#symbolGraph.invalidate(filePath);
+    // Clear all cached nodes — a deleted file's symbols may back other files'
+    // cached members/exports (see notifyFileChanged).
+    this.#symbolGraph.clear();
   }
 
   // ── Position conversion ──────────────────────────────────────────────
