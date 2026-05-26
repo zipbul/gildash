@@ -87,77 +87,7 @@ export class ReferenceResolver {
     const sourceFile = tsProgram.getSourceFile(filePath);
     if (!sourceFile) return [];
 
-    const checker = tsProgram.getTypeChecker();
-
-    // Single pass: group every identifier by its resolved symbol identity
-    // (the binder handles var hoisting / shadowing, so a block `var` and an
-    // outer read land in the same group).
-    const groups = new Map<ts.Symbol, ts.Identifier[]>();
-    const visit = (node: ts.Node): void => {
-      if (ts.isIdentifier(node) && !isPropertyName(node)) {
-        const symbol = resolveBindingSymbol(node, checker);
-        if (symbol) {
-          const existing = groups.get(symbol);
-          if (existing) existing.push(node);
-          else groups.set(symbol, [node]);
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
-    ts.forEachChild(sourceFile, visit);
-
-    const results: FileBinding[] = [];
-    for (const [symbol, idents] of groups) {
-      const declarations = symbol.declarations;
-      if (!declarations || declarations.length === 0) continue;
-
-      // Skip symbols declared *only* as object members — their references are
-      // member accesses (which we don't collect), so they would otherwise appear
-      // as bindings with incomplete reference sets. Bare-name value bindings
-      // (var/let/const/param/function/class/import) always have a non-member
-      // declaration; a parameter property keeps its `Parameter` declaration.
-      if (declarations.every(isMemberDeclaration)) continue;
-
-      const isAmbient = declarations.every(isAmbientDeclaration);
-      const declNameNodes = new Set<ts.Node>(
-        declarations
-          .map((d) => ts.getNameOfDeclaration(d))
-          .filter((n): n is NonNullable<typeof n> => n !== undefined),
-      );
-      const firstDecl = declarations[0]!;
-      const declName = ts.getNameOfDeclaration(firstDecl) ?? firstDecl;
-      const declSourceFile = firstDecl.getSourceFile();
-
-      const references: EnrichedReference[] = idents.map((id) => {
-        const start = id.getStart(sourceFile);
-        const { line: lineZero, character: column } =
-          sourceFile.getLineAndCharacterOfPosition(start);
-        const writeKind = classifyWriteKind(id);
-        return {
-          filePath: sourceFile.fileName,
-          position: start,
-          line: lineZero + 1,
-          column,
-          isDefinition: declNameNodes.has(id),
-          isWrite: writeKind !== undefined,
-          writeKind,
-          isAmbient,
-          enclosingScope: getEnclosingScope(id),
-        };
-      });
-
-      results.push({
-        declaration: {
-          filePath: declSourceFile.fileName,
-          position: declName.getStart(declSourceFile),
-          name: symbol.getName(),
-          isAmbient,
-        },
-        references,
-      });
-    }
-
-    return results;
+    return collectBindings(sourceFile, tsProgram.getTypeChecker());
   }
 
   /**
@@ -203,6 +133,86 @@ export class ReferenceResolver {
 
     return declarations.every(isAmbientDeclaration);
   }
+}
+
+/**
+ * Collect every binding referenced in `sourceFile`, grouped by symbol identity,
+ * in a single AST pass (no per-symbol `findReferences`). Shared by the
+ * shared-program path ({@link ReferenceResolver.findFileBindings}) and the
+ * standalone single-file path.
+ *
+ * The binder handles `var` hoisting / shadowing, so a block `var` and an outer
+ * read land in the same group. References are limited to `sourceFile`.
+ */
+export function collectBindings(
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker,
+): FileBinding[] {
+  const groups = new Map<ts.Symbol, ts.Identifier[]>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && !isPropertyName(node)) {
+      const symbol = resolveBindingSymbol(node, checker);
+      if (symbol) {
+        const existing = groups.get(symbol);
+        if (existing) existing.push(node);
+        else groups.set(symbol, [node]);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+
+  const results: FileBinding[] = [];
+  for (const [symbol, idents] of groups) {
+    const declarations = symbol.declarations;
+    if (!declarations || declarations.length === 0) continue;
+
+    // Skip symbols declared *only* as object members — their references are
+    // member accesses (not collected), so they would otherwise appear as
+    // bindings with incomplete reference sets. Bare-name value bindings always
+    // have a non-member declaration; a parameter property keeps its `Parameter`.
+    if (declarations.every(isMemberDeclaration)) continue;
+
+    const isAmbient = declarations.every(isAmbientDeclaration);
+    const declNameNodes = new Set<ts.Node>(
+      declarations
+        .map((d) => ts.getNameOfDeclaration(d))
+        .filter((n): n is NonNullable<typeof n> => n !== undefined),
+    );
+    const firstDecl = declarations[0]!;
+    const declName = ts.getNameOfDeclaration(firstDecl) ?? firstDecl;
+    const declSourceFile = firstDecl.getSourceFile();
+
+    const references: EnrichedReference[] = idents.map((id) => {
+      const start = id.getStart(sourceFile);
+      const { line: lineZero, character: column } =
+        sourceFile.getLineAndCharacterOfPosition(start);
+      const writeKind = classifyWriteKind(id);
+      return {
+        filePath: sourceFile.fileName,
+        position: start,
+        line: lineZero + 1,
+        column,
+        isDefinition: declNameNodes.has(id),
+        isWrite: writeKind !== undefined,
+        writeKind,
+        isAmbient,
+        enclosingScope: getEnclosingScope(id),
+      };
+    });
+
+    results.push({
+      declaration: {
+        filePath: declSourceFile.fileName,
+        position: declName.getStart(declSourceFile),
+        name: symbol.getName(),
+        isAmbient,
+      },
+      references,
+    });
+  }
+
+  return results;
 }
 
 /**

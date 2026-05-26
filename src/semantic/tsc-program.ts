@@ -166,6 +166,15 @@ export class TscProgram {
     return this.getProgram().getTypeChecker();
   }
 
+  /**
+   * The project's compiler options, read from the host without forcing a
+   * Program sync (so callers that don't need the Program stay cheap).
+   */
+  getCompilerOptions(): ts.CompilerOptions {
+    this.#assertNotDisposed();
+    return this.#host.getCompilationSettings();
+  }
+
   getLanguageService(): ts.LanguageService {
     this.#assertNotDisposed();
     return this.#languageService;
