@@ -10,6 +10,7 @@ import {
   getEnrichedReferencesAtPosition,
   getFileBindings,
   getFileBindingsBatch,
+  getStandaloneFileBindings,
   notifyFileChanged,
   notifyFileDeleted,
   getImplementations,
@@ -46,6 +47,7 @@ function makeSemanticLayer(overrides?: Record<string, unknown>) {
     findEnrichedReferences: mock(() => []),
     getFileBindings: mock(() => []),
     getFileBindingsBatch: mock(() => new Map()),
+    getStandaloneFileBindings: mock(() => []),
     notifyFileDeleted: mock(() => {}),
     findImplementations: mock(() => []),
     getModuleInterface: mock(() => ({ exports: [] })),
@@ -481,6 +483,43 @@ describe('getFileBindingsBatch', () => {
 
     try {
       getFileBindingsBatch(ctx, [{ filePath: '/a.ts', content: 'x' }]);
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect((e as GildashError).type).toBe('semantic');
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
+});
+
+// ─── getStandaloneFileBindings ──────────────────────────────────────
+
+describe('getStandaloneFileBindings', () => {
+  it('should delegate to the layer with the resolved absolute path and content', () => {
+    const b = [{ declaration: { filePath: '/x.ts', position: 0, name: 'a', isAmbient: false }, references: [] }];
+    const fn = mock(() => b);
+    const layer = makeSemanticLayer({ getStandaloneFileBindings: fn });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+
+    const result = getStandaloneFileBindings(ctx, 'src/a.ts', 'const a=1;');
+
+    expect(result).toBe(b as any);
+    expect(fn).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'), 'const a=1;');
+  });
+
+  it('should throw when closed', () => {
+    expect(() => getStandaloneFileBindings(makeCtx({ closed: true }), '/a.ts', 'x')).toThrow(GildashError);
+  });
+
+  it('should throw when semantic layer is null', () => {
+    expect(() => getStandaloneFileBindings(makeCtx({ semanticLayer: null }), '/a.ts', 'x')).toThrow(GildashError);
+  });
+
+  it('should catch exception and throw GildashError with cause', () => {
+    const error = new Error('standalone fail');
+    const layer = makeSemanticLayer({ getStandaloneFileBindings: mock(() => { throw error; }) });
+    const ctx = makeCtx({ semanticLayer: layer as any });
+    try {
+      getStandaloneFileBindings(ctx, '/a.ts', 'x');
       expect.unreachable('should have thrown');
     } catch (e) {
       expect((e as GildashError).type).toBe('semantic');

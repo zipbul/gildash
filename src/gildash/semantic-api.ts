@@ -349,6 +349,27 @@ export function getFileBindingsBatch(
   }
 }
 
+/**
+ * Resolve a self-contained source's bindings in isolation (no shared-program
+ * touch) — O(file), constant regardless of project size. Cross-file imports and
+ * global/lib symbols are not resolved (use getFileBindings for those).
+ */
+export function getStandaloneFileBindings(
+  ctx: GildashContext,
+  filePath: string,
+  content: string,
+): FileBinding[] {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    return ctx.semanticLayer.getStandaloneFileBindings(absPath, content);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: getStandaloneFileBindings failed', { cause: e });
+  }
+}
+
 /** Register/replace an in-memory file in the semantic layer (tsc Program). */
 export function notifyFileChanged(ctx: GildashContext, filePath: string, content: string): void {
   if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');

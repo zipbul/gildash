@@ -12,6 +12,7 @@ import { TscProgram, type TscProgramOptions } from "./tsc-program";
 import { TypeCollector, buildResolvedType } from "./type-collector";
 import { SymbolGraph, type SymbolNode } from "./symbol-graph";
 import { ReferenceResolver } from "./reference-resolver";
+import { buildStandaloneBindings } from "./standalone-bindings";
 import { ImplementationFinder } from "./implementation-finder";
 import { findNodeAtPosition } from "./ast-node-utils";
 import type {
@@ -171,6 +172,29 @@ export class SemanticLayer {
   getFileBindings(filePath: string): FileBinding[] {
     this.#assertNotDisposed();
     return this.#referenceResolver.findFileBindings(filePath);
+  }
+
+  /**
+   * Resolve bindings for a self-contained in-memory source in ISOLATION — a
+   * throwaway single-file program that never touches the shared project program.
+   * `O(file)` and constant regardless of project size, unlike notifying an ad-hoc
+   * file (which invalidates the whole TypeChecker). Local binding identity is
+   * identical to {@link getFileBindings}; cross-file imports and global/lib
+   * symbols are not resolved (omitted) — for those use {@link getFileBindings}.
+   */
+  getStandaloneFileBindings(filePath: string, content: string): FileBinding[] {
+    this.#assertNotDisposed();
+    const o = this.#program.getCompilerOptions();
+    return buildStandaloneBindings(filePath, content, {
+      target: o.target,
+      module: o.module,
+      jsx: o.jsx,
+      jsxFactory: o.jsxFactory,
+      jsxFragmentFactory: o.jsxFragmentFactory,
+      jsxImportSource: o.jsxImportSource,
+      experimentalDecorators: o.experimentalDecorators,
+      useDefineForClassFields: o.useDefineForClassFields,
+    });
   }
 
   /**

@@ -354,6 +354,33 @@ describe("SemanticLayer", () => {
     layer.dispose();
   });
 
+  // 5g. [HP] getStandaloneFileBindings == getFileBindings for a self-contained source
+  it("should match getFileBindings for a self-contained source via the standalone path", () => {
+    const result = SemanticLayer.create(TSCONFIG_PATH, {
+      readConfigFile: (p) => (p === TSCONFIG_PATH ? VALID_TSCONFIG : undefined),
+      resolveNonTrackedFile: (p) =>
+        p.includes("lib.") && p.endsWith(".d.ts") ? "// fake lib\nexport {};\n" : undefined,
+    });
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    const layer = result;
+
+    const filePath = "/project/src/sa.ts";
+    const content = "function f() { if (true) { var c = 1; } c = 2; const { x, y: z } = o; x; return c; }";
+
+    layer.notifyFileChanged(filePath, content);
+    const viaShared = layer.getFileBindings(filePath);
+    const viaStandalone = layer.getStandaloneFileBindings(filePath, content);
+
+    const norm = (bs: ReturnType<typeof layer.getFileBindings>) =>
+      bs
+        .map((b) => `${b.declaration.name}:${b.references.map((r) => r.writeKind ?? "-").join(",")}`)
+        .sort();
+    expect(norm(viaStandalone)).toEqual(norm(viaShared));
+    expect(viaStandalone.find((b) => b.declaration.name === "c")!.references.length).toBe(3);
+    layer.dispose();
+  });
+
   // 6. [HP] findImplementations → ImplementationFinder.findAt 위임 호출됨
   it("should delegate findImplementations to ImplementationFinder.findAt", () => {
     // Arrange

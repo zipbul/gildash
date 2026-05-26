@@ -676,6 +676,24 @@ export class Gildash {
   }
 
   /**
+   * Resolve a self-contained in-memory source's bindings in ISOLATION — without
+   * touching the shared project program. `O(file)` and constant regardless of
+   * project size; use this for ad-hoc sources (e.g. test fixtures) instead of
+   * {@link notifyFileChanged} + {@link getFileBindings}, which forces a full
+   * re-typecheck of the whole project on the next query.
+   *
+   * Local binding identity (var hoisting, shadowing, destructuring, writeKind,
+   * enclosingScope) matches {@link getFileBindings}. Cross-file imports and
+   * global/lib symbols are NOT resolved — they are omitted. For sources that
+   * need repo/global symbol identity, use {@link getFileBindings}.
+   *
+   * @throws {GildashError} With type `'semantic'` if the semantic layer is off.
+   */
+  getStandaloneFileBindings(filePath: string, content: string): FileBinding[] {
+    return semanticApi.getStandaloneFileBindings(this._ctx, filePath, content);
+  }
+
+  /**
    * Register or replace an in-memory file in the semantic layer (tsc Program).
    * Identical content is a no-op (no recompute). Pair with {@link getFileBindings}
    * for ad-hoc sources not backed by disk.

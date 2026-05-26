@@ -355,6 +355,7 @@ Requires `semantic: true` at open time.
 | `getEnrichedReferencesAtPosition(filePath, position)` | `EnrichedReference[]` | Enriched references to the symbol at a position |
 | `getFileBindings(filePath)` | `FileBinding[]` | All bindings in a file (single pass), each with its in-file enriched references — `O(identifiers)` for dataflow |
 | `getFileBindingsBatch(files)` | `Map<string, FileBinding[]>` | Batch `getFileBindings` over many in-memory `{ filePath, content }` — one tsc rebuild for the whole batch |
+| `getStandaloneFileBindings(filePath, content)` | `FileBinding[]` | Isolated `O(file)` bindings for a self-contained source — never touches the shared program (no cross-file/global resolution) |
 | `notifyFileChanged(filePath, content)` | `void` | Register/replace an ad-hoc in-memory source (idempotent on identical content) |
 | `notifyFileDeleted(filePath)` | `void` | Remove an ad-hoc in-memory source |
 | `getImplementationsAtPosition(filePath, position)` | `Implementation[]` | Implementations of the symbol at a position |

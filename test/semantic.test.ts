@@ -236,6 +236,22 @@ describe('Gildash Semantic integration', () => {
       g.notifyFileDeleted(f2);
     });
 
+    // 3d. [HP] getStandaloneFileBindings resolves a self-contained source without
+    //     registering it in the shared program.
+    it('should resolve standalone bindings for an ad-hoc self-contained source', () => {
+      const before = g.listIndexedFiles().length;
+      const adhoc = join(tmpDir, 'src', 'standalone.ts');
+      const bindings = g.getStandaloneFileBindings(
+        adhoc,
+        'function f() { let z = 1; z = 2; return z; }',
+      );
+      const z = bindings.find((b) => b.declaration.name === 'z');
+      expect(z).toBeDefined();
+      expect(z!.references.map((r) => r.writeKind)).toContain('assignment');
+      // standalone must NOT add the file to the shared project program
+      expect(g.listIndexedFiles().length).toBe(before);
+    });
+
     // 4. [HP] getImplementations for interface → finds implementing class
     it('should find implementing class for an interface', () => {
       const impls = g.getImplementations('IService', 'src/types.ts');
