@@ -8,6 +8,22 @@
 import type { WriteKind, EnclosingScope } from './reference-classifier';
 
 /**
+ * A half-open byte range `[start, end)` (0-based character offsets) identifying an
+ * **expression node** within a source file.
+ *
+ * Unlike {@link SourceSpan} (line/column based), `ByteSpan` is byte-offset based so
+ * it aligns 1:1 with `oxc-parser`'s `node.start` / `node.end`. The span-based
+ * semantic primitives resolve the node whose `[getStart(), getEnd())` exactly
+ * equals the span; if no node matches exactly they return `null` (no fallback).
+ */
+export interface ByteSpan {
+  /** Inclusive 0-based start byte offset. */
+  start: number;
+  /** Exclusive 0-based end byte offset. */
+  end: number;
+}
+
+/**
  * The resolved type of a TypeScript symbol, as determined by the tsc TypeChecker.
  *
  * Captures the full structural description of a type including union/intersection

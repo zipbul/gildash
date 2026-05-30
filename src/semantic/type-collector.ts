@@ -6,9 +6,9 @@
  */
 
 import ts from "typescript";
-import type { ResolvedType } from "./types";
+import type { ResolvedType, ByteSpan } from "./types";
 import type { TscProgram } from "./tsc-program";
-import { findNodeAtPosition } from "./ast-node-utils";
+import { findNodeAtPosition, findNodeAtSpan } from "./ast-node-utils";
 
 // ── ResolvedType 빌더 ────────────────────────────────────────────────────────
 
@@ -122,6 +122,49 @@ export function buildResolvedType(
   return result;
 }
 
+// ── thenable 판별 ─────────────────────────────────────────────────────────────
+
+/**
+ * ECMAScript / typescript-eslint `isThenableType` 정의로 thenable인지 판별한다:
+ * 호출 가능한 `then` 멤버를 가지며 그 call signature가 **파라미터 ≥1개**.
+ *
+ * - `any`는 제외(`any`는 무엇이든 될 수 있어 thenable로 보지 않는다).
+ * - union: `anyConstituent`이면 nullish가 아닌 **어떤** 멤버가 thenable이면 true,
+ *   아니면 **모든** non-nullish 멤버가 thenable이어야 true. (옵셔널 `T | undefined`는
+ *   `undefined` 멤버를 제거하고 판정.)
+ * - intersection: 어떤 멤버라도 thenable이면 교차 타입은 그 `then`을 가지므로 true.
+ *
+ * `then`의 *반환* 타입으로는 재귀하지 않으므로(파라미터 개수만 검사) 자기참조 thenable
+ * (`interface T { then(cb:(v:T)=>void):void }`)에서도 종료가 보장된다.
+ */
+function isThenableType(
+  checker: ts.TypeChecker,
+  type: ts.Type,
+  anyConstituent: boolean,
+): boolean {
+  if (type.flags & ts.TypeFlags.Any) return false;
+
+  if (type.isUnion()) {
+    const parts = type.types.filter(
+      (t) => !(t.flags & (ts.TypeFlags.Void | ts.TypeFlags.Undefined | ts.TypeFlags.Null)),
+    );
+    return anyConstituent
+      ? parts.some((p) => isThenableType(checker, p, anyConstituent))
+      : parts.length > 0 && parts.every((p) => isThenableType(checker, p, anyConstituent));
+  }
+
+  if (type.isIntersection()) {
+    return type.types.some((p) => isThenableType(checker, p, anyConstituent));
+  }
+
+  const then = checker.getPropertyOfType(type, "then");
+  if (!then) return false;
+  const decl = then.declarations?.[0];
+  if (!decl) return false;
+  const thenType = checker.getTypeOfSymbolAtLocation(then, decl);
+  return thenType.getCallSignatures().some((s) => s.parameters.length >= 1);
+}
+
 // ── 선언 위치 순회 ───────────────────────────────────────────────────────────
 
 /** 선언 이름인 Identifier 노드인지 판별한다. */
@@ -215,6 +258,120 @@ export class TypeCollector {
     try {
       const type = checker.getTypeAtLocation(node);
       return buildResolvedType(checker, type, 0, new Map());
+    } catch {
+      return null;
+    }
+  }
+
+  // ── Span-based primitives (firebat error-flow) ──────────────────────────────
+
+  /**
+   * Resolve the type of the **expression node** that exactly spans `span`
+   * (`[getStart(), getEnd())` === `[span.start, span.end)`); the innermost on a
+   * tie (e.g. the expression inside a semicolon-less `ExpressionStatement`, not
+   * the statement — which would resolve to `any`). Unlike {@link collectAt},
+   * accepts any expression node (Call/Member/Await/…),
+   * so `f()` resolves to the call **result** type. No exact match → `null` (no
+   * fallback). Returns existing {@link ResolvedType} (incl. raw `.flags`).
+   *
+   */
+  collectAtSpan(filePath: string, span: ByteSpan): ResolvedType | null {
+    const tsProgram = this.program.getProgram();
+    const checker = tsProgram.getTypeChecker();
+
+    const sourceFile = tsProgram.getSourceFile(filePath);
+    if (!sourceFile) return null;
+
+    const node = findNodeAtSpan(sourceFile, span.start, span.end);
+    if (!node) return null;
+
+    try {
+      const type = checker.getTypeAtLocation(node);
+      return buildResolvedType(checker, type, 0, new Map());
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Whether the type of the expression exactly spanning `span` is a **thenable**
+   * (ECMAScript / typescript-eslint definition: a callable `then` member whose
+   * call signature has ≥1 parameter). Recurses union/intersection on the live
+   * `ts.Type` (so `A & PromiseLike<X>` resolves); excludes `any`. `null` when the
+   * span resolves no node / type. `options.anyConstituent` (default `true`): a
+   * union is thenable if **some** member is.
+   *
+   */
+  isThenableAtSpan(
+    filePath: string,
+    span: ByteSpan,
+    options?: { anyConstituent?: boolean },
+  ): boolean | null {
+    const tsProgram = this.program.getProgram();
+    const checker = tsProgram.getTypeChecker();
+
+    const sourceFile = tsProgram.getSourceFile(filePath);
+    if (!sourceFile) return null;
+
+    const node = findNodeAtSpan(sourceFile, span.start, span.end);
+    if (!node) return null;
+
+    try {
+      const type = checker.getTypeAtLocation(node);
+      return isThenableType(checker, type, options?.anyConstituent ?? true);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The return types of the call signatures of the **contextual type** at the
+   * argument expression spanning `span` (overload-selected, `undefined`/`null`
+   * stripped before signature enumeration). For a void-callback slot the caller
+   * checks every returned type is `void`/`undefined`. `null` when there is no
+   * contextual type; `[]` when the contextual type has no call signatures
+   * (not a callback slot).
+   *
+   * When the contextual type is a union of function types
+   * (`(() => void) | (() => number)`), the returns of **all** members are
+   * included — the caller's "every return is void" check then naturally rejects
+   * the value-returning member.
+   *
+   */
+  contextualCallReturnsAtSpan(filePath: string, span: ByteSpan): ResolvedType[] | null {
+    const tsProgram = this.program.getProgram();
+    const checker = tsProgram.getTypeChecker();
+
+    const sourceFile = tsProgram.getSourceFile(filePath);
+    if (!sourceFile) return null;
+
+    const node = findNodeAtSpan(sourceFile, span.start, span.end);
+    // Must resolve to the argument expression node itself (so getContextualType sees
+    // the correct overload context); never reconstruct it from an enclosing call.
+    if (!node || !ts.isExpression(node)) return null;
+
+    try {
+      const contextualType = checker.getContextualType(node);
+      if (!contextualType) return null;
+
+      // Strip nullish union members (optional params: `(() => void) | undefined`)
+      // BEFORE enumerating call signatures — `.getCallSignatures()` on the raw union
+      // returns none.
+      const candidates = contextualType.isUnion()
+        ? contextualType.types.filter(
+            (t) => !(t.flags & (ts.TypeFlags.Void | ts.TypeFlags.Undefined | ts.TypeFlags.Null)),
+          )
+        : [contextualType];
+
+      const seen = new Map<ts.Type, ResolvedType>();
+      const returns: ResolvedType[] = [];
+      for (const c of candidates) {
+        for (const sig of c.getCallSignatures()) {
+          const returnType = checker.getReturnTypeOfSignature(sig);
+          returns.push(buildResolvedType(checker, returnType, 0, seen));
+        }
+      }
+      return returns;
     } catch {
       return null;
     }

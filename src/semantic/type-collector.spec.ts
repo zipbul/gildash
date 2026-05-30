@@ -1,3 +1,4 @@
+import ts from "typescript";
 import { describe, expect, it } from "bun:test";
 import { isErr } from "@zipbul/result";
 import type { GildashError } from "../errors";
@@ -859,5 +860,430 @@ describe("TypeCollector", () => {
     expect(b1!.text).toBe(b2!.text);
     expect(a1!.text).toBe("string");
     expect(b1!.text).toBe("number");
+  });
+});
+
+// ── Span-based primitives (firebat error-flow) ───────────────────────────────
+//
+// Unit level uses a FAKE lib (makeProg doubles lib.*.d.ts), so no real `Promise`
+// exists here — thenable/void cases use LOCAL types (`interface Thenable`,
+// `() => void`, `number`). Real-`Promise<…>` behaviour is covered by the
+// integration suite (test/semantic.test.ts), which builds a real tsc program.
+
+import type { ByteSpan } from "./types";
+
+/** Byte span of the `nth` (1-based) occurrence of `needle` in `content`. */
+function spanAt(content: string, needle: string, nth = 1): ByteSpan {
+  let idx = -1;
+  for (let i = 0; i < nth; i++) {
+    idx = content.indexOf(needle, idx + 1);
+    if (idx === -1) throw new Error(`needle "${needle}" #${nth} not found`);
+  }
+  return { start: idx, end: idx + needle.length };
+}
+
+describe("TypeCollector.collectAtSpan", () => {
+  // [HP] call-result type (the v1 motivating gap — collectAt rejects CallExpression)
+  it("should resolve the call result type when span covers a CallExpression", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/call.ts";
+    const content = "function getStr(): string { return ''; }\nconst r = getStr();";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.collectAtSpan(filePath, spanAt(content, "getStr()", 2));
+
+    expect(result).not.toBeNull();
+    expect(result!.text).toBe("string");
+  });
+
+  // [HP] method-call result (not the receiver type)
+  it("should resolve the method return type when span covers a method CallExpression", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/method.ts";
+    const content = "const o = { m(): number { return 1; } };\nconst r = o.m();";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.collectAtSpan(filePath, spanAt(content, "o.m()"));
+
+    expect(result).not.toBeNull();
+    expect(result!.text).toBe("number");
+  });
+
+  // [HP] member/property type
+  it("should resolve the property type when span covers a MemberExpression", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/member.ts";
+    const content = "const o = { p: 'x' as string };\nconst m = o.p;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.collectAtSpan(filePath, spanAt(content, "o.p"));
+
+    expect(result).not.toBeNull();
+    expect(result!.text).toBe("string");
+  });
+
+  // [HP] identifier span still works (parity with collectAt)
+  it("should resolve an identifier type when span covers exactly the identifier", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/ident.ts";
+    const content = "const myVar: string = 'hi';";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.collectAtSpan(filePath, spanAt(content, "myVar"));
+
+    expect(result).not.toBeNull();
+    expect(result!.text).toBe("string");
+  });
+
+  // [HP] intersection result type is exposed structurally
+  it("should mark isIntersection when span covers an intersection-typed expression", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/inter.ts";
+    const content =
+      "interface A { a: number }\ninterface B { b: string }\ndeclare const ab: A & B;\nconst r = ab;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.collectAtSpan(filePath, spanAt(content, "ab", 2));
+
+    expect(result).not.toBeNull();
+    expect(result!.isIntersection).toBe(true);
+  });
+
+  // [EXC] exact match resolves, but a straddling range → null (exact-span-or-null, no fallback)
+  it("should resolve an exact span but return null for a straddling range", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/nospan.ts";
+    const content = "function getStr(): string { return ''; }\nconst r = getStr();";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    // The exact call span resolves; "= getStr" straddles the `=` token and the
+    // call so no single node matches it.
+    expect(collector.collectAtSpan(filePath, spanAt(content, "getStr()", 2))).not.toBeNull();
+    expect(collector.collectAtSpan(filePath, spanAt(content, "= getStr"))).toBeNull();
+  });
+
+  // [HP] `any` is exposed via raw flags (firebat throw-non-Error / any-detection path)
+  it("should expose TypeFlags.Any when the spanned expression is any", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/anyflags.ts";
+    const content = "declare const x: any;\nconst r = x;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.collectAtSpan(filePath, spanAt(content, "x", 2));
+
+    expect(result).not.toBeNull();
+    expect((result!.flags & ts.TypeFlags.Any) !== 0).toBe(true);
+  });
+
+  // [HP] branded primitive (`string & {…}`) surfaces as an intersection — documents that
+  // a flags-only "is this a primitive" check (StringLike) conservatively MISSES it.
+  it("should mark a branded primitive intersection as isIntersection", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/branded.ts";
+    const content = "declare const bv: string & { __mark: true };\nconst r = bv;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.collectAtSpan(filePath, spanAt(content, "bv", 2));
+
+    expect(result).not.toBeNull();
+    expect(result!.isIntersection).toBe(true);
+    expect((result!.flags & ts.TypeFlags.StringLike) !== 0).toBe(false);
+  });
+
+  // [REG] BUG-1: a semicolon-less expression statement ties the ExpressionStatement with its
+  // expression; innermost must win so the type is the expression's, not the statement's `any`.
+  it("should resolve the inner expression type for a semicolon-less statement", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/nosemi.ts";
+    const content = "function getStr(): string { return ''; }\ngetStr()"; // no trailing semicolon
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.collectAtSpan(filePath, spanAt(content, "getStr()", 2));
+
+    expect(result).not.toBeNull();
+    expect(result!.text).toBe("string"); // not "any"
+  });
+
+  // [EXC] missing file → null
+  it("should return null when the file is not in the program", () => {
+    const prog = makeProg();
+    const collector = new TypeCollector(prog);
+
+    const result = collector.collectAtSpan("/project/src/absent.ts", { start: 0, end: 1 });
+
+    expect(result).toBeNull();
+  });
+});
+
+describe("TypeCollector.isThenableAtSpan", () => {
+  // [HP] local thenable: callable `then` with ≥1 parameter
+  it("should return true when the type has a callable then with a parameter", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/then1.ts";
+    const content =
+      "interface Thenable { then(cb: (v: number) => void): void }\ndeclare const val: Thenable;\nconst r = val;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isThenableAtSpan(filePath, spanAt(content, "val", 2));
+
+    expect(result).toBe(true);
+  });
+
+  // [EXC] then present but NOT callable → false
+  it("should return false when then is a non-callable property", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/thennum.ts";
+    const content = "declare const x: { then: number };\nconst r = x;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isThenableAtSpan(filePath, spanAt(content, "x", 2));
+
+    expect(result).toBe(false);
+  });
+
+  // [BVA] then callable but ZERO parameters → false (eslint/tsutils definition)
+  it("should return false when then is callable but takes no parameter", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/then0.ts";
+    const content = "declare const x: { then(): void };\nconst r = x;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isThenableAtSpan(filePath, spanAt(content, "x", 2));
+
+    expect(result).toBe(false);
+  });
+
+  // [HP] getter-then returning a 1-param function → true
+  it("should return true for a getter then whose returned function takes a parameter", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/gthen1.ts";
+    const content = "declare const x: { get then(): (cb: (v: number) => void) => void };\nconst r = x;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isThenableAtSpan(filePath, spanAt(content, "x", 2));
+
+    expect(result).toBe(true);
+  });
+
+  // [BVA] getter-then returning a 0-param function → false
+  it("should return false for a getter then whose returned function takes no parameter", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/gthen0.ts";
+    const content = "declare const x: { get then(): () => void };\nconst r = x;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isThenableAtSpan(filePath, spanAt(content, "x", 2));
+
+    expect(result).toBe(false);
+  });
+
+  // [HP] intersection with a thenable member → true (server-side, the C1 case)
+  it("should return true when an intersection member is thenable", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/interthen.ts";
+    const content =
+      "interface Thenable { then(cb: (v: number) => void): void }\ninterface L { log(): void }\ndeclare const x: L & Thenable;\nconst r = x;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isThenableAtSpan(filePath, spanAt(content, "x", 2));
+
+    expect(result).toBe(true);
+  });
+
+  // [EXC] any is excluded
+  it("should return false when the type is any", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/anyt.ts";
+    const content = "declare const x: any;\nconst r = x;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isThenableAtSpan(filePath, spanAt(content, "x", 2));
+
+    expect(result).toBe(false);
+  });
+
+  // [EXC] plain object without then → false
+  it("should return false for a non-thenable object", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/plain.ts";
+    const content = "declare const x: { foo: number };\nconst r = x;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isThenableAtSpan(filePath, spanAt(content, "x", 2));
+
+    expect(result).toBe(false);
+  });
+
+  // [HP] union with a thenable member → true (default anyConstituent, e.g. `Thenable | undefined`)
+  it("should return true when some union member is thenable (default anyConstituent)", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/uthen.ts";
+    const content =
+      "interface Thenable { then(cb: (v: number) => void): void }\ndeclare const x: Thenable | undefined;\nconst r = x;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isThenableAtSpan(filePath, spanAt(content, "x", 2));
+
+    expect(result).toBe(true);
+  });
+
+  // [HP] anyConstituent:false requires EVERY non-nullish member to be thenable → false here
+  it("should return false when anyConstituent is false and a member is not thenable", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/ueverythen.ts";
+    const content =
+      "interface Thenable { then(cb: (v: number) => void): void }\ndeclare const x: Thenable | { foo: number };\nconst r = x;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const some = collector.isThenableAtSpan(filePath, spanAt(content, "x", 2));
+    const every = collector.isThenableAtSpan(filePath, spanAt(content, "x", 2), { anyConstituent: false });
+
+    expect(some).toBe(true);
+    expect(every).toBe(false);
+  });
+
+  // [REG] BUG-1: semicolon-less call statement is still detected as thenable (innermost wins,
+  // not the ExpressionStatement which would resolve to `any` → false)
+  it("should detect a thenable for a semicolon-less call statement", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/nosemithen.ts";
+    const content =
+      "interface Thenable { then(cb: (v: number) => void): void }\nfunction mk(): Thenable { return null as unknown as Thenable; }\nmk()"; // no trailing semicolon
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isThenableAtSpan(filePath, spanAt(content, "mk()", 2));
+
+    expect(result).toBe(true);
+  });
+
+  // [EXC] a self-referential (recursive) thenable resolves true and terminates (no hang)
+  it("should return true and terminate for a recursive thenable", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/rect.ts";
+    const content = "interface RecT { then(cb: (v: RecT) => void): void }\ndeclare const x: RecT;\nconst r = x;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isThenableAtSpan(filePath, spanAt(content, "x", 2));
+
+    expect(result).toBe(true);
+  });
+
+  // [EXC] exact match resolves, but a non-matching range → null (exact-span-or-null)
+  it("should resolve an exact span but return null for a non-matching range", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/tnull.ts";
+    const content =
+      "interface Thenable { then(cb: (v: number) => void): void }\ndeclare const x: Thenable;\nconst r = x;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    expect(collector.isThenableAtSpan(filePath, spanAt(content, "x", 2))).toBe(true);
+    expect(collector.isThenableAtSpan(filePath, { start: 0, end: content.length })).toBeNull();
+  });
+});
+
+describe("TypeCollector.contextualCallReturnsAtSpan", () => {
+  // [HP] simple void callback slot
+  it("should return [void] for a () => void callback argument", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/cbvoid.ts";
+    const content = "declare function run(cb: () => void): void;\nrun(() => {});";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.contextualCallReturnsAtSpan(filePath, spanAt(content, "() => {}"));
+
+    expect(result).not.toBeNull();
+    expect(result!.map((t) => t.text)).toEqual(["void"]);
+  });
+
+  // [HP] optional callback param → contextual is `(()=>void)|undefined`; nonNull-stripped first
+  it("should strip undefined and return [void] for an optional callback param", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/cbopt.ts";
+    const content = "declare function run(cb?: () => void): void;\nrun(() => {});";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.contextualCallReturnsAtSpan(filePath, spanAt(content, "() => {}"));
+
+    expect(result).not.toBeNull();
+    expect(result!.map((t) => t.text)).toEqual(["void"]);
+  });
+
+  // [HP] non-void return is surfaced (caller decides it's not a void-callback)
+  it("should return the non-void return type when the callback returns a value", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/cbnum.ts";
+    const content = "declare function run(cb: () => number): void;\nrun(() => 1);";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.contextualCallReturnsAtSpan(filePath, spanAt(content, "() => 1"));
+
+    expect(result).not.toBeNull();
+    expect(result!.map((t) => t.text)).toEqual(["number"]);
+  });
+
+  // [HP] overload selection follows the sibling discriminant argument
+  it("should resolve the selected overload's callback return type", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/cbover.ts";
+    const content =
+      "declare function on(e: 'a', cb: () => void): void;\ndeclare function on(e: 'b', cb: () => number): void;\non('b', () => 1);";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.contextualCallReturnsAtSpan(filePath, spanAt(content, "() => 1"));
+
+    expect(result).not.toBeNull();
+    expect(result!.map((t) => t.text)).toEqual(["number"]);
+  });
+
+  // [EXC] non-callback slot → [] (has contextual type, no call signatures)
+  it("should return [] for a non-callback argument slot", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/cbnoncb.ts";
+    const content = "declare function takesNum(n: number): void;\ntakesNum(42);";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.contextualCallReturnsAtSpan(filePath, spanAt(content, "42"));
+
+    expect(result).toEqual([]);
+  });
+
+  // [EXC] a callback arg resolves, but a standalone expression (no contextual type) → null
+  it("should resolve a callback arg but return null for an expression with no contextual type", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/cbnull.ts";
+    const content =
+      "declare function run(cb: () => void): void;\nrun(() => {});\ndeclare const y: number;\ny;";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    expect(collector.contextualCallReturnsAtSpan(filePath, spanAt(content, "() => {}"))).not.toBeNull();
+    expect(collector.contextualCallReturnsAtSpan(filePath, spanAt(content, "y", 2))).toBeNull();
   });
 });

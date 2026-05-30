@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { SymbolSearchResult } from '../search/symbol-search';
 import { GildashError } from '../errors';
-import type { ResolvedType, SemanticReference, EnrichedReference, FileBinding, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
+import type { ResolvedType, ByteSpan, SemanticReference, EnrichedReference, FileBinding, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
 import type { SymbolNode } from '../semantic/symbol-graph';
 import type { GildashContext } from './context';
 
@@ -251,6 +251,60 @@ export function getResolvedTypesAtPositions(
   } catch (e) {
     if (e instanceof GildashError) throw e;
     throw new GildashError('semantic', 'Gildash: getResolvedTypesAtPositions failed', { cause: e });
+  }
+}
+
+// ─── Span-based semantic API (firebat error-flow) ─────────────────────
+
+/** Resolve the type of the expression node exactly spanning `span` (call result, member, etc.). */
+export function getExpressionTypeAtSpan(
+  ctx: GildashContext,
+  filePath: string,
+  span: ByteSpan,
+): ResolvedType | null {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    return ctx.semanticLayer.collectAtSpan(absPath, span);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: getExpressionTypeAtSpan failed', { cause: e });
+  }
+}
+
+/** Whether the type of the expression spanning `span` is a thenable (callable `then` with ≥1 param). */
+export function isThenableAtSpan(
+  ctx: GildashContext,
+  filePath: string,
+  span: ByteSpan,
+  options?: { anyConstituent?: boolean },
+): boolean | null {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    return ctx.semanticLayer.isThenableAtSpan(absPath, span, options);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: isThenableAtSpan failed', { cause: e });
+  }
+}
+
+/** Return types of the contextual call signatures at the argument expression spanning `span`. */
+export function getContextualCallReturnsAtSpan(
+  ctx: GildashContext,
+  filePath: string,
+  span: ByteSpan,
+): ResolvedType[] | null {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    return ctx.semanticLayer.contextualCallReturnsAtSpan(absPath, span);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: getContextualCallReturnsAtSpan failed', { cause: e });
   }
 }
 

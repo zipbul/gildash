@@ -26,6 +26,9 @@ import {
   getSymbolNode,
   getSemanticDiagnostics,
   isTypeAssignableToType,
+  getExpressionTypeAtSpan,
+  isThenableAtSpan,
+  getContextualCallReturnsAtSpan,
 } from './semantic-api';
 
 // ─── Fixtures ───────────────────────────────────────────────────────
@@ -61,6 +64,9 @@ function makeSemanticLayer(overrides?: Record<string, unknown>) {
     isDisposed: false,
     collectFileTypes: mock(() => []),
     collectTypesAtPositions: mock(() => new Map()),
+    collectAtSpan: mock(() => ({ text: 'string' })),
+    isThenableAtSpan: mock(() => true),
+    contextualCallReturnsAtSpan: mock(() => []),
     ...overrides,
   };
 }
@@ -1278,6 +1284,131 @@ describe('getBaseTypes', () => {
 
     try {
       getBaseTypes(ctx, '/a.ts', 0);
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GildashError);
+      expect((e as GildashError).type).toBe('semantic');
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
+});
+
+// ─── Span-based primitives ──────────────────────────────────────────
+
+describe('getExpressionTypeAtSpan', () => {
+  it('should delegate to semanticLayer.collectAtSpan with an absolute path', () => {
+    const collectAtSpan = mock(() => ({ text: 'string' }));
+    const ctx = makeCtx({ semanticLayer: makeSemanticLayer({ collectAtSpan }) as any });
+
+    getExpressionTypeAtSpan(ctx, '/project/src/a.ts', { start: 1, end: 4 });
+
+    expect(collectAtSpan).toHaveBeenCalledWith('/project/src/a.ts', { start: 1, end: 4 });
+  });
+
+  it('should resolve a relative path to absolute before delegating', () => {
+    const collectAtSpan = mock(() => null);
+    const ctx = makeCtx({ semanticLayer: makeSemanticLayer({ collectAtSpan }) as any });
+
+    getExpressionTypeAtSpan(ctx, 'src/a.ts', { start: 0, end: 2 });
+
+    expect(collectAtSpan).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'), { start: 0, end: 2 });
+  });
+
+  it('should throw closed error when the context is closed', () => {
+    const ctx = makeCtx({ closed: true });
+    expect(() => getExpressionTypeAtSpan(ctx, 'src/a.ts', { start: 0, end: 1 })).toThrow(GildashError);
+  });
+
+  it('should throw semantic error when the semantic layer is not enabled', () => {
+    const ctx = makeCtx({ semanticLayer: null });
+    expect(() => getExpressionTypeAtSpan(ctx, 'src/a.ts', { start: 0, end: 1 })).toThrow(GildashError);
+  });
+
+  it('should wrap a thrown error in a GildashError', () => {
+    const error = new Error('boom');
+    const ctx = makeCtx({
+      semanticLayer: makeSemanticLayer({ collectAtSpan: mock(() => { throw error; }) }) as any,
+    });
+    try {
+      getExpressionTypeAtSpan(ctx, 'src/a.ts', { start: 0, end: 1 });
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GildashError);
+      expect((e as GildashError).type).toBe('semantic');
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
+});
+
+describe('isThenableAtSpan', () => {
+  it('should delegate to semanticLayer.isThenableAtSpan with absolute path and options', () => {
+    const isThenable = mock(() => true);
+    const ctx = makeCtx({ semanticLayer: makeSemanticLayer({ isThenableAtSpan: isThenable }) as any });
+
+    const result = isThenableAtSpan(ctx, '/project/src/a.ts', { start: 1, end: 4 }, { anyConstituent: false });
+
+    expect(result).toBe(true);
+    expect(isThenable).toHaveBeenCalledWith('/project/src/a.ts', { start: 1, end: 4 }, { anyConstituent: false });
+  });
+
+  it('should resolve a relative path to absolute before delegating', () => {
+    const isThenable = mock(() => null);
+    const ctx = makeCtx({ semanticLayer: makeSemanticLayer({ isThenableAtSpan: isThenable }) as any });
+
+    isThenableAtSpan(ctx, 'src/a.ts', { start: 0, end: 2 });
+
+    expect(isThenable).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'), { start: 0, end: 2 }, undefined);
+  });
+
+  it('should throw semantic error when the semantic layer is not enabled', () => {
+    const ctx = makeCtx({ semanticLayer: null });
+    expect(() => isThenableAtSpan(ctx, 'src/a.ts', { start: 0, end: 1 })).toThrow(GildashError);
+  });
+
+  it('should wrap a thrown error in a GildashError', () => {
+    const error = new Error('boom');
+    const ctx = makeCtx({
+      semanticLayer: makeSemanticLayer({ isThenableAtSpan: mock(() => { throw error; }) }) as any,
+    });
+    try {
+      isThenableAtSpan(ctx, 'src/a.ts', { start: 0, end: 1 });
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GildashError);
+      expect((e as GildashError).type).toBe('semantic');
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
+});
+
+describe('getContextualCallReturnsAtSpan', () => {
+  it('should delegate to semanticLayer.contextualCallReturnsAtSpan with an absolute path', () => {
+    const fn = mock(() => [{ text: 'void' }]);
+    const ctx = makeCtx({ semanticLayer: makeSemanticLayer({ contextualCallReturnsAtSpan: fn }) as any });
+
+    const result = getContextualCallReturnsAtSpan(ctx, '/project/src/a.ts', { start: 1, end: 4 });
+
+    expect(result).toEqual([{ text: 'void' }] as any);
+    expect(fn).toHaveBeenCalledWith('/project/src/a.ts', { start: 1, end: 4 });
+  });
+
+  it('should throw closed error when the context is closed', () => {
+    const ctx = makeCtx({ closed: true });
+    expect(() => getContextualCallReturnsAtSpan(ctx, 'src/a.ts', { start: 0, end: 1 })).toThrow(GildashError);
+  });
+
+  it('should throw semantic error when the semantic layer is not enabled', () => {
+    const ctx = makeCtx({ semanticLayer: null });
+    expect(() => getContextualCallReturnsAtSpan(ctx, 'src/a.ts', { start: 0, end: 1 })).toThrow(GildashError);
+  });
+
+  it('should wrap a thrown error in a GildashError', () => {
+    const error = new Error('boom');
+    const ctx = makeCtx({
+      semanticLayer: makeSemanticLayer({ contextualCallReturnsAtSpan: mock(() => { throw error; }) }) as any,
+    });
+    try {
+      getContextualCallReturnsAtSpan(ctx, 'src/a.ts', { start: 0, end: 1 });
       expect.unreachable('should have thrown');
     } catch (e) {
       expect(e).toBeInstanceOf(GildashError);

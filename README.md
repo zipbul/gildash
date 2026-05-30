@@ -362,6 +362,16 @@ Requires `semantic: true` at open time.
 | `isTypeAssignableToAtPosition(opts)` | `boolean` | Assignability check between two byte positions |
 | `isTypeAssignableToTypeAtPositions(opts)` | `boolean` | Assignability check from a position to an arbitrary type string |
 
+#### By byte span (expression-level)
+
+Resolve a type fact for the **expression node exactly spanning** a byte range. `ByteSpan` is `{ start: number; end: number }` (0-based, half-open) and aligns 1:1 with `oxc-parser` node offsets. Each matches the node whose `[getStart(), getEnd())` equals the span exactly, else returns `null` — no nearest-node fallback.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `getExpressionTypeAtSpan(filePath, span)` | `ResolvedType \| null` | Type of the spanned expression — a call `f()` → result type, `obj.m()` → method return, `obj.prop` → property type (any expression, unlike the identifier-only position lookups) |
+| `isThenableAtSpan(filePath, span, opts?)` | `boolean \| null` | Whether the spanned expression's type is a thenable (callable `then` with ≥1 param); recurses union/intersection, excludes `any`. `opts.anyConstituent` (default `true`): a union is thenable if **some** member is |
+| `getContextualCallReturnsAtSpan(filePath, span)` | `ResolvedType[] \| null` | Return types of the contextual type's call signatures at an argument span (overload-selected, `undefined`/`null` stripped). `[]` = not a callable slot; `null` = no contextual type |
+
 #### File-level / utilities / diagnostics
 
 | Method | Returns | Description |
