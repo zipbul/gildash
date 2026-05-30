@@ -904,3 +904,141 @@ describe('Gildash Semantic integration', () => {
     });
   });
 });
+
+// ── Span-based primitives (firebat error-flow) — facade + real Promise ───────
+
+const SPAN_SRC = [
+  'export async function fetchData(): Promise<string> { return "x"; }',
+  'export function run(cb: () => void): void { cb(); }',
+  'export function runAsync(cb: () => Promise<void>): void { void cb(); }',
+  'export function on(e: "a", cb: () => void): void;',
+  'export function on(e: "b", cb: () => Promise<void>): void;',
+  'export function on(e: string, cb: () => unknown): void { void e; void cb; }',
+  'export function demo(): void {',
+  '  const p = fetchData();',
+  '  run(() => {});',
+  '  runAsync(async () => {});',
+  '  on("b", async () => { await fetchData(); });',
+  '  on("b", () => { /* degenerate */ });',
+  '  void p;',
+  '}',
+].join('\n');
+
+/** Byte span of the `nth` (1-based) occurrence of `needle` in `content`. */
+function spanOf(content: string, needle: string, nth = 1): { start: number; end: number } {
+  let idx = -1;
+  for (let i = 0; i < nth; i++) {
+    idx = content.indexOf(needle, idx + 1);
+    if (idx === -1) throw new Error(`needle "${needle}" #${nth} not found`);
+  }
+  return { start: idx, end: idx + needle.length };
+}
+
+describe('Gildash span-based primitives (semantic, real Promise)', () => {
+  let g: Gildash;
+  let tmpDir: string;
+
+  beforeAll(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'gildash-span-'));
+    await mkdir(join(tmpDir, 'src'), { recursive: true });
+    await writeFile(join(tmpDir, 'package.json'), JSON.stringify({ name: 'span-test' }));
+    await writeFile(
+      join(tmpDir, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          target: 'ES2022',
+          module: 'ESNext',
+          moduleResolution: 'bundler',
+          strict: true,
+          rootDir: './src',
+          skipLibCheck: true,
+        },
+        include: ['src/**/*.ts'],
+      }),
+    );
+    await writeFile(join(tmpDir, 'src', 'flows.ts'), SPAN_SRC);
+    g = await openGildash(tmpDir, { semantic: true });
+  });
+
+  afterAll(async () => {
+    await g.close();
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  });
+
+  // [HP] call result type resolved on the call span (not the callee/declaration)
+  it('should resolve a call result type to Promise<string> via getExpressionTypeAtSpan', () => {
+    const span = spanOf(SPAN_SRC, 'fetchData()', 2); // #1 is the declaration, #2 is the call
+    const t = g.getExpressionTypeAtSpan('src/flows.ts', span);
+    expect(t).not.toBeNull();
+    expect(t!.text).toContain('Promise');
+  });
+
+  // [HP] real Promise call result is thenable
+  it('should report a Promise call result as thenable', () => {
+    const span = spanOf(SPAN_SRC, 'fetchData()', 2);
+    expect(g.isThenableAtSpan('src/flows.ts', span)).toBe(true);
+  });
+
+  // [EXC] a void call result is not thenable
+  it('should report a void call result as not thenable', () => {
+    const span = spanOf(SPAN_SRC, 'run(() => {})');
+    expect(g.isThenableAtSpan('src/flows.ts', span)).toBe(false);
+  });
+
+  // [HP] void-callback argument → [void]
+  it('should return [void] for a void-callback argument', () => {
+    const span = spanOf(SPAN_SRC, '() => {}'); // first () => {} is run's callback
+    const r = g.getContextualCallReturnsAtSpan('src/flows.ts', span);
+    expect(r).not.toBeNull();
+    expect(r!.map((x) => x.text)).toEqual(['void']);
+  });
+
+  // [HP] async (Promise-returning) callback argument → [Promise<void>]
+  it('should return [Promise<void>] for an async callback argument', () => {
+    const span = spanOf(SPAN_SRC, 'async () => {}');
+    const r = g.getContextualCallReturnsAtSpan('src/flows.ts', span);
+    expect(r).not.toBeNull();
+    expect(r!.map((x) => x.text)).toEqual(['Promise<void>']);
+  });
+
+  // [HP] MUST-1: overload selection follows the sibling discriminant for an async callback
+  it('should resolve the Promise-returning overload for an async callback argument', () => {
+    const span = spanOf(SPAN_SRC, 'async () => { await fetchData(); }');
+    const r = g.getContextualCallReturnsAtSpan('src/flows.ts', span);
+    expect(r).not.toBeNull();
+    expect(r!.map((x) => x.text)).toEqual(['Promise<void>']);
+  });
+
+  // [EXC] MUST-1 degenerate: a plain arrow on the 'b' slot is a TYPE ERROR; tsc folds to the
+  // first overload → [void]. Documents the limitation — firebat only ever feeds async callbacks,
+  // so it never queries this case.
+  it('should fold to the first overload for a plain-arrow type-error input', () => {
+    const span = spanOf(SPAN_SRC, '() => { /* degenerate */ }');
+    const r = g.getContextualCallReturnsAtSpan('src/flows.ts', span);
+    expect(r).not.toBeNull();
+    expect(r!.map((x) => x.text)).toEqual(['void']);
+  });
+
+  // [EXC] exact match resolves, but a straddling range → null (facade)
+  it('should resolve an exact span but return null for a straddling range', () => {
+    expect(g.getExpressionTypeAtSpan('src/flows.ts', spanOf(SPAN_SRC, 'fetchData()', 2))).not.toBeNull();
+    expect(g.getExpressionTypeAtSpan('src/flows.ts', spanOf(SPAN_SRC, 'const p ='))).toBeNull();
+  });
+});
+
+describe('Gildash span-based primitives without semantic', () => {
+  it('should throw GildashError when the semantic layer is not enabled', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'gildash-span-nosem-'));
+    await mkdir(join(tmp, 'src'), { recursive: true });
+    await writeFile(join(tmp, 'package.json'), JSON.stringify({ name: 'nosem' }));
+    await writeFile(join(tmp, 'src', 'a.ts'), 'export const x = 1;');
+    const g2 = await openGildash(tmp, { semantic: false });
+
+    expect(() => g2.getExpressionTypeAtSpan('src/a.ts', { start: 0, end: 1 })).toThrow(GildashError);
+    expect(() => g2.isThenableAtSpan('src/a.ts', { start: 0, end: 1 })).toThrow(GildashError);
+    expect(() => g2.getContextualCallReturnsAtSpan('src/a.ts', { start: 0, end: 1 })).toThrow(GildashError);
+
+    await g2.close();
+    await rm(tmp, { recursive: true, force: true }).catch(() => {});
+  });
+});

@@ -17,6 +17,7 @@ import { ImplementationFinder } from "./implementation-finder";
 import { findNodeAtPosition } from "./ast-node-utils";
 import type {
   ResolvedType,
+  ByteSpan,
   SemanticReference,
   EnrichedReference,
   FileBinding,
@@ -155,6 +156,27 @@ export class SemanticLayer {
   ): Map<number, ResolvedType> {
     this.#assertNotDisposed();
     return this.#typeCollector.collectAtPositions(filePath, positions);
+  }
+
+  // ── Span-based primitives (firebat error-flow) ──────────────────────────
+
+  collectAtSpan(filePath: string, span: ByteSpan): ResolvedType | null {
+    this.#assertNotDisposed();
+    return this.#typeCollector.collectAtSpan(filePath, span);
+  }
+
+  isThenableAtSpan(
+    filePath: string,
+    span: ByteSpan,
+    options?: { anyConstituent?: boolean },
+  ): boolean | null {
+    this.#assertNotDisposed();
+    return this.#typeCollector.isThenableAtSpan(filePath, span, options);
+  }
+
+  contextualCallReturnsAtSpan(filePath: string, span: ByteSpan): ResolvedType[] | null {
+    this.#assertNotDisposed();
+    return this.#typeCollector.contextualCallReturnsAtSpan(filePath, span);
   }
 
   // ── Semantic references ─────────────────────────────────────────────────

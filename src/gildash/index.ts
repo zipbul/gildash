@@ -9,7 +9,7 @@ import type { RelationSearchQuery } from '../search/relation-search';
 import type { SymbolStats } from '../store/repositories/symbol.repository';
 import type { FileRecord } from '../store/repositories/file.repository';
 import type { PatternMatch } from '../search/pattern-search';
-import type { ResolvedType, SemanticReference, EnrichedReference, FileBinding, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
+import type { ResolvedType, ByteSpan, SemanticReference, EnrichedReference, FileBinding, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
 import type { SymbolNode } from '../semantic/symbol-graph';
 import type { GildashContext } from './context';
 import type { FileChangeEvent } from '../watcher/types';
@@ -619,6 +619,58 @@ export class Gildash {
     positions: number[],
   ): Map<number, ResolvedType> {
     return semanticApi.getResolvedTypesAtPositions(this._ctx, filePath, positions);
+  }
+
+  /**
+   * Resolve the type of the **expression node** exactly spanning `span`.
+   *
+   * Unlike {@link getResolvedTypeAtPosition} (innermost node at a single offset,
+   * identifier/type-node only), this matches the node whose byte range exactly
+   * equals `span` and accepts any expression — so a call `f()` resolves to the
+   * call **result** type, `obj.m()` to the method return, `obj.prop` to the
+   * property type. No node exactly spans `span` → `null` (no fallback).
+   *
+   * @param filePath - Relative path to the file.
+   * @param span - Byte range `{ start, end }` (matches `oxc-parser` node offsets).
+   * @returns Resolved type, or `null` if no expression exactly spans the range.
+   * @throws {GildashError} `'semantic'` if the semantic layer is not enabled.
+   */
+  getExpressionTypeAtSpan(filePath: string, span: ByteSpan): ResolvedType | null {
+    return semanticApi.getExpressionTypeAtSpan(this._ctx, filePath, span);
+  }
+
+  /**
+   * Whether the type of the expression spanning `span` is a **thenable**
+   * (callable `then` whose signature has ≥1 parameter — the ECMAScript /
+   * typescript-eslint definition). Recurses union/intersection on the live type
+   * (so `A & PromiseLike<X>` is detected); excludes `any`.
+   *
+   * @param options.anyConstituent - default `true`: a union is thenable if **some**
+   *   member is; `false` requires **every** non-nullish member to be thenable.
+   * @returns `true`/`false`, or `null` if the span resolves no node/type.
+   * @throws {GildashError} `'semantic'` if the semantic layer is not enabled.
+   */
+  isThenableAtSpan(
+    filePath: string,
+    span: ByteSpan,
+    options?: { anyConstituent?: boolean },
+  ): boolean | null {
+    return semanticApi.isThenableAtSpan(this._ctx, filePath, span, options);
+  }
+
+  /**
+   * The return types of the call signatures of the **contextual type** at the
+   * argument expression spanning `span` (overload-selected; `undefined`/`null`
+   * stripped before signature enumeration). For void-callback detection the
+   * caller asserts every returned type is `void`/`undefined`.
+   *
+   * @returns `ResolvedType[]` (possibly empty when the contextual type has no
+   *   call signatures, i.e. not a callback slot), or `null` when there is no
+   *   contextual type at the span.
+   * @throws {GildashError} `'semantic'` if the semantic layer is not enabled.
+   */
+  getContextualCallReturnsAtSpan(filePath: string, span: ByteSpan): ResolvedType[] | null {
+    return semanticApi.getContextualCallReturnsAtSpan(this._ctx, filePath, span);
   }
 
   /**
