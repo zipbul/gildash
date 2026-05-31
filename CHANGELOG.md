@@ -1,5 +1,43 @@
 # @zipbul/gildash
 
+## 0.34.0
+
+### Minor Changes
+
+- [#135](https://github.com/zipbul/gildash/pull/135) [`dc2d91f`](https://github.com/zipbul/gildash/commit/dc2d91f497f9dbaa6a7e3c2f06eaa878f267c9b7) Thanks [@parkrevil](https://github.com/parkrevil)! - feat(semantic): `isTypeAssignableToTypeAtSpan` — span-based assignability check
+
+  The span counterpart of `isTypeAssignableToTypeAtPositions`' single check:
+  resolves the **expression node exactly spanning a byte range** (so a
+  `NewExpression`/`CallExpression` like `new CustomError()` works, where the
+  identifier-only position resolver returns `null`) and reports whether its type is
+  assignable to a `targetTypeExpression`.
+
+  ```ts
+  isTypeAssignableToTypeAtSpan(
+    filePath: string,
+    span: ByteSpan,
+    targetTypeExpression: string,
+    options?: { anyConstituent?: boolean },
+  ): boolean | null
+  ```
+
+  Completes the 0.33.0 span family (type / thenable / contextual-returns) with the
+  assignability query — e.g. "is this throw value an `Error` subtype?". Transitive
+  subclassing and `anyConstituent` union handling work as in the position-based
+  `isTypeAssignableToType`. Returns `null` when the span resolves no node or the
+  source/target type cannot be resolved.
+
+### Patch Changes
+
+- [#135](https://github.com/zipbul/gildash/pull/135) [`dc2d91f`](https://github.com/zipbul/gildash/commit/dc2d91f497f9dbaa6a7e3c2f06eaa878f267c9b7) Thanks [@parkrevil](https://github.com/parkrevil)! - fix(search): `getHeritageChain` now normalizes an absolute `filePath` to project-relative before querying the relation store
+
+  The relation DB stores project-relative paths, but `getHeritageChain` passed its
+  `filePath` argument straight to the query. An **absolute** path (e.g. a finding's
+  `file`) therefore matched no rows and silently returned a normal-shaped node with
+  empty `children` — indistinguishable from "no heritage". Now an absolute path is
+  converted via `path.relative(projectRoot, …)` first, matching every other
+  path-taking API.
+
 ## 0.33.0
 
 ### Minor Changes
