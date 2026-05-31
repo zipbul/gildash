@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { toRelativePath } from '../common/path-utils';
 import type { SymbolSearchResult } from '../search/symbol-search';
 import type { CodeRelation } from '../extractor/types';
 import type { IndexResult } from '../indexer/index-coordinator';
@@ -209,7 +211,14 @@ export async function getHeritageChain(
       return { symbolName: symName, filePath: fp, kind, children };
     };
 
-    return buildNode(symbolName, filePath);
+    // The relation DB stores project-relative, forward-slash paths; normalize an
+    // absolute input (e.g. a finding's `file`) via the canonical helper before
+    // querying — raw `path.relative` would emit backslashes on Windows and miss.
+    const rootPath = path.isAbsolute(filePath)
+      ? toRelativePath(ctx.projectRoot, filePath)
+      : filePath;
+
+    return buildNode(symbolName, rootPath);
   } catch (e) {
     if (e instanceof GildashError) throw e;
     throw new GildashError('search', 'Gildash: getHeritageChain failed', { cause: e });

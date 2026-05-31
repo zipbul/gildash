@@ -1287,3 +1287,69 @@ describe("TypeCollector.contextualCallReturnsAtSpan", () => {
     expect(collector.contextualCallReturnsAtSpan(filePath, spanAt(content, "y", 2))).toBeNull();
   });
 });
+
+describe("TypeCollector.isAssignableToTypeAtSpan", () => {
+  // Fake lib → target uses keyword types (`object`/`string`, resolvable without lib).
+  // Real `Error`-subtype assignability is covered by the integration suite.
+
+  // [HP] NewExpression result type is resolved (the position resolver rejects it) and checked
+  it("should return true when a NewExpression result is assignable to the target", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/new.ts";
+    const content = "class A {}\nconst a = new A();";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isAssignableToTypeAtSpan(filePath, spanAt(content, "new A()"), "object");
+
+    expect(result).toBe(true);
+  });
+
+  // [EXC] not assignable → false
+  it("should return false when the spanned type is not assignable to the target", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/new2.ts";
+    const content = "class A {}\nconst a = new A();";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isAssignableToTypeAtSpan(filePath, spanAt(content, "new A()"), "string");
+
+    expect(result).toBe(false);
+  });
+
+  // [EXC] an unresolvable target type expression → null (not a spurious "assignable to everything")
+  it("should return null for an unresolvable target type expression", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/bogus.ts";
+    const content = "class A {}\nconst a = new A();";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    const result = collector.isAssignableToTypeAtSpan(filePath, spanAt(content, "new A()"), "DoesNotExist");
+
+    expect(result).toBeNull();
+  });
+
+  // (union / anyConstituent is covered by the integration suite — the fake lib
+  //  cannot reliably form primitive unions.)
+
+  // [EXC] no node exactly spans the range → null
+  it("should return null when no node exactly spans the range", () => {
+    const prog = makeProg();
+    const filePath = "/project/src/anull.ts";
+    const content = "class A {}\nconst a = new A();";
+    prog.notifyFileChanged(filePath, content);
+    const collector = new TypeCollector(prog);
+
+    expect(collector.isAssignableToTypeAtSpan(filePath, spanAt(content, "= new A"), "object")).toBeNull();
+  });
+
+  // [EXC] missing file → null
+  it("should return null when the file is not in the program", () => {
+    const prog = makeProg();
+    const collector = new TypeCollector(prog);
+
+    expect(collector.isAssignableToTypeAtSpan("/project/src/absent.ts", { start: 0, end: 1 }, "object")).toBeNull();
+  });
+});

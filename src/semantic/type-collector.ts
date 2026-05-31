@@ -219,7 +219,18 @@ export class TypeCollector {
     if (!probeStmt || !ts.isVariableStatement(probeStmt)) return null;
     const probeDecl = probeStmt.declarationList.declarations[0];
     if (!probeDecl) return null;
-    return checker.getTypeAtLocation(probeDecl.name);
+    const targetType = checker.getTypeAtLocation(probeDecl.name);
+    // An unresolvable `targetTypeExpression` (typo / missing type) resolves to the
+    // intrinsic `error` type — Any-flagged with intrinsicName "error". Reject it so
+    // callers get `null` instead of a spurious "assignable to everything" `true`.
+    // (A legitimate `any` target has intrinsicName "any", so it is kept.)
+    if (
+      !!(targetType.flags & ts.TypeFlags.Any) &&
+      (targetType as { intrinsicName?: string }).intrinsicName === "error"
+    ) {
+      return null;
+    }
+    return targetType;
   }
 
   /** 캐시된 probe 파일을 제거한다. dispose 시 호출. */
@@ -372,6 +383,49 @@ export class TypeCollector {
         }
       }
       return returns;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Whether the type of the expression exactly spanning `span` is assignable to
+   * the type described by `targetTypeExpression` (e.g. `'Error'`,
+   * `'PromiseLike<any>'`). The span-based counterpart of {@link isAssignableToType}
+   * — resolves any expression node (so `new CustomError()` / `f()` work, unlike
+   * the identifier-only position resolver) via the same probe-injection target
+   * resolution. `null` when the span resolves no node, or the target/source type
+   * cannot be resolved. `options.anyConstituent`: for a union source, true if
+   * **some** member is assignable.
+   */
+  isAssignableToTypeAtSpan(
+    filePath: string,
+    span: ByteSpan,
+    targetTypeExpression: string,
+    options?: { anyConstituent?: boolean },
+  ): boolean | null {
+    this.#ensureProbe(targetTypeExpression);
+
+    const tsProgram = this.program.getProgram();
+    const checker = tsProgram.getTypeChecker();
+
+    const srcFile = tsProgram.getSourceFile(filePath);
+    if (!srcFile) return null;
+    const srcNode = findNodeAtSpan(srcFile, span.start, span.end);
+    if (!srcNode) return null;
+
+    try {
+      const targetType = this.#resolveProbeTarget(tsProgram, checker);
+      if (!targetType) return null;
+
+      const sourceType = checker.getTypeAtLocation(srcNode);
+
+      if (options?.anyConstituent && sourceType.isUnion()) {
+        return sourceType.types.some((member) =>
+          checker.isTypeAssignableTo(member, targetType),
+        );
+      }
+      return checker.isTypeAssignableTo(sourceType, targetType);
     } catch {
       return null;
     }

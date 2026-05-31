@@ -371,6 +371,7 @@ Resolve a type fact for the **expression node exactly spanning** a byte range. `
 | `getExpressionTypeAtSpan(filePath, span)` | `ResolvedType \| null` | Type of the spanned expression — a call `f()` → result type, `obj.m()` → method return, `obj.prop` → property type (any expression, unlike the identifier-only position lookups) |
 | `isThenableAtSpan(filePath, span, opts?)` | `boolean \| null` | Whether the spanned expression's type is a thenable (callable `then` with ≥1 param); recurses union/intersection, excludes `any`. `opts.anyConstituent` (default `true`): a union is thenable if **some** member is |
 | `getContextualCallReturnsAtSpan(filePath, span)` | `ResolvedType[] \| null` | Return types of the contextual type's call signatures at an argument span (overload-selected, `undefined`/`null` stripped). `[]` = not a callable slot; `null` = no contextual type |
+| `isTypeAssignableToTypeAtSpan(filePath, span, target, opts?)` | `boolean \| null` | Whether the spanned expression's type is assignable to a type string `target` (e.g. `'Error'`). Resolves any expression (so `new CustomError()` works, unlike the position resolver). `opts.anyConstituent` for union sources |
 
 #### File-level / utilities / diagnostics
 

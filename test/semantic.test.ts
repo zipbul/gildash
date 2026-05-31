@@ -914,13 +914,22 @@ const SPAN_SRC = [
   'export function on(e: "a", cb: () => void): void;',
   'export function on(e: "b", cb: () => Promise<void>): void;',
   'export function on(e: string, cb: () => unknown): void { void e; void cb; }',
+  'class CustomError extends Error {}',
+  'class ErrB extends Error {}',
+  'class ErrC extends ErrB {}',
+  'class NotErr {}',
+  'declare const cond: boolean;',
   'export function demo(): void {',
   '  const p = fetchData();',
   '  run(() => {});',
   '  runAsync(async () => {});',
   '  on("b", async () => { await fetchData(); });',
   '  on("b", () => { /* degenerate */ });',
-  '  void p;',
+  '  const e1 = new CustomError();',
+  '  const e2 = new ErrC();',
+  '  const e3 = new NotErr();',
+  '  const eu = cond ? new CustomError() : 1;',
+  '  void p; void e1; void e2; void e3; void eu;',
   '}',
 ].join('\n');
 
@@ -1024,6 +1033,38 @@ describe('Gildash span-based primitives (semantic, real Promise)', () => {
     expect(g.getExpressionTypeAtSpan('src/flows.ts', spanOf(SPAN_SRC, 'fetchData()', 2))).not.toBeNull();
     expect(g.getExpressionTypeAtSpan('src/flows.ts', spanOf(SPAN_SRC, 'const p ='))).toBeNull();
   });
+
+  // ── R2: isTypeAssignableToTypeAtSpan (span assignability, real Error) ──────
+
+  // [HP] a custom Error subclass instance at a NewExpression span is assignable to Error
+  it('should report a new CustomError() as assignable to Error', () => {
+    const span = spanOf(SPAN_SRC, 'new CustomError()'); // #1 = e1's NewExpression
+    expect(g.isTypeAssignableToTypeAtSpan('src/flows.ts', span, 'Error', { anyConstituent: true })).toBe(true);
+  });
+
+  // [HP] transitive subclass (ErrC -> ErrB -> Error)
+  it('should report a transitive Error subclass as assignable to Error', () => {
+    const span = spanOf(SPAN_SRC, 'new ErrC()');
+    expect(g.isTypeAssignableToTypeAtSpan('src/flows.ts', span, 'Error', { anyConstituent: true })).toBe(true);
+  });
+
+  // [EXC] a non-Error class is not assignable to Error
+  it('should report a non-Error class as not assignable to Error', () => {
+    const span = spanOf(SPAN_SRC, 'new NotErr()');
+    expect(g.isTypeAssignableToTypeAtSpan('src/flows.ts', span, 'Error', { anyConstituent: true })).toBe(false);
+  });
+
+  // [HP] union source honors anyConstituent (CustomError | number)
+  it('should honor anyConstituent for a union throw value', () => {
+    const span = spanOf(SPAN_SRC, 'cond ? new CustomError() : 1');
+    expect(g.isTypeAssignableToTypeAtSpan('src/flows.ts', span, 'Error', { anyConstituent: true })).toBe(true);
+    expect(g.isTypeAssignableToTypeAtSpan('src/flows.ts', span, 'Error', { anyConstituent: false })).toBe(false);
+  });
+
+  // [EXC] unresolvable span → null
+  it('should return null for a span that resolves no node', () => {
+    expect(g.isTypeAssignableToTypeAtSpan('src/flows.ts', spanOf(SPAN_SRC, 'const e1 ='), 'Error')).toBeNull();
+  });
 });
 
 describe('Gildash span-based primitives without semantic', () => {
@@ -1037,6 +1078,7 @@ describe('Gildash span-based primitives without semantic', () => {
     expect(() => g2.getExpressionTypeAtSpan('src/a.ts', { start: 0, end: 1 })).toThrow(GildashError);
     expect(() => g2.isThenableAtSpan('src/a.ts', { start: 0, end: 1 })).toThrow(GildashError);
     expect(() => g2.getContextualCallReturnsAtSpan('src/a.ts', { start: 0, end: 1 })).toThrow(GildashError);
+    expect(() => g2.isTypeAssignableToTypeAtSpan('src/a.ts', { start: 0, end: 1 }, 'Error')).toThrow(GildashError);
 
     await g2.close();
     await rm(tmp, { recursive: true, force: true }).catch(() => {});

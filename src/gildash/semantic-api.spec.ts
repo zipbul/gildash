@@ -29,6 +29,7 @@ import {
   getExpressionTypeAtSpan,
   isThenableAtSpan,
   getContextualCallReturnsAtSpan,
+  isTypeAssignableToTypeAtSpan,
 } from './semantic-api';
 
 // ─── Fixtures ───────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ function makeSemanticLayer(overrides?: Record<string, unknown>) {
     collectAtSpan: mock(() => ({ text: 'string' })),
     isThenableAtSpan: mock(() => true),
     contextualCallReturnsAtSpan: mock(() => []),
+    isTypeAssignableToTypeAtSpan: mock(() => true),
     ...overrides,
   };
 }
@@ -1409,6 +1411,52 @@ describe('getContextualCallReturnsAtSpan', () => {
     });
     try {
       getContextualCallReturnsAtSpan(ctx, 'src/a.ts', { start: 0, end: 1 });
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GildashError);
+      expect((e as GildashError).type).toBe('semantic');
+      expect((e as GildashError).cause).toBe(error);
+    }
+  });
+});
+
+describe('isTypeAssignableToTypeAtSpan', () => {
+  it('should delegate to semanticLayer with absolute path, target and options', () => {
+    const fn = mock(() => true);
+    const ctx = makeCtx({ semanticLayer: makeSemanticLayer({ isTypeAssignableToTypeAtSpan: fn }) as any });
+
+    const result = isTypeAssignableToTypeAtSpan(ctx, '/project/src/a.ts', { start: 1, end: 4 }, 'Error', { anyConstituent: true });
+
+    expect(result).toBe(true);
+    expect(fn).toHaveBeenCalledWith('/project/src/a.ts', { start: 1, end: 4 }, 'Error', { anyConstituent: true });
+  });
+
+  it('should resolve a relative path to absolute before delegating', () => {
+    const fn = mock(() => null);
+    const ctx = makeCtx({ semanticLayer: makeSemanticLayer({ isTypeAssignableToTypeAtSpan: fn }) as any });
+
+    isTypeAssignableToTypeAtSpan(ctx, 'src/a.ts', { start: 0, end: 2 }, 'Error');
+
+    expect(fn).toHaveBeenCalledWith(path.resolve('/project', 'src/a.ts'), { start: 0, end: 2 }, 'Error', undefined);
+  });
+
+  it('should throw closed error when the context is closed', () => {
+    const ctx = makeCtx({ closed: true });
+    expect(() => isTypeAssignableToTypeAtSpan(ctx, 'src/a.ts', { start: 0, end: 1 }, 'Error')).toThrow(GildashError);
+  });
+
+  it('should throw semantic error when the semantic layer is not enabled', () => {
+    const ctx = makeCtx({ semanticLayer: null });
+    expect(() => isTypeAssignableToTypeAtSpan(ctx, 'src/a.ts', { start: 0, end: 1 }, 'Error')).toThrow(GildashError);
+  });
+
+  it('should wrap a thrown error in a GildashError', () => {
+    const error = new Error('boom');
+    const ctx = makeCtx({
+      semanticLayer: makeSemanticLayer({ isTypeAssignableToTypeAtSpan: mock(() => { throw error; }) }) as any,
+    });
+    try {
+      isTypeAssignableToTypeAtSpan(ctx, 'src/a.ts', { start: 0, end: 1 }, 'Error');
       expect.unreachable('should have thrown');
     } catch (e) {
       expect(e).toBeInstanceOf(GildashError);

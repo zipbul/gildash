@@ -674,6 +674,28 @@ export class Gildash {
   }
 
   /**
+   * Whether the type of the **expression exactly spanning `span`** is assignable
+   * to the type described by `targetTypeExpression` (e.g. `'Error'`,
+   * `'PromiseLike<any>'`). The span-based counterpart of {@link isTypeAssignableToTypeAtPositions}'s
+   * single check — resolves any expression node, so `new CustomError()` / `f()`
+   * work where the identifier-only position resolver returns `null`.
+   *
+   * @param options.anyConstituent - for a union source type, `true` if **some**
+   *   member is assignable.
+   * @returns `true`/`false`, or `null` if the span resolves no node or the
+   *   source/target type cannot be resolved.
+   * @throws {GildashError} `'semantic'` if the semantic layer is not enabled.
+   */
+  isTypeAssignableToTypeAtSpan(
+    filePath: string,
+    span: ByteSpan,
+    targetTypeExpression: string,
+    options?: { anyConstituent?: boolean },
+  ): boolean | null {
+    return semanticApi.isTypeAssignableToTypeAtSpan(this._ctx, filePath, span, targetTypeExpression, options);
+  }
+
+  /**
    * Find all semantic references to the symbol at a specific byte position.
    *
    * @param filePath - Relative path to the file.
