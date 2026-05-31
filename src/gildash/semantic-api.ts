@@ -308,6 +308,25 @@ export function getContextualCallReturnsAtSpan(
   }
 }
 
+/** Whether the type of the expression spanning `span` is assignable to a type expression string. */
+export function isTypeAssignableToTypeAtSpan(
+  ctx: GildashContext,
+  filePath: string,
+  span: ByteSpan,
+  targetTypeExpression: string,
+  options?: { anyConstituent?: boolean },
+): boolean | null {
+  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
+  try {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    return ctx.semanticLayer.isTypeAssignableToTypeAtSpan(absPath, span, targetTypeExpression, options);
+  } catch (e) {
+    if (e instanceof GildashError) throw e;
+    throw new GildashError('semantic', 'Gildash: isTypeAssignableToTypeAtSpan failed', { cause: e });
+  }
+}
+
 // ─── Position-based semantic API ──────────────────────────────────────
 
 /** Retrieve the resolved type at a byte offset without line/column conversion. */

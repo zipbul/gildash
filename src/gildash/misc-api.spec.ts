@@ -482,6 +482,25 @@ describe('getHeritageChain', () => {
     expect(result.children[0]!.kind).toBe('extends');
   });
 
+  it('should normalize an absolute filePath to relative before the relation query', async () => {
+    const searchFn = mock((opts: any) => {
+      if (opts.query.srcFilePath === 'src/child.ts' && opts.query.srcSymbolName === 'Child') {
+        return [{
+          type: 'extends', srcFilePath: 'src/child.ts', srcSymbolName: 'Child',
+          dstFilePath: 'src/parent.ts', dstSymbolName: 'Parent',
+        }];
+      }
+      return [];
+    });
+    const ctx = makeCtx({ relationSearchFn: searchFn as any }); // projectRoot: '/project'
+
+    // Production passes an ABSOLUTE finding path; the DB stores relative paths.
+    const result = await getHeritageChain(ctx, 'Child', '/project/src/child.ts');
+
+    expect(result.children).toHaveLength(1);
+    expect(result.children[0]!.symbolName).toBe('Parent');
+  });
+
   it('should throw with type closed when ctx is closed', async () => {
     const ctx = makeCtx({ closed: true });
 

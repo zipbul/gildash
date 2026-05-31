@@ -104,6 +104,7 @@ export type SemanticLayerLike = Pick<
   | 'collectAtSpan'
   | 'isThenableAtSpan'
   | 'contextualCallReturnsAtSpan'
+  | 'isTypeAssignableToTypeAtSpan'
   | 'findReferences'
   | 'findEnrichedReferences'
   | 'getFileBindings'

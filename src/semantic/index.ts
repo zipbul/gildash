@@ -179,6 +179,16 @@ export class SemanticLayer {
     return this.#typeCollector.contextualCallReturnsAtSpan(filePath, span);
   }
 
+  isTypeAssignableToTypeAtSpan(
+    filePath: string,
+    span: ByteSpan,
+    targetTypeExpression: string,
+    options?: { anyConstituent?: boolean },
+  ): boolean | null {
+    this.#assertNotDisposed();
+    return this.#typeCollector.isAssignableToTypeAtSpan(filePath, span, targetTypeExpression, options);
+  }
+
   // ── Semantic references ─────────────────────────────────────────────────
 
   findReferences(filePath: string, position: number): SemanticReference[] {
