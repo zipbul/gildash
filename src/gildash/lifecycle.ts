@@ -157,10 +157,7 @@ export async function setupOwnerInfrastructure(
         fileRepo: ctx.fileRepo,
         symbolRepo: ctx.symbolRepo,
         relationRepo: ctx.relationRepo,
-        // `ctx.annotationRepo` is the read-only `AnnotationRepositoryReader` port,
-        // but the coordinator needs the concrete repo's write methods (insert/delete).
-        // The runtime instance is always the full `AnnotationRepository`.
-        annotationRepo: (ctx.annotationRepo as AnnotationRepository | null) ?? undefined,
+        annotationRepo: ctx.annotationRepo ?? undefined,
         changelogRepo: ctx.changelogRepo ?? undefined,
         onBoundariesChanged: (b) => applyBoundariesChange(ctx, b),
         logger: ctx.logger,

@@ -20,6 +20,7 @@ import type { PatternMatch } from '../search/pattern-search';
 import type { AnnotationSearchQuery, AnnotationSearchResult, AnnotationRepositoryReader } from '../search/annotation-search';
 import type { DependencyGraph } from '../search/dependency-graph';
 import type { ChangelogRepository } from '../store/repositories/changelog.repository';
+import type { AnnotationRepository } from '../store/repositories/annotation.repository';
 import type { SemanticLayer } from '../semantic/index';
 import type { ParseCache } from '../parser/parse-cache';
 import type { GildashError } from '../errors';
@@ -148,7 +149,7 @@ export interface GildashContext {
   readonly parseCache: ParseCacheLike;
 
   // ─── Annotation & Changelog ─────────────────────────────────────
-  readonly annotationRepo: AnnotationRepositoryReader | null;
+  readonly annotationRepo: AnnotationRepository | null;
   readonly changelogRepo: ChangelogRepository | null;
   readonly annotationSearchFn: AnnotationSearchFn | null;
 
