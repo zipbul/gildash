@@ -1,13 +1,13 @@
 import type { GildashContext } from './context';
 import type { SymbolChange, SymbolChangeQueryOptions } from './types';
-import { GildashError } from '../errors';
+import { assertOpen } from './guard';
 
 export function getSymbolChanges(
   ctx: GildashContext,
   since: Date | string,
   options?: SymbolChangeQueryOptions,
 ): SymbolChange[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  assertOpen(ctx);
   if (!ctx.changelogRepo) return [];
 
   const sinceStr = since instanceof Date ? since.toISOString() : since;
@@ -44,7 +44,7 @@ export function pruneChangelog(
   ctx: GildashContext,
   before: Date | string,
 ): number {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  assertOpen(ctx);
   if (!ctx.changelogRepo) return 0;
 
   const beforeStr = before instanceof Date ? before.toISOString() : before;

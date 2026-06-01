@@ -114,10 +114,13 @@ describe('resolveSymbolPosition', () => {
 
     resolveSymbolPosition(ctx, 'Foo', '/project/src/a.ts', 'custom-project');
 
+    // Normalization of `filePath` is owned by `symbolSearch` (single point); this
+    // layer forwards the raw path plus `projectRoot`.
     expect(searchFn).toHaveBeenCalledWith({
       symbolRepo: ctx.symbolRepo,
+      projectRoot: ctx.projectRoot,
       project: 'custom-project',
-      query: { text: 'Foo', exact: true, filePath: 'src/a.ts', limit: 1 },
+      query: { text: 'Foo', exact: true, filePath: '/project/src/a.ts', limit: 1 },
     });
   });
 
@@ -175,7 +178,7 @@ describe('resolveSymbolPosition', () => {
     );
   });
 
-  it('should convert absolute filePath to relative before DB search', () => {
+  it('should forward projectRoot and the raw filePath for the search layer to normalize', () => {
     const searchFn = mock(() => [dummySym]);
     const ctx = makeCtx({ symbolSearchFn: searchFn as any });
 
@@ -183,7 +186,8 @@ describe('resolveSymbolPosition', () => {
 
     expect(searchFn).toHaveBeenCalledWith(
       expect.objectContaining({
-        query: expect.objectContaining({ filePath: 'src/a.ts' }),
+        projectRoot: ctx.projectRoot,
+        query: expect.objectContaining({ filePath: '/project/src/a.ts' }),
       }),
     );
   });

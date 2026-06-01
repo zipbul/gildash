@@ -1,6 +1,7 @@
 import { eq, and, isNull, or, sql } from 'drizzle-orm';
 import { relations as relationsTable } from '../schema';
 import type { DbConnection } from '../connection';
+import type { RelPath } from '../../common/path-utils';
 
 export interface RelationRecord {
   project: string;
@@ -61,7 +62,7 @@ export class RelationRepository {
     });
   }
 
-  getOutgoing(project: string, srcFilePath: string, srcSymbolName?: string): RelationRecord[] {
+  getOutgoing(project: string, srcFilePath: RelPath, srcSymbolName?: string): RelationRecord[] {
     if (srcSymbolName !== undefined) {
       return this.db.drizzleDb
         .select(RELATION_SELECT)
@@ -91,7 +92,7 @@ export class RelationRepository {
       .all();
   }
 
-  getIncoming(opts: { dstProject: string; dstFilePath: string }): RelationRecord[] {
+  getIncoming(opts: { dstProject: string; dstFilePath: RelPath }): RelationRecord[] {
     const { dstProject, dstFilePath } = opts;
     return this.db.drizzleDb
       .select(RELATION_SELECT)
@@ -118,14 +119,14 @@ export class RelationRepository {
       .all();
   }
 
-  deleteFileRelations(project: string, srcFilePath: string): void {
+  deleteFileRelations(project: string, srcFilePath: RelPath): void {
     this.db.drizzleDb
       .delete(relationsTable)
       .where(and(eq(relationsTable.project, project), eq(relationsTable.srcFilePath, srcFilePath)))
       .run();
   }
 
-  deleteIncomingRelations(dstProject: string, dstFilePath: string): void {
+  deleteIncomingRelations(dstProject: string, dstFilePath: RelPath): void {
     this.db.drizzleDb
       .delete(relationsTable)
       .where(and(eq(relationsTable.dstProject, dstProject), eq(relationsTable.dstFilePath, dstFilePath)))
@@ -133,10 +134,10 @@ export class RelationRepository {
   }
 
   searchRelations(opts: {
-    srcFilePath?: string;
+    srcFilePath?: RelPath;
     srcSymbolName?: string;
     dstProject?: string;
-    dstFilePath?: string;
+    dstFilePath?: RelPath;
     dstSymbolName?: string;
     type?: string;
     project?: string;

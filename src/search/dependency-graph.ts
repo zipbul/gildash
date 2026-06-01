@@ -1,6 +1,7 @@
 import type { RelationRecord } from '../store/repositories/relation.repository';
+import type { RelPath } from '../common/path-utils';
 
-export interface IDependencyGraphRepo {
+export interface DependencyGraphRelationReader {
   getByType(project: string, type: string): RelationRecord[];
 }
 
@@ -25,7 +26,7 @@ export class DependencyGraph {
 
   constructor(
     private readonly options: {
-      relationRepo: IDependencyGraphRepo;
+      relationRepo: DependencyGraphRelationReader;
       project: string;
       additionalProjects?: string[];
     },
@@ -135,18 +136,19 @@ export class DependencyGraph {
   /**
    * Return the files that `filePath` directly imports.
    *
-   * @param filePath - Absolute file path.
+   * @param filePath - Project-relative file path (the graph keys on the
+   *   store's relative-path domain; callers normalize via `inboundRelPath`).
    */
-  getDependencies(filePath: string): string[] {
+  getDependencies(filePath: RelPath): string[] {
     return Array.from(this.adjacencyList.get(filePath) ?? []);
   }
 
   /**
    * Return the files that directly import `filePath`.
    *
-   * @param filePath - Absolute file path.
+   * @param filePath - Project-relative file path.
    */
-  getDependents(filePath: string): string[] {
+  getDependents(filePath: RelPath): string[] {
     return Array.from(this.reverseAdjacencyList.get(filePath) ?? []);
   }
 
@@ -154,9 +156,9 @@ export class DependencyGraph {
    * Return all files that transitively depend on `filePath`
    * (breadth-first reverse walk).
    *
-   * @param filePath - Absolute file path.
+   * @param filePath - Project-relative file path.
    */
-  getTransitiveDependents(filePath: string): string[] {
+  getTransitiveDependents(filePath: RelPath): string[] {
     const visited = new Set<string>();
     const queue: string[] = [filePath];
 
@@ -229,10 +231,10 @@ export class DependencyGraph {
    * Combines {@link getTransitiveDependents} for every changed file
    * and de-duplicates the result.
    *
-   * @param changedFiles - Absolute paths of files that changed.
+   * @param changedFiles - Project-relative paths of files that changed.
    * @returns Paths of all transitively-dependent files.
    */
-  getAffectedByChange(changedFiles: string[]): string[] {
+  getAffectedByChange(changedFiles: RelPath[]): string[] {
     const allAffected = new Set<string>();
 
     for (const file of changedFiles) {
@@ -268,7 +270,7 @@ export class DependencyGraph {
    * @returns Paths of all transitively-imported files. Does not include `filePath` itself
    *   unless a cycle exists.
    */
-  getTransitiveDependencies(filePath: string): string[] {
+  getTransitiveDependencies(filePath: RelPath): string[] {
     const visited = new Set<string>();
     const queue: string[] = [filePath];
 

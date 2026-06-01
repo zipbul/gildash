@@ -10,7 +10,7 @@ import { Glob } from 'bun';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseSource } from '../src/parser/index.ts';
-import { extractSymbols } from '../src/extractor/index.ts';
+import { extractSymbols } from '../src/extractor/symbol-extractor.ts';
 import { isErr } from '@zipbul/result';
 import type { ParsedFile } from '../src/parser/types.ts';
 

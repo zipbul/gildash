@@ -1,5 +1,5 @@
 import type { ParsedFile, SourceSpan } from '../parser/types';
-import type { ExtractedAnnotation, AnnotationSource, JsDocBlock } from './types';
+import type { ExtractedAnnotation } from './types';
 import { extractSymbols } from './symbol-extractor';
 import { parseJsDoc } from '../parser/jsdoc-parser';
 import { isErr } from '@zipbul/result';
@@ -72,7 +72,7 @@ export function extractAnnotations(parsed: ParsedFile): ExtractedAnnotation[] {
       const fullText = `/*${comment.value}*/`;
       const jsDocResult = parseJsDoc(fullText);
       if (isErr(jsDocResult)) continue; // malformed JSDoc — skip (non-standard comment syntax)
-      const jsDoc = jsDocResult as JsDocBlock;
+      const jsDoc = jsDocResult;
       if (!jsDoc.tags?.length) continue;
 
       const commentEnd = getLineColumn(offsets, comment.end);
@@ -96,7 +96,7 @@ export function extractAnnotations(parsed: ParsedFile): ExtractedAnnotation[] {
         results.push({
           tag: t.tag,
           value,
-          source: 'jsdoc' as AnnotationSource,
+          source: 'jsdoc',
           span,
           symbolName,
         });
@@ -120,7 +120,7 @@ export function extractAnnotations(parsed: ParsedFile): ExtractedAnnotation[] {
           const commentEnd = getLineColumn(offsets, comment.end);
           const symbolName = findNextSymbol(flat, commentEnd.line, 3);
 
-          results.push({ tag, value, source: 'block' as AnnotationSource, span, symbolName });
+          results.push({ tag, value, source: 'block', span, symbolName });
         }
         lineOffset += line.length + 1; // +1 for \n
       }
@@ -141,7 +141,7 @@ export function extractAnnotations(parsed: ParsedFile): ExtractedAnnotation[] {
         const symbolName = findNextSymbol(flat, commentEnd.line, 3);
 
         const annotation: ExtractedAnnotation = {
-          tag, value, source: 'line' as AnnotationSource, span, symbolName,
+          tag, value, source: 'line', span, symbolName,
         };
         results.push(annotation);
         prevLineAnnotation = { annotation, endLine: commentEnd.line };

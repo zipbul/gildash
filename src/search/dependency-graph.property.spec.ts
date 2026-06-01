@@ -2,7 +2,8 @@ import { describe, expect, it } from 'bun:test';
 import fc from 'fast-check';
 import type { RelationRecord } from '../store/repositories/relation.repository';
 import { DependencyGraph } from './dependency-graph';
-import type { IDependencyGraphRepo } from './dependency-graph';
+import { relPath } from '../common/path-utils';
+import type { DependencyGraphRelationReader } from './dependency-graph';
 
 const PROJECT = 'test-project';
 
@@ -32,7 +33,7 @@ function makeRelation(src: string, dst: string): RelationRecord {
 
 function buildGraphFromEdges(edges: Array<{ src: string; dst: string }>): DependencyGraph {
   const relations = edges.map(e => makeRelation(e.src, e.dst));
-  const repo: IDependencyGraphRepo = {
+  const repo: DependencyGraphRelationReader = {
     getByType(_project: string, _type: string): RelationRecord[] {
       return relations;
     },
@@ -70,7 +71,7 @@ describe('DependencyGraph (property-based)', () => {
         ];
 
         const graph = buildGraphFromEdges(edges);
-        const transitiveDeps = graph.getTransitiveDependencies(a);
+        const transitiveDeps = graph.getTransitiveDependencies(relPath(a));
 
         expect(transitiveDeps).toContain(c);
       }),
@@ -87,8 +88,8 @@ describe('DependencyGraph (property-based)', () => {
           // Pick the first source node from the edges
           const nodeA = edges[0]!.src;
 
-          const affected = new Set(graph.getAffectedByChange([nodeA]));
-          const transitiveDependents = graph.getTransitiveDependents(nodeA);
+          const affected = new Set(graph.getAffectedByChange([nodeA].map(relPath)));
+          const transitiveDependents = graph.getTransitiveDependents(relPath(nodeA));
 
           for (const dep of transitiveDependents) {
             expect(affected.has(dep)).toBe(true);
@@ -172,7 +173,7 @@ describe('DependencyGraph (property-based)', () => {
           for (let i = 0; i < cycle.length; i++) {
             const from = cycle[i]!;
             const to = cycle[(i + 1) % cycle.length]!;
-            const deps = graph.getDependencies(from);
+            const deps = graph.getDependencies(relPath(from));
             expect(deps).toContain(to);
           }
         }

@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test';
+import { relPath } from '../../common/path-utils';
 import type { Mock } from 'bun:test';
 import { SymbolRepository } from './symbol.repository';
 import type { SymbolRecord } from './symbol.repository';
@@ -75,7 +76,7 @@ describe('SymbolRepository', () => {
     chain['all']!.mockReturnValue(records as unknown[]);
 
     const repo = new SymbolRepository(db);
-    const result = repo.getFileSymbols('test-project', 'src/index.ts');
+    const result = repo.getFileSymbols('test-project', relPath('src/index.ts'));
 
     expect(result).toEqual(records);
   });
@@ -140,7 +141,7 @@ describe('SymbolRepository', () => {
     const { db, chain } = makeDbMock();
     const repo = new SymbolRepository(db);
 
-    repo.deleteFileSymbols('test-project', 'src/index.ts');
+    repo.deleteFileSymbols('test-project', relPath('src/index.ts'));
 
     expect(chain['delete']).toHaveBeenCalled();
     expect(chain['run']).toHaveBeenCalled();

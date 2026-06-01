@@ -5,7 +5,6 @@ export {
   getLineColumn,
 } from './source-position';
 export {
-  getNodeHeader,
   isArrowFunctionExpression,
   isAssignmentExpression,
   isCallExpression,
@@ -16,8 +15,6 @@ export {
   isMemberExpression,
   isTSQualifiedName,
   isVariableDeclaration,
-  getNodeName,
-  getStringLiteralValue,
   getQualifiedName,
   is,
 } from './ast-utils';

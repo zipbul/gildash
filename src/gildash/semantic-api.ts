@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { SymbolSearchResult } from '../search/symbol-search';
 import { GildashError } from '../errors';
+import { guard } from './guard';
 import type { ResolvedType, ByteSpan, SemanticReference, EnrichedReference, FileBinding, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from '../semantic/types';
 import type { SymbolNode } from '../semantic/symbol-graph';
 import type { GildashContext } from './context';
@@ -16,14 +17,12 @@ export function resolveSymbolPosition(
   project?: string,
 ): { sym: SymbolSearchResult; position: number; absPath: string } | null {
   const effectiveProject = project ?? ctx.defaultProject;
-  // DB stores relative paths — normalize absolute paths before searching
-  const searchPath = path.isAbsolute(filePath)
-    ? path.relative(ctx.projectRoot, filePath)
-    : filePath;
+  // `symbolSearch` normalizes `query.filePath` to the store's RelPath domain (the
+  // single enforced point), so a raw absolute/relative path is correct here.
   const results = ctx.symbolSearchFn({
-    symbolRepo: ctx.symbolRepo,
+    symbolRepo: ctx.symbolRepo, projectRoot: ctx.projectRoot,
     project: effectiveProject,
-    query: { text: symbolName, exact: true, filePath: searchPath, limit: 1 },
+    query: { text: symbolName, exact: true, filePath, limit: 1 },
   });
   if (results.length === 0) return null;
   const sym = results[0]!;
@@ -45,18 +44,14 @@ export function getResolvedType(
   filePath: string,
   project?: string,
 ): ResolvedType | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'search', 'getResolvedType', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const resolved = resolveSymbolPosition(ctx, symbolName, filePath, project);
     if (!resolved) {
       return null;
     }
     return ctx.semanticLayer.collectTypeAt(resolved.absPath, resolved.position);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getResolvedType failed', { cause: e });
-  }
+  });
 }
 
 /** Find all semantic references to a symbol. */
@@ -66,18 +61,14 @@ export function getSemanticReferences(
   filePath: string,
   project?: string,
 ): SemanticReference[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'search', 'getSemanticReferences', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const resolved = resolveSymbolPosition(ctx, symbolName, filePath, project);
     if (!resolved) {
       throw new GildashError('search', `Gildash: symbol '${symbolName}' not found in '${filePath}'`);
     }
     return ctx.semanticLayer.findReferences(resolved.absPath, resolved.position);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getSemanticReferences failed', { cause: e });
-  }
+  });
 }
 
 /** Find all references to a symbol, enriched with writeKind / isAmbient / enclosingScope. */
@@ -87,18 +78,14 @@ export function getEnrichedReferences(
   filePath: string,
   project?: string,
 ): EnrichedReference[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'search', 'getEnrichedReferences', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const resolved = resolveSymbolPosition(ctx, symbolName, filePath, project);
     if (!resolved) {
       throw new GildashError('search', `Gildash: symbol '${symbolName}' not found in '${filePath}'`);
     }
     return ctx.semanticLayer.findEnrichedReferences(resolved.absPath, resolved.position);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getEnrichedReferences failed', { cause: e });
-  }
+  });
 }
 
 /** Find implementations of an interface/abstract class. */
@@ -108,18 +95,14 @@ export function getImplementations(
   filePath: string,
   project?: string,
 ): Implementation[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'search', 'getImplementations', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const resolved = resolveSymbolPosition(ctx, symbolName, filePath, project);
     if (!resolved) {
       throw new GildashError('search', `Gildash: symbol '${symbolName}' not found in '${filePath}'`);
     }
     return ctx.semanticLayer.findImplementations(resolved.absPath, resolved.position);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getImplementations failed', { cause: e });
-  }
+  });
 }
 
 /** Check whether a source symbol's type is assignable to a target symbol's type. */
@@ -131,18 +114,14 @@ export function isTypeAssignableTo(
   targetFilePath: string,
   project?: string,
 ): boolean | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'isTypeAssignableTo', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const src = resolveSymbolPosition(ctx, sourceSymbol, sourceFilePath, project);
     if (!src) throw new GildashError('search', `Gildash: source symbol '${sourceSymbol}' not found in '${sourceFilePath}'`);
     const tgt = resolveSymbolPosition(ctx, targetSymbol, targetFilePath, project);
     if (!tgt) throw new GildashError('search', `Gildash: target symbol '${targetSymbol}' not found in '${targetFilePath}'`);
     return ctx.semanticLayer.isTypeAssignableTo(src.absPath, src.position, tgt.absPath, tgt.position);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: isTypeAssignableTo failed', { cause: e });
-  }
+  });
 }
 
 /** Retrieve resolved types for all declarations in a file. */
@@ -150,15 +129,11 @@ export function getFileTypes(
   ctx: GildashContext,
   filePath: string,
 ): Map<number, ResolvedType> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getFileTypes', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.collectFileTypes(absPath);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getFileTypes failed', { cause: e });
-  }
+  });
 }
 
 /** Retrieve the resolved type at a specific position (line:column) without DB lookup. */
@@ -168,17 +143,13 @@ export function getResolvedTypeAt(
   line: number,
   column: number,
 ): ResolvedType | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getResolvedTypeAt', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     const position = ctx.semanticLayer.lineColumnToPosition(absPath, line, column);
     if (position === null) return null;
     return ctx.semanticLayer.collectTypeAt(absPath, position);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getResolvedTypeAt failed', { cause: e });
-  }
+  });
 }
 
 /** Check type assignability at specific positions without DB lookup. */
@@ -189,9 +160,8 @@ export function isTypeAssignableToAt(
     target: { filePath: string; line: number; column: number };
   },
 ): boolean | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'isTypeAssignableToAt', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const srcAbs = path.isAbsolute(opts.source.filePath) ? opts.source.filePath : path.resolve(ctx.projectRoot, opts.source.filePath);
     const tgtAbs = path.isAbsolute(opts.target.filePath) ? opts.target.filePath : path.resolve(ctx.projectRoot, opts.target.filePath);
     const srcPos = ctx.semanticLayer.lineColumnToPosition(srcAbs, opts.source.line, opts.source.column);
@@ -199,10 +169,7 @@ export function isTypeAssignableToAt(
     const tgtPos = ctx.semanticLayer.lineColumnToPosition(tgtAbs, opts.target.line, opts.target.column);
     if (tgtPos === null) return null;
     return ctx.semanticLayer.isTypeAssignableTo(srcAbs, srcPos, tgtAbs, tgtPos);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: isTypeAssignableToAt failed', { cause: e });
-  }
+  });
 }
 
 /** Retrieve the semantic module interface — exported symbols with resolved types. */
@@ -210,14 +177,10 @@ export function getSemanticModuleInterface(
   ctx: GildashContext,
   filePath: string,
 ): SemanticModuleInterface {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'search', 'getSemanticModuleInterface', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     return ctx.semanticLayer.getModuleInterface(filePath);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getSemanticModuleInterface failed', { cause: e });
-  }
+  });
 }
 
 /** Retrieve the base types (supertypes) of a class/interface at a byte offset. */
@@ -226,15 +189,11 @@ export function getBaseTypes(
   filePath: string,
   position: number,
 ): ResolvedType[] | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getBaseTypes', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.getBaseTypes(absPath, position);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getBaseTypes failed', { cause: e });
-  }
+  });
 }
 
 /** Retrieve resolved types at multiple byte offsets in a single file (batch). */
@@ -243,15 +202,11 @@ export function getResolvedTypesAtPositions(
   filePath: string,
   positions: number[],
 ): Map<number, ResolvedType> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getResolvedTypesAtPositions', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.collectTypesAtPositions(absPath, positions);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getResolvedTypesAtPositions failed', { cause: e });
-  }
+  });
 }
 
 // ─── Span-based semantic API (firebat error-flow) ─────────────────────
@@ -262,15 +217,11 @@ export function getExpressionTypeAtSpan(
   filePath: string,
   span: ByteSpan,
 ): ResolvedType | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getExpressionTypeAtSpan', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.collectAtSpan(absPath, span);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getExpressionTypeAtSpan failed', { cause: e });
-  }
+  });
 }
 
 /** Whether the type of the expression spanning `span` is a thenable (callable `then` with ≥1 param). */
@@ -280,15 +231,11 @@ export function isThenableAtSpan(
   span: ByteSpan,
   options?: { anyConstituent?: boolean },
 ): boolean | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'isThenableAtSpan', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.isThenableAtSpan(absPath, span, options);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: isThenableAtSpan failed', { cause: e });
-  }
+  });
 }
 
 /** Return types of the contextual call signatures at the argument expression spanning `span`. */
@@ -297,15 +244,11 @@ export function getContextualCallReturnsAtSpan(
   filePath: string,
   span: ByteSpan,
 ): ResolvedType[] | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getContextualCallReturnsAtSpan', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.contextualCallReturnsAtSpan(absPath, span);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getContextualCallReturnsAtSpan failed', { cause: e });
-  }
+  });
 }
 
 /** Whether the type of the expression spanning `span` is assignable to a type expression string. */
@@ -316,15 +259,11 @@ export function isTypeAssignableToTypeAtSpan(
   targetTypeExpression: string,
   options?: { anyConstituent?: boolean },
 ): boolean | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'isTypeAssignableToTypeAtSpan', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.isTypeAssignableToTypeAtSpan(absPath, span, targetTypeExpression, options);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: isTypeAssignableToTypeAtSpan failed', { cause: e });
-  }
+  });
 }
 
 // ─── Position-based semantic API ──────────────────────────────────────
@@ -335,15 +274,11 @@ export function getResolvedTypeAtPosition(
   filePath: string,
   position: number,
 ): ResolvedType | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getResolvedTypeAtPosition', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.collectTypeAt(absPath, position);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getResolvedTypeAtPosition failed', { cause: e });
-  }
+  });
 }
 
 /** Find all semantic references at a byte offset. */
@@ -352,15 +287,11 @@ export function getSemanticReferencesAtPosition(
   filePath: string,
   position: number,
 ): SemanticReference[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getSemanticReferencesAtPosition', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.findReferences(absPath, position);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getSemanticReferencesAtPosition failed', { cause: e });
-  }
+  });
 }
 
 /** Find all enriched references at a byte offset. */
@@ -369,28 +300,20 @@ export function getEnrichedReferencesAtPosition(
   filePath: string,
   position: number,
 ): EnrichedReference[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getEnrichedReferencesAtPosition', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.findEnrichedReferences(absPath, position);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getEnrichedReferencesAtPosition failed', { cause: e });
-  }
+  });
 }
 
 /** Collect all bindings in a file (single-pass), each with its in-file enriched references. */
 export function getFileBindings(ctx: GildashContext, filePath: string): FileBinding[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getFileBindings', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.getFileBindings(absPath);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getFileBindings failed', { cause: e });
-  }
+  });
 }
 
 /**
@@ -402,9 +325,8 @@ export function getFileBindingsBatch(
   ctx: GildashContext,
   files: ReadonlyArray<{ filePath: string; content: string }>,
 ): Map<string, FileBinding[]> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getFileBindingsBatch', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const resolved = files.map((f) => ({
       orig: f.filePath,
       abs: path.isAbsolute(f.filePath) ? f.filePath : path.resolve(ctx.projectRoot, f.filePath),
@@ -416,10 +338,7 @@ export function getFileBindingsBatch(
     const out = new Map<string, FileBinding[]>();
     for (const r of resolved) out.set(r.orig, byAbs.get(r.abs) ?? []);
     return out;
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getFileBindingsBatch failed', { cause: e });
-  }
+  });
 }
 
 /**
@@ -432,41 +351,29 @@ export function getStandaloneFileBindings(
   filePath: string,
   content: string,
 ): FileBinding[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getStandaloneFileBindings', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.getStandaloneFileBindings(absPath, content);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getStandaloneFileBindings failed', { cause: e });
-  }
+  });
 }
 
 /** Register/replace an in-memory file in the semantic layer (tsc Program). */
 export function notifyFileChanged(ctx: GildashContext, filePath: string, content: string): void {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'notifyFileChanged', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     ctx.semanticLayer.notifyFileChanged(absPath, content);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: notifyFileChanged failed', { cause: e });
-  }
+  });
 }
 
 /** Remove an in-memory file from the semantic layer (tsc Program). */
 export function notifyFileDeleted(ctx: GildashContext, filePath: string): void {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'notifyFileDeleted', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     ctx.semanticLayer.notifyFileDeleted(absPath);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: notifyFileDeleted failed', { cause: e });
-  }
+  });
 }
 
 /** Find implementations at a byte offset. */
@@ -475,15 +382,11 @@ export function getImplementationsAtPosition(
   filePath: string,
   position: number,
 ): Implementation[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getImplementationsAtPosition', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.findImplementations(absPath, position);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getImplementationsAtPosition failed', { cause: e });
-  }
+  });
 }
 
 /** Check type assignability at byte offsets. */
@@ -494,16 +397,12 @@ export function isTypeAssignableToAtPosition(
   dstFilePath: string,
   dstPosition: number,
 ): boolean | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'isTypeAssignableToAtPosition', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const srcAbs = path.isAbsolute(srcFilePath) ? srcFilePath : path.resolve(ctx.projectRoot, srcFilePath);
     const dstAbs = path.isAbsolute(dstFilePath) ? dstFilePath : path.resolve(ctx.projectRoot, dstFilePath);
     return ctx.semanticLayer.isTypeAssignableTo(srcAbs, srcPosition, dstAbs, dstPosition);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: isTypeAssignableToAtPosition failed', { cause: e });
-  }
+  });
 }
 
 /** Check whether the type at a position is assignable to a type expression string. */
@@ -514,15 +413,11 @@ export function isTypeAssignableToType(
   targetTypeExpression: string,
   options?: { anyConstituent?: boolean },
 ): boolean | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'isTypeAssignableToType', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.isTypeAssignableToType(absPath, position, targetTypeExpression, options);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: isTypeAssignableToType failed', { cause: e });
-  }
+  });
 }
 
 /** Batch-check whether types at multiple positions are assignable to a type expression. */
@@ -533,15 +428,11 @@ export function isTypeAssignableToTypeAtPositions(
   targetTypeExpression: string,
   options?: { anyConstituent?: boolean },
 ): Map<number, boolean> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'isTypeAssignableToTypeAtPositions', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.isTypeAssignableToTypeAtPositions(absPath, positions, targetTypeExpression, options);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: isTypeAssignableToTypeAtPositions failed', { cause: e });
-  }
+  });
 }
 
 // ─── Internal utility exposure ────────────────────────────────────────
@@ -553,15 +444,11 @@ export function lineColumnToPosition(
   line: number,
   column: number,
 ): number | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'lineColumnToPosition', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.lineColumnToPosition(absPath, line, column);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: lineColumnToPosition failed', { cause: e });
-  }
+  });
 }
 
 /** Find the byte offset of a symbol name starting from its declaration position. */
@@ -571,15 +458,11 @@ export function findNamePosition(
   declarationPos: number,
   name: string,
 ): number | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'findNamePosition', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.findNamePosition(absPath, declarationPos, name);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: findNamePosition failed', { cause: e });
-  }
+  });
 }
 
 /** Retrieve the tsc symbol graph node at a byte offset. */
@@ -588,15 +471,11 @@ export function getSymbolNode(
   filePath: string,
   position: number,
 ): SymbolNode | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getSymbolNode', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.getSymbolNode(absPath, position);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getSymbolNode failed', { cause: e });
-  }
+  });
 }
 
 // ─── Diagnostics ──────────────────────────────────────────────────────
@@ -607,13 +486,9 @@ export function getSemanticDiagnostics(
   filePath: string,
   options?: GetDiagnosticsOptions,
 ): SemanticDiagnostic[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-  try {
+  return guard(ctx, 'semantic', 'getSemanticDiagnostics', () => {
+    if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.getDiagnostics(absPath, options);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('semantic', 'Gildash: getSemanticDiagnostics failed', { cause: e });
-  }
+  });
 }

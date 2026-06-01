@@ -21,7 +21,7 @@ export interface AnnotationSearchResult {
   span: { start: { line: number; column: number }; end: { line: number; column: number } };
 }
 
-export interface IAnnotationRepo {
+export interface AnnotationRepositoryReader {
   search(opts: {
     project?: string;
     tag?: string;
@@ -34,7 +34,7 @@ export interface IAnnotationRepo {
 }
 
 export function annotationSearch(options: {
-  annotationRepo: IAnnotationRepo;
+  annotationRepo: AnnotationRepositoryReader;
   project?: string;
   query: AnnotationSearchQuery;
 }): AnnotationSearchResult[] {

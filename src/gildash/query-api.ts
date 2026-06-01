@@ -1,9 +1,11 @@
 import path from 'node:path';
+import { inboundRelPath } from '../common/path-utils';
 import type { SymbolSearchQuery, SymbolSearchResult } from '../search/symbol-search';
 import type { RelationSearchQuery, StoredCodeRelation } from '../search/relation-search';
 import type { FileRecord } from '../store/repositories/file.repository';
 import type { SymbolStats } from '../store/repositories/symbol.repository';
 import { GildashError } from '../errors';
+import { guard } from './guard';
 import type { GildashContext } from './context';
 import type { FullSymbol, FileStats, ModuleInterface } from './types';
 
@@ -12,13 +14,9 @@ export function getStats(
   ctx: GildashContext,
   project?: string,
 ): SymbolStats {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
-    return ctx.symbolRepo.getStats(project ?? ctx.defaultProject);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('store', 'Gildash: getStats failed', { cause: e });
-  }
+  return guard(ctx, 'store', 'getStats', () =>
+    ctx.symbolRepo.getStats(project ?? ctx.defaultProject),
+  );
 }
 
 /** Search indexed symbols by name, kind, file path, or export status. */
@@ -26,13 +24,9 @@ export function searchSymbols(
   ctx: GildashContext,
   query: SymbolSearchQuery,
 ): SymbolSearchResult[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
-    return ctx.symbolSearchFn({ symbolRepo: ctx.symbolRepo, project: ctx.defaultProject, query });
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: searchSymbols failed', { cause: e });
-  }
+  return guard(ctx, 'search', 'searchSymbols', () =>
+    ctx.symbolSearchFn({ symbolRepo: ctx.symbolRepo, projectRoot: ctx.projectRoot, project: ctx.defaultProject, query }),
+  );
 }
 
 /** Search indexed code relationships (imports, calls, extends, implements). */
@@ -40,13 +34,9 @@ export function searchRelations(
   ctx: GildashContext,
   query: RelationSearchQuery,
 ): StoredCodeRelation[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
-    return ctx.relationSearchFn({ relationRepo: ctx.relationRepo, project: ctx.defaultProject, query });
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: searchRelations failed', { cause: e });
-  }
+  return guard(ctx, 'search', 'searchRelations', () =>
+    ctx.relationSearchFn({ relationRepo: ctx.relationRepo, projectRoot: ctx.projectRoot, project: ctx.defaultProject, query }),
+  );
 }
 
 /** Search symbols across all projects (no project filter). */
@@ -54,13 +44,9 @@ export function searchAllSymbols(
   ctx: GildashContext,
   query: Omit<SymbolSearchQuery, 'project'> & { project?: string },
 ): SymbolSearchResult[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
-    return ctx.symbolSearchFn({ symbolRepo: ctx.symbolRepo, project: undefined, query });
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: searchAllSymbols failed', { cause: e });
-  }
+  return guard(ctx, 'search', 'searchAllSymbols', () =>
+    ctx.symbolSearchFn({ symbolRepo: ctx.symbolRepo, projectRoot: ctx.projectRoot, project: undefined, query }),
+  );
 }
 
 /** Search relations across all projects (no project filter). */
@@ -68,13 +54,9 @@ export function searchAllRelations(
   ctx: GildashContext,
   query: RelationSearchQuery,
 ): StoredCodeRelation[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
-    return ctx.relationSearchFn({ relationRepo: ctx.relationRepo, project: undefined, query });
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: searchAllRelations failed', { cause: e });
-  }
+  return guard(ctx, 'search', 'searchAllRelations', () =>
+    ctx.relationSearchFn({ relationRepo: ctx.relationRepo, projectRoot: ctx.projectRoot, project: undefined, query }),
+  );
 }
 
 /** List all files indexed for a given project. */
@@ -82,13 +64,9 @@ export function listIndexedFiles(
   ctx: GildashContext,
   project?: string,
 ): FileRecord[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
-    return ctx.fileRepo.getAllFiles(project ?? ctx.defaultProject);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('store', 'Gildash: listIndexedFiles failed', { cause: e });
-  }
+  return guard(ctx, 'store', 'listIndexedFiles', () =>
+    ctx.fileRepo.getAllFiles(project ?? ctx.defaultProject),
+  );
 }
 
 /** Get all intra-file relations for a given file. */
@@ -97,17 +75,13 @@ export function getInternalRelations(
   filePath: string,
   project?: string,
 ): StoredCodeRelation[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
-    return ctx.relationSearchFn({
-      relationRepo: ctx.relationRepo,
+  return guard(ctx, 'search', 'getInternalRelations', () =>
+    ctx.relationSearchFn({
+      relationRepo: ctx.relationRepo, projectRoot: ctx.projectRoot,
       project: project ?? ctx.defaultProject,
       query: { srcFilePath: filePath, dstFilePath: filePath, limit: 10_000 },
-    });
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getInternalRelations failed', { cause: e });
-  }
+    }),
+  );
 }
 
 /** Retrieve full details for a named symbol in a specific file. */
@@ -117,11 +91,10 @@ export function getFullSymbol(
   filePath: string,
   project?: string,
 ): FullSymbol | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
+  return guard(ctx, 'search', 'getFullSymbol', () => {
     const effectiveProject = project ?? ctx.defaultProject;
     const results = ctx.symbolSearchFn({
-      symbolRepo: ctx.symbolRepo,
+      symbolRepo: ctx.symbolRepo, projectRoot: ctx.projectRoot,
       project: effectiveProject,
       query: { text: symbolName, exact: true, filePath, limit: 1 },
     });
@@ -159,10 +132,7 @@ export function getFullSymbol(
       }
     }
     return full;
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getFullSymbol failed', { cause: e });
-  }
+  });
 }
 
 /** Retrieve statistics for an indexed file. */
@@ -171,15 +141,15 @@ export function getFileStats(
   filePath: string,
   project?: string,
 ): FileStats {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
+  return guard(ctx, 'store', 'getFileStats', () => {
     const effectiveProject = project ?? ctx.defaultProject;
-    const fileRecord = ctx.fileRepo.getFile(effectiveProject, filePath);
+    const rel = inboundRelPath(ctx.projectRoot, filePath);
+    const fileRecord = ctx.fileRepo.getFile(effectiveProject, rel);
     if (!fileRecord) {
       throw new GildashError('search', `Gildash: file '${filePath}' is not in the index`);
     }
-    const symbols = ctx.symbolRepo.getFileSymbols(effectiveProject, filePath);
-    const relations = ctx.relationRepo.getOutgoing(effectiveProject, filePath);
+    const symbols = ctx.symbolRepo.getFileSymbols(effectiveProject, rel);
+    const relations = ctx.relationRepo.getOutgoing(effectiveProject, rel);
     return {
       filePath: fileRecord.filePath,
       lineCount: fileRecord.lineCount ?? 0,
@@ -188,10 +158,7 @@ export function getFileStats(
       exportedSymbolCount: symbols.filter((s) => s.isExported).length,
       relationCount: relations.length,
     };
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('store', 'Gildash: getFileStats failed', { cause: e });
-  }
+  });
 }
 
 /** Retrieve metadata for an indexed file. */
@@ -200,13 +167,9 @@ export function getFileInfo(
   filePath: string,
   project?: string,
 ): FileRecord | null {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
-    return ctx.fileRepo.getFile(project ?? ctx.defaultProject, filePath);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('store', 'Gildash: getFileInfo failed', { cause: e });
-  }
+  return guard(ctx, 'store', 'getFileInfo', () =>
+    ctx.fileRepo.getFile(project ?? ctx.defaultProject, inboundRelPath(ctx.projectRoot, filePath)),
+  );
 }
 
 /** List all symbols declared in a specific file. */
@@ -224,10 +187,9 @@ export function getModuleInterface(
   filePath: string,
   project?: string,
 ): ModuleInterface {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
+  return guard(ctx, 'search', 'getModuleInterface', () => {
     const symbols = ctx.symbolSearchFn({
-      symbolRepo: ctx.symbolRepo,
+      symbolRepo: ctx.symbolRepo, projectRoot: ctx.projectRoot,
       project: project ?? ctx.defaultProject,
       query: { filePath, isExported: true },
     }) as SymbolSearchResult[];
@@ -241,8 +203,5 @@ export function getModuleInterface(
       jsDoc: s.detail.jsDoc?.description ?? undefined,
     }));
     return { filePath, exports };
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getModuleInterface failed', { cause: e });
-  }
+  });
 }

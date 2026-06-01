@@ -5,9 +5,21 @@ export interface TsconfigPaths {
   paths: Map<string, string[]>;
 }
 
+/** Subset of `tsconfig.json` we read. The remaining fields are preserved
+ *  for the extends-merge via the index signature but otherwise ignored. */
+interface TsconfigCompilerOptions {
+  baseUrl?: string;
+  paths?: Record<string, string[]>;
+}
+interface TsconfigJson {
+  extends?: string;
+  compilerOptions?: TsconfigCompilerOptions;
+  [key: string]: unknown;
+}
+
 const cache = new Map<string, TsconfigPaths | null>();
 
-async function readConfig(configPath: string): Promise<Record<string, unknown> | null> {
+async function readConfig(configPath: string): Promise<TsconfigJson | null> {
   const file = Bun.file(configPath);
   if (!(await file.exists())) {
     return null;
@@ -15,8 +27,10 @@ async function readConfig(configPath: string): Promise<Record<string, unknown> |
 
   try {
     const text = await file.text();
-    const parsed = Bun.JSONC.parse(text);
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : null;
+    // `Bun.JSONC.parse` yields untyped JSON; assert the shape we read once here
+    // (the single sanctioned boundary cast — every field access below is typed).
+    const parsed: unknown = Bun.JSONC.parse(text);
+    return typeof parsed === "object" && parsed !== null ? (parsed as TsconfigJson) : null;
   } catch {
     return null;
   }
@@ -37,7 +51,7 @@ function resolveExtendsPath(fromDir: string, extendsValue: string): string {
 async function readConfigWithExtends(
   configPath: string,
   maxDepth: number = 5,
-): Promise<Record<string, unknown> | null> {
+): Promise<TsconfigJson | null> {
   if (maxDepth <= 0) return null;
 
   const config = await readConfig(configPath);
@@ -51,19 +65,10 @@ async function readConfigWithExtends(
   if (!parentConfig) return config;
 
   // Merge: child compilerOptions override parent compilerOptions
-  const parentCompilerOptions =
-    typeof parentConfig.compilerOptions === 'object' && parentConfig.compilerOptions !== null
-      ? (parentConfig.compilerOptions as Record<string, unknown>)
-      : {};
-  const childCompilerOptions =
-    typeof config.compilerOptions === 'object' && config.compilerOptions !== null
-      ? (config.compilerOptions as Record<string, unknown>)
-      : {};
-
   return {
     ...parentConfig,
     ...config,
-    compilerOptions: { ...parentCompilerOptions, ...childCompilerOptions },
+    compilerOptions: { ...parentConfig.compilerOptions, ...config.compilerOptions },
   };
 }
 
@@ -80,10 +85,7 @@ export async function loadTsconfigPaths(projectRoot: string): Promise<TsconfigPa
     return null;
   }
 
-  const compilerOptions =
-    typeof config.compilerOptions === "object" && config.compilerOptions !== null
-      ? (config.compilerOptions as Record<string, unknown>)
-      : null;
+  const compilerOptions = config.compilerOptions ?? null;
 
   if (!compilerOptions) {
     cache.set(projectRoot, null);
@@ -93,7 +95,7 @@ export async function loadTsconfigPaths(projectRoot: string): Promise<TsconfigPa
   const rawBaseUrl = typeof compilerOptions.baseUrl === "string" ? compilerOptions.baseUrl : null;
   const rawPaths =
     typeof compilerOptions.paths === "object" && compilerOptions.paths !== null
-      ? (compilerOptions.paths as Record<string, unknown>)
+      ? compilerOptions.paths
       : null;
 
   if (!rawBaseUrl && !rawPaths) {

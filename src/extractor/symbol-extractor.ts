@@ -20,40 +20,22 @@ import type {
 } from './types';
 import type {
   Span,
-  Statement,
-  Directive,
   Declaration,
-  ExportNamedDeclaration,
-  ExportDefaultDeclaration,
-  Function as OxcFunction,
   Class as OxcClass,
-  VariableDeclaration,
-  TSTypeAliasDeclaration,
   TSInterfaceDeclaration,
-  TSEnumDeclaration,
   TSTypeAnnotation,
   Decorator as OxcDecorator,
   ParamPattern,
-  TSParameterProperty,
-  FormalParameterRest,
   ClassElement,
-  MethodDefinition,
-  PropertyDefinition,
-  AccessorProperty,
   TSSignature,
-  TSMethodSignature,
-  TSPropertySignature,
   TSEnumMember,
   TSClassImplements,
   TSInterfaceHeritage,
   TSTypeParameterDeclaration,
   PropertyKey as OxcPropertyKey,
   BindingPattern,
-  BindingProperty,
-  ArrowFunctionExpression,
-  CallExpression as OxcCallExpression,
-  IdentifierReference,
-  Argument,
+  Expression,
+  SpreadElement,
 } from 'oxc-parser';
 import { buildLineOffsets, getLineColumn } from '../parser/source-position';
 import { parseJsDoc } from '../parser/jsdoc-parser';
@@ -63,7 +45,7 @@ import { isErr } from '@zipbul/result';
 function keyName(key: OxcPropertyKey): string {
   if ('name' in key && typeof key.name === 'string') return key.name;
   if ('value' in key) {
-    const v = (key as { value: unknown }).value;
+    const v = key.value;
     if (typeof v === 'string') return v;
     if (typeof v === 'number' || typeof v === 'bigint' || typeof v === 'boolean') return String(v);
   }
@@ -83,9 +65,9 @@ function collectBindingNames(pattern: BindingPattern): BindingInfo[] {
     const bindings: BindingInfo[] = [];
     for (const prop of pattern.properties) {
       if (prop.type === 'RestElement') {
-        bindings.push(...collectBindingNames(prop.argument as BindingPattern));
+        bindings.push(...collectBindingNames(prop.argument));
       } else {
-        bindings.push(...collectBindingNames((prop as BindingProperty).value));
+        bindings.push(...collectBindingNames(prop.value));
       }
     }
     return bindings;
@@ -95,16 +77,16 @@ function collectBindingNames(pattern: BindingPattern): BindingInfo[] {
     for (const elem of pattern.elements) {
       if (!elem) continue;
       if (elem.type === 'RestElement') {
-        bindings.push(...collectBindingNames(elem.argument as BindingPattern));
+        bindings.push(...collectBindingNames(elem.argument));
       } else {
-        bindings.push(...collectBindingNames(elem as BindingPattern));
+        bindings.push(...collectBindingNames(elem));
       }
     }
     return bindings;
   }
   // AssignmentPattern: const { a = 1 } = x → left is the binding
   if (pattern.type === 'AssignmentPattern') {
-    return collectBindingNames(pattern.left as BindingPattern);
+    return collectBindingNames(pattern.left);
   }
   return [];
 }
@@ -166,7 +148,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
    * the return type with an `as` assertion rather than carrying a dead
    * defensive branch.
    */
-  function keyExpressionFor(keyNode: unknown, depth: number): KeyExpression {
+  function keyExpressionFor(keyNode: OxcPropertyKey, depth: number): KeyExpression {
     return convertExpression(keyNode, depth) as KeyExpression;
   }
 
@@ -198,8 +180,8 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
    * - computed `[expr]` → the source text of the bracket expression
    */
   function memberDisplayName(key: OxcPropertyKey, computed: boolean): string {
-    if (computed) return sourceText.slice(key.start as number, key.end as number);
-    if (key.type === 'PrivateIdentifier') return `#${(key as { name: string }).name}`;
+    if (computed) return sourceText.slice(key.start, key.end);
+    if (key.type === 'PrivateIdentifier') return `#${key.name}`;
     return keyName(key);
   }
 
@@ -212,13 +194,12 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
    * needed (the runtime property is identical either way).
    */
   function objectLiteralKey(
-    keyNode: unknown,
+    keyNode: OxcPropertyKey,
     computed: boolean,
     depth: number,
   ): KeyExpression {
-    const key = keyNode as Record<string, unknown>;
-    if (!computed && key.type === 'Identifier') {
-      return { kind: 'string', value: key.name as string };
+    if (!computed && keyNode.type === 'Identifier') {
+      return { kind: 'string', value: keyNode.name };
     }
     return keyExpressionFor(keyNode, depth);
   }
@@ -269,7 +250,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
   function typeText(typeAnnotation: TSTypeAnnotation | Span | null | undefined): string | undefined {
     if (!typeAnnotation) return undefined;
     const inner = ('typeAnnotation' in typeAnnotation && typeAnnotation.typeAnnotation)
-      ? typeAnnotation.typeAnnotation as Span
+      ? typeAnnotation.typeAnnotation
       : typeAnnotation;
     return sourceText.slice(inner.start, inner.end);
   }
@@ -277,146 +258,130 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
   const MAX_EXPRESSION_DEPTH = 8;
 
   /** Resolve the leftmost identifier of a callee (simple or member) to its import info. */
-  function resolveCalleeImport(callee: Record<string, unknown>): ImportInfo | undefined {
-    if (callee.type === 'Identifier') return importMap.get(callee.name as string);
+  function resolveCalleeImport(callee: Expression): ImportInfo | undefined {
+    if (callee.type === 'Identifier') return importMap.get(callee.name);
     if (callee.type === 'MemberExpression') {
-      const obj = callee.object as Record<string, unknown>;
-      if (obj.type === 'Identifier') return importMap.get(obj.name as string);
+      const obj = callee.object;
+      if (obj.type === 'Identifier') return importMap.get(obj.name);
     }
     return undefined;
   }
 
   /**
    * Convert any oxc AST node we treat as an expression value into our
-   * structured `ExpressionValue` model. Accepts `unknown` because oxc node
-   * unions are too wide to express precisely at the call site; the runtime
-   * `node.type` discriminator drives all dispatch.
+   * structured `ExpressionValue` model. The `node.type` discriminator of the
+   * oxc `Expression` union drives all dispatch, with `SpreadElement` accepted
+   * for array/argument positions and `PropertyKey` nodes for key positions.
    */
-  function convertExpression(rawNode: unknown, depth: number = 0): ExpressionValue {
-    const node = rawNode as Record<string, unknown>;
+  function convertExpression(node: OxcPropertyKey | SpreadElement, depth: number = 0): ExpressionValue {
     if (depth >= MAX_EXPRESSION_DEPTH) {
-      return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
+      return { kind: 'unresolvable', sourceText: sourceText.slice(node.start, node.end) };
     }
 
-    const type = node.type as string;
-
     // Literals — oxc-parser emits ESTree "Literal" for all literal types
-    if (type === 'Literal') {
+    if (node.type === 'Literal') {
       const value = node.value;
       if (typeof value === 'bigint') {
         // oxc preserves the numeric portion (without the trailing `n`) as a string
-        const bigintText = typeof node.bigint === 'string' ? node.bigint : value.toString();
+        const bigintText = 'bigint' in node && typeof node.bigint === 'string' ? node.bigint : value.toString();
         return { kind: 'bigint', value: bigintText };
       }
-      if (typeof node.regex === 'object' && node.regex !== null) {
+      if ('regex' in node && node.regex) {
         // Use raw source text to preserve the full /pattern/flags form
-        return { kind: 'regex', value: sourceText.slice(node.start as number, node.end as number) };
+        return { kind: 'regex', value: sourceText.slice(node.start, node.end) };
       }
       if (value === null) return { kind: 'null', value: null };
       if (typeof value === 'string') return { kind: 'string', value };
       if (typeof value === 'number') return { kind: 'number', value };
       if (typeof value === 'boolean') return { kind: 'boolean', value };
-      return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
+      return { kind: 'unresolvable', sourceText: sourceText.slice(node.start, node.end) };
     }
 
     // Identifier — oxc-parser emits 'Identifier' for all identifier nodes
-    if (type === 'Identifier') {
-      const name = node.name as string;
+    if (node.type === 'Identifier') {
+      const name = node.name;
       if (name === 'undefined') return { kind: 'undefined', value: null };
       const imp = importMap.get(name);
-      const result: ExpressionValue = { kind: 'identifier', name };
+      const result: ExpressionIdentifier = { kind: 'identifier', name };
       if (imp) {
-        (result as ExpressionIdentifier).importSource = imp.specifier;
-        if (imp.originalName) (result as ExpressionIdentifier).originalName = imp.originalName;
+        result.importSource = imp.specifier;
+        if (imp.originalName) result.originalName = imp.originalName;
       }
       return result;
     }
 
     // Member expression: a.b or a.b.c — oxc-parser emits 'MemberExpression' with computed flag
-    if (type === 'MemberExpression') {
+    if (node.type === 'MemberExpression') {
       if (node.computed) {
         // Allow computed access with string literal key: a['key'] → member
-        const prop = node.property as Record<string, unknown>;
+        const prop = node.property;
         if (prop.type === 'Literal' && typeof prop.value === 'string') {
-          const obj = node.object as Record<string, unknown>;
-          const objectText = sourceText.slice(obj.start as number, obj.end as number);
-          const rootName = obj.type === 'Identifier' ? obj.name as string : undefined;
+          const obj = node.object;
+          const objectText = sourceText.slice(obj.start, obj.end);
+          const rootName = obj.type === 'Identifier' ? obj.name : undefined;
           const imp = rootName ? importMap.get(rootName) : undefined;
-          const result: ExpressionValue = { kind: 'member', object: objectText, property: prop.value };
-          if (imp) (result as ExpressionMember).importSource = imp.specifier;
+          const result: ExpressionMember = { kind: 'member', object: objectText, property: prop.value };
+          if (imp) result.importSource = imp.specifier;
           return result;
         }
-        return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
+        return { kind: 'unresolvable', sourceText: sourceText.slice(node.start, node.end) };
       }
-      const obj = node.object as Record<string, unknown>;
-      const objectText = sourceText.slice(obj.start as number, obj.end as number);
-      const property = (node.property as Record<string, unknown>).name as string
-        ?? sourceText.slice(
-          (node.property as Record<string, unknown>).start as number,
-          (node.property as Record<string, unknown>).end as number,
-        );
+      const obj = node.object;
+      const objectText = sourceText.slice(obj.start, obj.end);
+      const property = node.property.name;
       // Resolve the leftmost identifier of the object chain
-      const rootName = obj.type === 'Identifier' ? obj.name as string : undefined;
+      const rootName = obj.type === 'Identifier' ? obj.name : undefined;
       const imp = rootName ? importMap.get(rootName) : undefined;
-      const result: ExpressionValue = { kind: 'member', object: objectText, property };
-      if (imp) (result as ExpressionMember).importSource = imp.specifier;
+      const result: ExpressionMember = { kind: 'member', object: objectText, property };
+      if (imp) result.importSource = imp.specifier;
       return result;
     }
 
     // Call expression: fn(args)
-    if (type === 'CallExpression') {
-      const callee = node.callee as Record<string, unknown>;
-      const calleeName = sourceText.slice(callee.start as number, callee.end as number);
-      const rawArgs = (node.arguments as Array<Record<string, unknown>>) ?? [];
-      const args = rawArgs.map((a) => convertExpression(a, depth + 1));
+    if (node.type === 'CallExpression') {
+      const callee = node.callee;
+      const calleeName = sourceText.slice(callee.start, callee.end);
+      const args = node.arguments.map((a) => convertExpression(a, depth + 1));
       const imp = resolveCalleeImport(callee);
-      const result: ExpressionValue = { kind: 'call', callee: calleeName, arguments: args };
-      if (imp) (result as ExpressionCall).importSource = imp.specifier;
+      const result: ExpressionCall = { kind: 'call', callee: calleeName, arguments: args };
+      if (imp) result.importSource = imp.specifier;
       return result;
     }
 
     // New expression: new Cls(args)
-    if (type === 'NewExpression') {
-      const callee = node.callee as Record<string, unknown>;
-      const calleeName = sourceText.slice(callee.start as number, callee.end as number);
-      const rawArgs = (node.arguments as Array<Record<string, unknown>>) ?? [];
-      const args = rawArgs.map((a) => convertExpression(a, depth + 1));
+    if (node.type === 'NewExpression') {
+      const callee = node.callee;
+      const calleeName = sourceText.slice(callee.start, callee.end);
+      const args = node.arguments.map((a) => convertExpression(a, depth + 1));
       const imp = resolveCalleeImport(callee);
-      const result: ExpressionValue = { kind: 'new', callee: calleeName, arguments: args };
-      if (imp) (result as ExpressionNew).importSource = imp.specifier;
+      const result: ExpressionNew = { kind: 'new', callee: calleeName, arguments: args };
+      if (imp) result.importSource = imp.specifier;
       return result;
     }
 
     // Object expression: { key: value }
-    if (type === 'ObjectExpression') {
-      const rawProps = (node.properties as Array<Record<string, unknown>>) ?? [];
+    if (node.type === 'ObjectExpression') {
       const properties: ExpressionObjectEntry[] = [];
-      for (const p of rawProps) {
-        if ((p.type as string) === 'SpreadElement') {
-          const arg = p.argument as Record<string, unknown>;
-          properties.push({ kind: 'spread', argument: convertExpression(arg, depth + 1) });
+      for (const p of node.properties) {
+        if (p.type === 'SpreadElement') {
+          properties.push({ kind: 'spread', argument: convertExpression(p.argument, depth + 1) });
           continue;
         }
-        const keyNode = p.key as Record<string, unknown>;
-        const computed = p.computed === true;
-        const value = p.value as Record<string, unknown>;
-        const shorthand = (p.shorthand as boolean) || undefined;
-        const objKey = objectLiteralKey(keyNode, computed, depth + 1);
+        const objKey = objectLiteralKey(p.key, p.computed, depth + 1);
         const entry: ExpressionObjectProperty = {
           kind: 'property',
           key: objKey,
-          value: convertExpression(value, depth + 1),
+          value: convertExpression(p.value, depth + 1),
         };
-        if (shorthand) entry.shorthand = true;
+        if (p.shorthand) entry.shorthand = true;
         properties.push(entry);
       }
       return { kind: 'object', properties };
     }
 
     // Array expression: [a, b, c]
-    if (type === 'ArrayExpression') {
-      const rawElements = (node.elements as Array<Record<string, unknown> | null>) ?? [];
-      const elements = rawElements.map((e) => {
+    if (node.type === 'ArrayExpression') {
+      const elements = node.elements.map((e) => {
         if (!e) return { kind: 'undefined' as const, value: null };
         return convertExpression(e, depth + 1);
       });
@@ -424,59 +389,57 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     }
 
     // Spread element: ...x
-    if (type === 'SpreadElement') {
-      const arg = node.argument as Record<string, unknown>;
-      return { kind: 'spread', argument: convertExpression(arg, depth + 1) };
+    if (node.type === 'SpreadElement') {
+      return { kind: 'spread', argument: convertExpression(node.argument, depth + 1) };
     }
 
     // Arrow/function expression: () => {} or function() {}
-    if (type === 'ArrowFunctionExpression' || type === 'FunctionExpression') {
-      const fnNode = node as unknown as OxcFunction | ArrowFunctionExpression;
-      const params = fnNode.params.map(extractParam);
+    if (node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression') {
+      const params = node.params.map(extractParam);
       const result: ExpressionFunction = {
         kind: 'function',
-        sourceText: sourceText.slice(node.start as number, node.end as number),
+        sourceText: sourceText.slice(node.start, node.end),
       };
       if (params.length > 0) result.parameters = params;
       return result;
     }
 
     // Template literal
-    if (type === 'TemplateLiteral' || type === 'TaggedTemplateExpression') {
-      return { kind: 'template', sourceText: sourceText.slice(node.start as number, node.end as number) };
+    if (node.type === 'TemplateLiteral' || node.type === 'TaggedTemplateExpression') {
+      return { kind: 'template', sourceText: sourceText.slice(node.start, node.end) };
     }
 
     // Unary expression: !x, -1, typeof x, void 0
-    if (type === 'UnaryExpression') {
-      const operator = node.operator as string;
-      const argument = node.argument as Record<string, unknown>;
+    if (node.type === 'UnaryExpression') {
+      const argument = node.argument;
       // Handle negative numbers: -1, -3.14
-      if (operator === '-' && argument.type === 'Literal' && typeof argument.value === 'number') {
-        return { kind: 'number', value: -(argument.value as number) };
+      if (node.operator === '-' && argument.type === 'Literal' && typeof argument.value === 'number') {
+        return { kind: 'number', value: -argument.value };
       }
       // void 0 → undefined
-      if (operator === 'void') {
+      if (node.operator === 'void') {
         return { kind: 'undefined', value: null };
       }
-      return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
+      return { kind: 'unresolvable', sourceText: sourceText.slice(node.start, node.end) };
     }
 
     // Transparent wrappers — unwrap to inner expression
     if (
-      type === 'TSAsExpression' ||
-      type === 'TSSatisfiesExpression' ||
-      type === 'TSNonNullExpression' ||
-      type === 'TSTypeAssertion' ||
-      type === 'TSInstantiationExpression' ||
-      type === 'ParenthesizedExpression' ||
-      type === 'ChainExpression'
+      node.type === 'TSAsExpression' ||
+      node.type === 'TSSatisfiesExpression' ||
+      node.type === 'TSNonNullExpression' ||
+      node.type === 'TSTypeAssertion' ||
+      node.type === 'TSInstantiationExpression' ||
+      node.type === 'ParenthesizedExpression'
     ) {
-      const inner = node.expression as Record<string, unknown>;
-      if (inner) return convertExpression(inner, depth);
+      return convertExpression(node.expression, depth);
+    }
+    if (node.type === 'ChainExpression') {
+      return convertExpression(node.expression, depth);
     }
 
     // Fallback: anything we can't structurally represent
-    return { kind: 'unresolvable', sourceText: sourceText.slice(node.start as number, node.end as number) };
+    return { kind: 'unresolvable', sourceText: sourceText.slice(node.start, node.end) };
   }
 
   function extractDecorators(decorators: readonly OxcDecorator[]): ExtractorDecorator[] {
@@ -484,31 +447,27 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     return decorators.map((d) => {
       const expr = d.expression;
       if (expr.type === 'CallExpression') {
-        const callExpr = expr as OxcCallExpression;
-        const callee = callExpr.callee;
+        const callee = expr.callee;
         const calleeName =
           ('name' in callee && typeof callee.name === 'string')
             ? callee.name
-            : ('property' in callee && callee.property && typeof (callee.property as { name?: string }).name === 'string')
-              ? (callee.property as { name: string }).name
+            : ('property' in callee && 'name' in callee.property && typeof callee.property.name === 'string')
+              ? callee.property.name
               : 'unknown';
-        const args = callExpr.arguments.map((a: Argument) =>
-          convertExpression(a),
-        );
+        const args = expr.arguments.map((a) => convertExpression(a));
         return { name: calleeName, arguments: args.length > 0 ? args : undefined };
       }
-      if (expr.type === 'Identifier') return { name: (expr as IdentifierReference).name ?? 'unknown' };
+      if (expr.type === 'Identifier') return { name: expr.name ?? 'unknown' };
       return { name: sourceText.slice(expr.start, expr.end) };
     });
   }
 
   function extractParam(p: ParamPattern): Parameter {
     if (p.type === 'TSParameterProperty') {
-      const tsp = p as TSParameterProperty;
-      return extractParamFromBinding(tsp.parameter, tsp.decorators);
+      return extractParamFromBinding(p.parameter, p.decorators);
     }
     if (p.type === 'RestElement') {
-      const rest = p as FormalParameterRest;
+      const rest = p;
       const arg = rest.argument;
       const argName: string = ('name' in arg && typeof arg.name === 'string') ? arg.name : 'unknown';
       const name = `...${argName}`;
@@ -519,20 +478,17 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       return param;
     }
     // FormalParameter = { decorators?: Array<Decorator> } & BindingPattern
-    const fp = p as BindingPattern & { decorators?: OxcDecorator[] };
-    return extractParamFromBinding(fp, fp.decorators);
+    return extractParamFromBinding(p, p.decorators);
   }
 
   /** Extract the root type name from a type annotation for import resolution. */
   function resolveTypeImportSource(typeAnn: TSTypeAnnotation | null | undefined): string | undefined {
     if (!typeAnn) return undefined;
-    const inner = ('typeAnnotation' in typeAnn && typeAnn.typeAnnotation)
-      ? typeAnn.typeAnnotation as unknown as Record<string, unknown>
-      : null;
-    if (!inner) return undefined;
-    // TSTypeReference → typeName is an Identifier
-    const typeName = inner.typeName as Record<string, unknown> | undefined;
-    const rootName = typeName?.name as string | undefined;
+    const inner = typeAnn.typeAnnotation;
+    // Only a bare `TSTypeReference` (e.g. `Foo`, `Foo.Bar`) carries an import-resolvable name.
+    if (inner.type !== 'TSTypeReference') return undefined;
+    const typeName = inner.typeName;
+    const rootName = typeName.type === 'Identifier' ? typeName.name : undefined;
     if (!rootName) return undefined;
     return importMap.get(rootName)?.specifier;
   }
@@ -545,6 +501,11 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       const left = inner.left;
       const right = inner.right;
       const name: string = ('name' in left && typeof left.name === 'string') ? left.name : 'unknown';
+      // @oxc-project/types declares `BindingIdentifier.typeAnnotation?: null` and
+      // `decorators?: []`, but oxc emits a real `TSTypeAnnotation`/decorators here at
+      // runtime (verified: `function f(a: string = 1)` → `left.typeAnnotation` is a
+      // TSTypeAnnotation). These casts bridge that upstream type inaccuracy — they are
+      // NOT a workaround for our own modelling, and removing them loses the annotation.
       const typeAnn = ('typeAnnotation' in left) ? left.typeAnnotation as TSTypeAnnotation | null : null;
       const type = typeAnn ? typeText(typeAnn) : undefined;
       const typeImportSource = resolveTypeImportSource(typeAnn);
@@ -631,7 +592,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     const members: ExtractedSymbol[] = [];
     for (const m of bodyNodes) {
       if (m.type === 'MethodDefinition' || m.type === 'TSAbstractMethodDefinition') {
-        const md = m as MethodDefinition;
+        const md = m;
         const name: string = memberDisplayName(md.key, md.computed);
         const key = memberKey(md.key, md.computed, 0);
         const fnValue = md.value;
@@ -670,7 +631,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         m.type === 'AccessorProperty' ||
         m.type === 'TSAbstractAccessorProperty'
       ) {
-        const pd = m as PropertyDefinition | AccessorProperty;
+        const pd = m;
         const name: string = memberDisplayName(pd.key, pd.computed);
         const key = memberKey(pd.key, pd.computed, 0);
         const mods = extractModifiers(pd);
@@ -680,12 +641,12 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         if (m.type === 'AccessorProperty' || m.type === 'TSAbstractAccessorProperty') {
           mods.push('accessor');
         }
-        const returnType = typeText((pd as { typeAnnotation?: TSTypeAnnotation | null }).typeAnnotation);
-        const initNode = (pd as { value?: unknown }).value;
+        const returnType = typeText(pd.typeAnnotation);
+        const initNode = pd.value;
         const initializer = initNode
           ? convertExpression(initNode)
           : undefined;
-        const decos = extractDecorators((pd as { decorators?: readonly OxcDecorator[] }).decorators ?? []);
+        const decos = extractDecorators(pd.decorators);
         const s: ExtractedSymbol = {
           kind: 'property',
           name,
@@ -707,7 +668,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     const members: ExtractedSymbol[] = [];
     for (const m of bodyNodes) {
       if (m.type === 'TSMethodSignature') {
-        const ms = m as TSMethodSignature;
+        const ms = m;
         const name: string = memberDisplayName(ms.key, ms.computed);
         const key = memberKey(ms.key, ms.computed, 0);
         const params = ms.params.map(extractParam);
@@ -725,7 +686,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         if (key) s.key = key;
         members.push(s);
       } else if (m.type === 'TSPropertySignature') {
-        const ps = m as TSPropertySignature;
+        const ps = m;
         const name: string = memberDisplayName(ps.key, ps.computed);
         const key = memberKey(ps.key, ps.computed, 0);
         const typeAnn = typeText(ps.typeAnnotation);
@@ -744,11 +705,9 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     return members;
   }
 
-  function buildSymbol(node: Declaration, isExported: boolean): ExtractedSymbol | ExtractedSymbol[] | null {
-    const type: string = node.type;
-
-    if (type === 'FunctionDeclaration' || type === 'FunctionExpression' || type === 'TSDeclareFunction' || type === 'TSEmptyBodyFunctionExpression') {
-      const fn = node as OxcFunction;
+  function buildSymbol(node: Declaration | Expression, isExported: boolean): ExtractedSymbol | ExtractedSymbol[] | null {
+    if (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression' || node.type === 'TSDeclareFunction' || node.type === 'TSEmptyBodyFunctionExpression') {
+      const fn = node;
       const name: string = fn.id?.name ?? 'default';
       const params = fn.params.map(extractParam);
       const returnType = typeText(fn.returnType);
@@ -771,8 +730,8 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       return sym;
     }
 
-    if (type === 'ClassDeclaration' || type === 'ClassExpression') {
-      const cls = node as OxcClass;
+    if (node.type === 'ClassDeclaration' || node.type === 'ClassExpression') {
+      const cls = node;
       const name: string = cls.id?.name ?? 'default';
       const heritage = classHeritage(cls);
       const members = extractClassMembers(cls.body.body);
@@ -793,8 +752,8 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       return sym;
     }
 
-    if (type === 'VariableDeclaration') {
-      const varDecl = node as VariableDeclaration;
+    if (node.type === 'VariableDeclaration') {
+      const varDecl = node;
       const symbols: ExtractedSymbol[] = [];
       for (const decl of varDecl.declarations) {
         const id = decl.id;
@@ -804,7 +763,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           const bindings = collectBindingNames(id);
           for (const binding of bindings) {
             symbols.push({
-              kind: 'variable' as SymbolKind,
+              kind: 'variable',
               name: binding.name,
               span: span(binding.start, binding.end),
               isExported,
@@ -826,7 +785,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
             init.type === 'ArrowFunctionExpression'
           ) {
             kind = 'function';
-            const fnInit = init as OxcFunction | ArrowFunctionExpression;
+            const fnInit = init;
             const rawParams = fnInit.params;
             params = rawParams.map(extractParam);
             returnType = typeText(fnInit.returnType);
@@ -852,8 +811,8 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       return symbols;
     }
 
-    if (type === 'TSTypeAliasDeclaration') {
-      const ta = node as TSTypeAliasDeclaration;
+    if (node.type === 'TSTypeAliasDeclaration') {
+      const ta = node;
       const name: string = ta.id.name;
       return {
         kind: 'type',
@@ -864,8 +823,8 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       };
     }
 
-    if (type === 'TSInterfaceDeclaration') {
-      const iface = node as TSInterfaceDeclaration;
+    if (node.type === 'TSInterfaceDeclaration') {
+      const iface = node;
       const name: string = iface.id.name;
       const heritage = interfaceHeritage(iface);
       const members = extractInterfaceMembers(iface.body.body);
@@ -883,8 +842,8 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       return sym;
     }
 
-    if (type === 'TSEnumDeclaration') {
-      const enumDecl = node as TSEnumDeclaration;
+    if (node.type === 'TSEnumDeclaration') {
+      const enumDecl = node;
       const name: string = enumDecl.id.name;
       const mods = extractModifiers(enumDecl);
       const rawMembers: readonly TSEnumMember[] = enumDecl.body.members;
@@ -898,7 +857,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
             : 'unknown';
         const initializer = m.initializer ? convertExpression(m.initializer) : undefined;
         const sym: ExtractedSymbol = {
-          kind: 'property' as SymbolKind,
+          kind: 'property',
           name: memberName,
           span: span(m.start, m.end),
           isExported: false,
@@ -922,19 +881,20 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       };
     }
 
-    if (type === 'TSModuleDeclaration') {
-      const mod = node as { id: { name?: string; value?: string }; body?: { type?: string; body?: Array<Record<string, unknown>> }; declare?: boolean; start: number; end: number };
-      const name: string = mod.id.name ?? mod.id.value ?? 'unknown';
-      const mods = extractModifiers(mod);
+    if (node.type === 'TSModuleDeclaration') {
+      const name: string = 'name' in node.id
+        ? node.id.name
+        : 'value' in node.id ? node.id.value : 'unknown';
+      const mods = extractModifiers(node);
 
       // Extract exported members from the namespace body (TSModuleBlock)
       const members: ExtractedSymbol[] = [];
-      if (mod.body?.type === 'TSModuleBlock') {
-        for (const stmt of mod.body.body ?? []) {
+      if (node.body?.type === 'TSModuleBlock') {
+        for (const stmt of node.body.body) {
           if (stmt.type !== 'ExportNamedDeclaration') continue;
-          const decl = stmt.declaration as Record<string, unknown> | undefined;
+          const decl = stmt.declaration;
           if (!decl) continue;
-          const memberSym = buildSymbol(decl as unknown as Declaration, false);
+          const memberSym = buildSymbol(decl, false);
           if (memberSym) {
             if (Array.isArray(memberSym)) members.push(...memberSym);
             else members.push(memberSym);
@@ -943,7 +903,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       }
 
       return {
-        kind: 'namespace' as SymbolKind,
+        kind: 'namespace',
         name,
         span: span(node.start, node.end),
         isExported,
@@ -960,10 +920,10 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
 
   for (const node of program.body) {
     let sym: ExtractedSymbol | ExtractedSymbol[] | null = null;
-    const stmtNode = node as Statement | Directive;
+    const stmtNode = node;
 
     if (stmtNode.type === 'ExportNamedDeclaration') {
-      const n = stmtNode as ExportNamedDeclaration;
+      const n = stmtNode;
       if (n.declaration) {
         sym = buildSymbol(n.declaration, true);
         if (sym && !Array.isArray(sym)) {
@@ -977,19 +937,19 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         }
       }
     } else if (stmtNode.type === 'ExportDefaultDeclaration') {
-      const n = stmtNode as ExportDefaultDeclaration;
+      const n = stmtNode;
       const decl = n.declaration;
       if (decl) {
-        sym = buildSymbol(decl as Declaration, true);
+        sym = buildSymbol(decl, true);
         if (sym && !Array.isArray(sym)) {
-          sym.name = ('id' in decl && decl.id && typeof (decl.id as { name?: string }).name === 'string')
-            ? (decl.id as { name: string }).name
+          sym.name = 'id' in decl && decl.id && typeof decl.id.name === 'string'
+            ? decl.id.name
             : 'default';
           sym.isExported = true;
           sym.span = span(n.start, n.end);
-        } else if (!sym && 'type' in decl && (decl as { type: string }).type === 'Identifier') {
+        } else if (!sym && decl.type === 'Identifier') {
           // export default <identifier> — mark the referenced variable as exported
-          const identName = (decl as IdentifierReference).name;
+          const identName = decl.name;
           if (identName) deferredExportNames.add(identName);
         }
       }
@@ -1006,7 +966,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
         declType === 'TSEnumDeclaration' ||
         declType === 'TSModuleDeclaration'
       ) {
-        sym = buildSymbol(stmtNode as Declaration, false);
+        sym = buildSymbol(stmtNode, false);
       }
     }
 

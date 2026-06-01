@@ -1,4 +1,5 @@
-import { GildashError } from '../errors';
+import { inboundRelPath } from '../common/path-utils';
+import { guard } from './guard';
 import { DependencyGraph } from '../search/dependency-graph';
 import type { GildashContext } from './context';
 import type { FanMetrics } from './types';
@@ -52,17 +53,13 @@ export function getDependencies(
   project?: string,
   limit = 10_000,
 ): string[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
-    return ctx.relationSearchFn({
-      relationRepo: ctx.relationRepo,
+  return guard(ctx, 'search', 'getDependencies', () =>
+    ctx.relationSearchFn({
+      relationRepo: ctx.relationRepo, projectRoot: ctx.projectRoot,
       project: project ?? ctx.defaultProject,
       query: { srcFilePath: filePath, type: 'imports', project: project ?? ctx.defaultProject, limit },
-    }).filter(r => r.dstFilePath !== null).map(r => r.dstFilePath!);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getDependencies failed', { cause: e });
-  }
+    }).filter(r => r.dstFilePath !== null).map(r => r.dstFilePath!),
+  );
 }
 
 /** List the files that directly import a given file. */
@@ -72,17 +69,13 @@ export function getDependents(
   project?: string,
   limit = 10_000,
 ): string[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
-    return ctx.relationSearchFn({
-      relationRepo: ctx.relationRepo,
+  return guard(ctx, 'search', 'getDependents', () =>
+    ctx.relationSearchFn({
+      relationRepo: ctx.relationRepo, projectRoot: ctx.projectRoot,
       project: project ?? ctx.defaultProject,
       query: { dstFilePath: filePath, type: 'imports', project: project ?? ctx.defaultProject, limit },
-    }).map(r => r.srcFilePath);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getDependents failed', { cause: e });
-  }
+    }).map(r => r.srcFilePath),
+  );
 }
 
 /** Compute the full set of files transitively affected by changes. */
@@ -91,14 +84,10 @@ export async function getAffected(
   changedFiles: string[],
   project?: string,
 ): Promise<string[]> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
+  return guard(ctx, 'search', 'getAffected', () => {
     const g = getOrBuildGraph(ctx, project);
-    return g.getAffectedByChange(changedFiles);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getAffected failed', { cause: e });
-  }
+    return g.getAffectedByChange(changedFiles.map(f => inboundRelPath(ctx.projectRoot, f)));
+  });
 }
 
 /** Check whether the import graph contains a circular dependency. */
@@ -106,14 +95,10 @@ export async function hasCycle(
   ctx: GildashContext,
   project?: string,
 ): Promise<boolean> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
+  return guard(ctx, 'search', 'hasCycle', () => {
     const g = getOrBuildGraph(ctx, project);
     return g.hasCycle();
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: hasCycle failed', { cause: e });
-  }
+  });
 }
 
 /** Return the full import graph as an adjacency list. */
@@ -121,14 +106,10 @@ export async function getImportGraph(
   ctx: GildashContext,
   project?: string,
 ): Promise<Map<string, string[]>> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
+  return guard(ctx, 'search', 'getImportGraph', () => {
     const g = getOrBuildGraph(ctx, project);
     return g.getAdjacencyList();
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getImportGraph failed', { cause: e });
-  }
+  });
 }
 
 /** Return all files that `filePath` transitively imports (forward BFS). */
@@ -137,14 +118,10 @@ export async function getTransitiveDependencies(
   filePath: string,
   project?: string,
 ): Promise<string[]> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
+  return guard(ctx, 'search', 'getTransitiveDependencies', () => {
     const g = getOrBuildGraph(ctx, project);
-    return g.getTransitiveDependencies(filePath);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getTransitiveDependencies failed', { cause: e });
-  }
+    return g.getTransitiveDependencies(inboundRelPath(ctx.projectRoot, filePath));
+  });
 }
 
 /** Return all files that transitively depend on `filePath` (reverse BFS). */
@@ -153,14 +130,10 @@ export async function getTransitiveDependents(
   filePath: string,
   project?: string,
 ): Promise<string[]> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
+  return guard(ctx, 'search', 'getTransitiveDependents', () => {
     const g = getOrBuildGraph(ctx, project);
-    return g.getTransitiveDependents(filePath);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getTransitiveDependents failed', { cause: e });
-  }
+    return g.getTransitiveDependents(inboundRelPath(ctx.projectRoot, filePath));
+  });
 }
 
 /** Return all cycle paths in the import graph. */
@@ -169,14 +142,10 @@ export async function getCyclePaths(
   project?: string,
   options?: { maxCycles?: number },
 ): Promise<string[][]> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
+  return guard(ctx, 'search', 'getCyclePaths', () => {
     const g = getOrBuildGraph(ctx, project);
     return g.getCyclePaths(options);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getCyclePaths failed', { cause: e });
-  }
+  });
 }
 
 /** Compute import-graph fan metrics (fan-in / fan-out) for a single file. */
@@ -185,16 +154,13 @@ export async function getFanMetrics(
   filePath: string,
   project?: string,
 ): Promise<FanMetrics> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
+  return guard(ctx, 'search', 'getFanMetrics', () => {
     const g = getOrBuildGraph(ctx, project);
+    const rel = inboundRelPath(ctx.projectRoot, filePath);
     return {
       filePath,
-      fanIn: g.getDependents(filePath).length,
-      fanOut: g.getDependencies(filePath).length,
+      fanIn: g.getDependents(rel).length,
+      fanOut: g.getDependencies(rel).length,
     };
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getFanMetrics failed', { cause: e });
-  }
+  });
 }

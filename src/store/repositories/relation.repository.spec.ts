@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test';
+import { relPath } from '../../common/path-utils';
 import type { Mock } from 'bun:test';
 import { RelationRepository } from './relation.repository';
 import type { RelationRecord } from './relation.repository';
@@ -29,10 +30,10 @@ function makeRelRecord(overrides: Partial<RelationRecord> = {}): Partial<Relatio
   return {
     project: 'test-project',
     type: 'imports',
-    srcFilePath: 'src/index.ts',
+    srcFilePath: relPath('src/index.ts'),
     srcSymbolName: null,
     dstProject: 'test-project',
-    dstFilePath: 'src/utils.ts',
+    dstFilePath: relPath('src/utils.ts'),
     dstSymbolName: null,
     metaJson: null,
     ...overrides,
@@ -55,9 +56,9 @@ describe('RelationRepository', () => {
     const { db, chain } = makeDbMock();
     const repo = new RelationRepository(db);
     const rels = [
-      makeRelRecord({ dstFilePath: 'src/a.ts' }),
-      makeRelRecord({ dstFilePath: 'src/b.ts' }),
-      makeRelRecord({ dstFilePath: 'src/c.ts' }),
+      makeRelRecord({ dstFilePath: relPath('src/a.ts') }),
+      makeRelRecord({ dstFilePath: relPath('src/b.ts') }),
+      makeRelRecord({ dstFilePath: relPath('src/c.ts') }),
     ];
 
     repo.replaceFileRelations('test-project', 'src/index.ts', rels);
@@ -71,7 +72,7 @@ describe('RelationRepository', () => {
     chain['all']!.mockReturnValue(records as unknown[]);
 
     const repo = new RelationRepository(db);
-    const result = repo.getOutgoing('test-project', 'src/index.ts');
+    const result = repo.getOutgoing('test-project', relPath('src/index.ts'));
 
     expect(result).toEqual(records);
     expect(chain['select']).toHaveBeenCalled();
@@ -84,7 +85,7 @@ describe('RelationRepository', () => {
     chain['all']!.mockReturnValue(records as unknown[]);
 
     const repo = new RelationRepository(db);
-    const result = repo.getOutgoing('test-project', 'src/index.ts', 'myFn');
+    const result = repo.getOutgoing('test-project', relPath('src/index.ts'), 'myFn');
 
     expect(result).toEqual(records);
     expect(chain['all']).toHaveBeenCalled();
@@ -96,7 +97,7 @@ describe('RelationRepository', () => {
     chain['all']!.mockReturnValue(records as unknown[]);
 
     const repo = new RelationRepository(db);
-    const result = repo.getIncoming({ dstProject: 'test-project', dstFilePath: 'src/utils.ts' });
+    const result = repo.getIncoming({ dstProject: 'test-project', dstFilePath: relPath('src/utils.ts') });
 
     expect(result).toEqual(records);
   });
@@ -116,7 +117,7 @@ describe('RelationRepository', () => {
     const { db, chain } = makeDbMock();
     const repo = new RelationRepository(db);
 
-    repo.deleteFileRelations('test-project', 'src/index.ts');
+    repo.deleteFileRelations('test-project', relPath('src/index.ts'));
 
     expect(chain['delete']).toHaveBeenCalled();
     expect(chain['run']).toHaveBeenCalled();
@@ -127,9 +128,9 @@ describe('RelationRepository', () => {
     const repo = new RelationRepository(db);
 
     expect(() => repo.searchRelations({
-      srcFilePath: 'src/a.ts',
+      srcFilePath: relPath('src/a.ts'),
       srcSymbolName: 'fn',
-      dstFilePath: 'src/b.ts',
+      dstFilePath: relPath('src/b.ts'),
       dstSymbolName: 'handler',
       type: 'calls',
       project: 'test-project',
@@ -183,7 +184,7 @@ describe('RelationRepository', () => {
     chain['all']!.mockReturnValue([]);
 
     const repo = new RelationRepository(db);
-    const result = repo.getOutgoing('test-project', 'src/nonexistent.ts');
+    const result = repo.getOutgoing('test-project', relPath('src/nonexistent.ts'));
 
     expect(result).toEqual([]);
   });
@@ -192,7 +193,7 @@ describe('RelationRepository', () => {
     const { db, chain } = makeDbMock();
     const repo = new RelationRepository(db);
 
-    expect(() => repo.getOutgoing('test-project', 'src/index.ts', '')).not.toThrow();
+    expect(() => repo.getOutgoing('test-project', relPath('src/index.ts'), '')).not.toThrow();
     expect(chain['all']).toHaveBeenCalled();
   });
 
@@ -213,7 +214,7 @@ describe('RelationRepository', () => {
     const repo = new RelationRepository(db);
 
     expect(() =>
-      repo.searchRelations({ srcFilePath: 'src/a.ts', type: 'imports', limit: 5 }),
+      repo.searchRelations({ srcFilePath: relPath('src/a.ts'), type: 'imports', limit: 5 }),
     ).not.toThrow();
     expect(chain['all']).toHaveBeenCalled();
   });
@@ -223,7 +224,7 @@ describe('RelationRepository', () => {
     const repo = new RelationRepository(db);
 
     repo.replaceFileRelations('proj-a', 'src/a.ts', [
-      makeRelRecord({ type: 'imports', dstFilePath: 'src/b.ts', dstProject: 'proj-b' }),
+      makeRelRecord({ type: 'imports', dstFilePath: relPath('src/b.ts'), dstProject: 'proj-b' }),
     ]);
 
     const insertedValues = (chain['values'] as { mock: { calls: any[][] } }).mock.calls[0]?.[0];
@@ -248,7 +249,7 @@ describe('RelationRepository', () => {
     const { db, chain } = makeDbMock();
     const repo = new RelationRepository(db);
 
-    const relNoProject: Partial<RelationRecord> = { type: 'imports', dstFilePath: 'src/b.ts' };
+    const relNoProject: Partial<RelationRecord> = { type: 'imports', dstFilePath: relPath('src/b.ts') };
     repo.replaceFileRelations('proj-a', 'src/a.ts', [relNoProject]);
 
     const insertedValues = (chain['values'] as { mock: { calls: any[][] } }).mock.calls[0]?.[0];

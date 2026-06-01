@@ -1,7 +1,7 @@
 import { isErr } from '@zipbul/result';
 import type { ParsedFile } from '../parser/types';
 import type { ParserOptions } from 'oxc-parser';
-import { GildashError } from '../errors';
+import { assertOpen } from './guard';
 import type { GildashContext } from './context';
 import type { BatchParseResult } from './types';
 
@@ -12,7 +12,7 @@ export function parseSource(
   sourceText: string,
   options?: ParserOptions,
 ): ParsedFile {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  assertOpen(ctx);
   const result = ctx.parseSourceFn(filePath, sourceText, options);
   if (isErr(result)) throw result.data;
   ctx.parseCache.set(filePath, result);
@@ -25,7 +25,7 @@ export async function batchParse(
   filePaths: string[],
   options?: ParserOptions,
 ): Promise<BatchParseResult> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  assertOpen(ctx);
   const parsed = new Map<string, ParsedFile>();
   const failures: Array<{ filePath: string; error: Error }> = [];
   await Promise.all(
@@ -54,6 +54,6 @@ export function getParsedAst(
   ctx: GildashContext,
   filePath: string,
 ): ParsedFile | undefined {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  assertOpen(ctx);
   return ctx.parseCache.get(filePath);
 }

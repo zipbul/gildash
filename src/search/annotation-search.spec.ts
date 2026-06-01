@@ -1,8 +1,8 @@
 import { describe, expect, it, mock } from 'bun:test';
 import { annotationSearch } from './annotation-search';
-import type { IAnnotationRepo } from './annotation-search';
+import type { AnnotationRepositoryReader } from './annotation-search';
 
-function makeRepo(records: any[] = []): IAnnotationRepo {
+function makeRepo(records: any[] = []): AnnotationRepositoryReader {
   return {
     search: mock(() => records),
   };

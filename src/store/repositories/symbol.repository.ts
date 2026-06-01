@@ -3,6 +3,7 @@ import { symbols } from '../schema';
 import type { DbConnection } from '../connection';
 import { toFtsPrefixQuery } from './fts-utils';
 import { GildashError } from '../../errors';
+import type { RelPath } from '../../common/path-utils';
 
 const BATCH_CHUNK_SIZE = 50;
 
@@ -82,7 +83,7 @@ export class SymbolRepository {
     }
   }
 
-  getFileSymbols(project: string, filePath: string): SymbolRecord[] {
+  getFileSymbols(project: string, filePath: RelPath): SymbolRecord[] {
     return this.db.drizzleDb
       .select()
       .from(symbols)
@@ -144,7 +145,7 @@ export class SymbolRepository {
       .all();
   }
 
-  deleteFileSymbols(project: string, filePath: string): void {
+  deleteFileSymbols(project: string, filePath: RelPath): void {
     this.db.drizzleDb
       .delete(symbols)
       .where(and(eq(symbols.project, project), eq(symbols.filePath, filePath)))
@@ -155,7 +156,7 @@ export class SymbolRepository {
     ftsQuery?: string;
     exactName?: string;
     kind?: string;
-    filePath?: string;
+    filePath?: RelPath;
     isExported?: boolean;
     project?: string;
     limit?: number;

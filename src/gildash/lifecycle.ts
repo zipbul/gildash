@@ -30,7 +30,7 @@ import { annotationSearch as defaultAnnotationSearch } from '../search/annotatio
 import { GildashError } from '../errors';
 import { DATA_DIR, DB_FILE } from '../constants';
 import { invalidateGraphCache } from './graph-api';
-import type { IDependencyGraphRepo } from '../search/dependency-graph';
+import type { DependencyGraphRelationReader } from '../search/dependency-graph';
 import type { GildashContext, CoordinatorLike, WatcherLike, DbStore } from './context';
 import type { GildashOptions, Logger } from './types';
 
@@ -157,6 +157,9 @@ export async function setupOwnerInfrastructure(
         fileRepo: ctx.fileRepo,
         symbolRepo: ctx.symbolRepo,
         relationRepo: ctx.relationRepo,
+        // `ctx.annotationRepo` is the read-only `AnnotationRepositoryReader` port,
+        // but the coordinator needs the concrete repo's write methods (insert/delete).
+        // The runtime instance is always the full `AnnotationRepository`.
         annotationRepo: (ctx.annotationRepo as AnnotationRepository | null) ?? undefined,
         changelogRepo: ctx.changelogRepo ?? undefined,
         onBoundariesChanged: (b) => applyBoundariesChange(ctx, b),
@@ -172,7 +175,7 @@ export async function setupOwnerInfrastructure(
   c.onIndexed((result) => {
     const total = result.changedFiles.length + result.deletedFiles.length;
     if (ctx.graphCache && total > 0 && total < 100) {
-      const repo = ctx.relationRepo as unknown as IDependencyGraphRepo;
+      const repo: DependencyGraphRelationReader = ctx.relationRepo;
       ctx.graphCache.patchFiles(result.changedFiles, result.deletedFiles, (filePath) => {
         const projects = [ctx.defaultProject, ...ctx.boundaries.map(b => b.project)];
         return projects.flatMap(p =>
@@ -287,6 +290,9 @@ export async function initializeContext(
   const boundaries = await discoverProjectsFn(projectRoot);
   const defaultProject = boundaries[0]?.project ?? path.basename(projectRoot);
 
+  // `db` is typed as the minimal `DbStore` DI port (for test doubles). On the
+  // production path (no `repositoryFactory`) it is always the concrete
+  // `DbConnection` constructed above, which the repositories require.
   const repos = repositoryFactory
     ? repositoryFactory()
     : (() => {

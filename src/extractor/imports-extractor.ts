@@ -61,7 +61,7 @@ function extractStaticImports(
     const sourcePath = imp.moduleRequest.value;
     const { resolved, isExternal } = resolveAndClassify(filePath, sourcePath, tsconfigPaths, resolveImportFn);
     const baseProps = {
-      dstFilePath: resolved as string | null,
+      dstFilePath: resolved,
       specifier: sourcePath,
     };
 
@@ -204,10 +204,10 @@ function extractStaticImportsFromAst(
   relations: CodeRelation[],
 ): void {
   for (const node of ast.body) {
-    const stmtNode = node as Statement | Directive;
+    const stmtNode = node;
 
     if (stmtNode.type === 'ImportDeclaration') {
-      const importNode = stmtNode as ImportDeclaration;
+      const importNode = stmtNode;
       const sourcePath: string = importNode.source.value;
       const { resolved, isExternal } = resolveAndClassify(filePath, sourcePath, tsconfigPaths, resolveImportFn);
 
@@ -215,7 +215,7 @@ function extractStaticImportsFromAst(
       const specifiers: readonly ImportDeclarationSpecifier[] = importNode.specifiers;
 
       const baseProps = {
-        dstFilePath: resolved as string | null,
+        dstFilePath: resolved,
         specifier: sourcePath,
       };
 
@@ -270,7 +270,7 @@ function extractStaticImportsFromAst(
     }
 
     if (stmtNode.type === 'ExportAllDeclaration') {
-      const exportAll = stmtNode as ExportAllDeclaration;
+      const exportAll = stmtNode;
       const sourcePath: string = exportAll.source.value;
       const { resolved, isExternal } = resolveAndClassify(filePath, sourcePath, tsconfigPaths, resolveImportFn);
 
@@ -295,7 +295,7 @@ function extractStaticImportsFromAst(
     }
 
     if (stmtNode.type === 'ExportNamedDeclaration') {
-      const exportNamed = stmtNode as ExportNamedDeclaration;
+      const exportNamed = stmtNode;
       if (!exportNamed.source) continue;
       const sourcePath: string = exportNamed.source.value;
       const { resolved, isExternal } = resolveAndClassify(filePath, sourcePath, tsconfigPaths, resolveImportFn);
@@ -364,7 +364,7 @@ function extractDynamicImports(
       if (callee.type === 'Identifier' && callee.name === 'require') {
         // require('...')
       } else if (callee.type === 'MemberExpression' && !callee.computed) {
-        const memberCallee = callee as StaticMemberExpression;
+        const memberCallee = callee;
         const obj = memberCallee.object;
         const prop = memberCallee.property;
         if (
@@ -383,8 +383,8 @@ function extractDynamicImports(
       if (args.length === 0) return;
 
       const firstArg = args[0]!;
-      if (firstArg.type !== 'Literal' || typeof (firstArg as StringLiteral).value !== 'string') return;
-      const sourceValue: string = (firstArg as StringLiteral).value;
+      if (firstArg.type !== 'Literal' || typeof firstArg.value !== 'string') return;
+      const sourceValue: string = firstArg.value;
 
       const { resolved, isExternal } = resolveAndClassify(filePath, sourceValue, tsconfigPaths, resolveImportFn);
       const meta: Record<string, unknown> = { isRequire: true };

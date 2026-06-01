@@ -14,10 +14,10 @@ import type { WatcherOwnerStore } from '../watcher/ownership';
 import type { WatcherRole } from '../watcher/types';
 import type { ProjectBoundary } from '../common/project-discovery';
 import type { TsconfigPaths } from '../common/tsconfig-resolver';
-import type { SymbolSearchQuery, SymbolSearchResult, ISymbolRepo } from '../search/symbol-search';
-import type { RelationSearchQuery, IRelationRepo } from '../search/relation-search';
+import type { SymbolSearchQuery, SymbolSearchResult, SymbolRepositoryReader } from '../search/symbol-search';
+import type { RelationSearchQuery, RelationRepositoryReader } from '../search/relation-search';
 import type { PatternMatch } from '../search/pattern-search';
-import type { AnnotationSearchQuery, AnnotationSearchResult, IAnnotationRepo } from '../search/annotation-search';
+import type { AnnotationSearchQuery, AnnotationSearchResult, AnnotationRepositoryReader } from '../search/annotation-search';
 import type { DependencyGraph } from '../search/dependency-graph';
 import type { ChangelogRepository } from '../store/repositories/changelog.repository';
 import type { SemanticLayer } from '../semantic/index';
@@ -44,13 +44,15 @@ export type ExtractRelationsFn = (
 ) => CodeRelation[];
 
 export type SymbolSearchFn = (options: {
-  symbolRepo: ISymbolRepo;
+  symbolRepo: SymbolRepositoryReader;
+  projectRoot: string;
   project?: string;
   query: SymbolSearchQuery;
 }) => SymbolSearchResult[];
 
 export type RelationSearchFn = (options: {
-  relationRepo: IRelationRepo;
+  relationRepo: RelationRepositoryReader;
+  projectRoot: string;
   project?: string;
   query: RelationSearchQuery;
 }) => StoredCodeRelation[];
@@ -60,7 +62,7 @@ export type PatternSearchFn = (
 ) => Promise<PatternMatch[]>;
 
 export type AnnotationSearchFn = (options: {
-  annotationRepo: IAnnotationRepo;
+  annotationRepo: AnnotationRepositoryReader;
   project?: string;
   query: AnnotationSearchQuery;
 }) => AnnotationSearchResult[];
@@ -146,7 +148,7 @@ export interface GildashContext {
   readonly parseCache: ParseCacheLike;
 
   // ─── Annotation & Changelog ─────────────────────────────────────
-  readonly annotationRepo: IAnnotationRepo | null;
+  readonly annotationRepo: AnnotationRepositoryReader | null;
   readonly changelogRepo: ChangelogRepository | null;
   readonly annotationSearchFn: AnnotationSearchFn | null;
 
