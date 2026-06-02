@@ -9,7 +9,7 @@ import {
   foreignKey,
   check,
 } from 'drizzle-orm/sqlite-core';
-import { SYMBOL_KINDS, RELATION_TYPES } from '../extractor/types';
+import { SYMBOL_KINDS, RELATION_TYPES, ANNOTATION_SOURCES } from '../extractor/types';
 
 export const files = sqliteTable(
   'files',
@@ -94,7 +94,7 @@ export const annotations = sqliteTable(
     filePath: text('file_path').notNull(),
     tag: text('tag').notNull(),
     value: text('value').notNull().default(''),
-    source: text('source').notNull(),
+    source: text('source', { enum: ANNOTATION_SOURCES }).notNull(),
     symbolName: text('symbol_name'),
     startLine: integer('start_line').notNull(),
     startColumn: integer('start_column').notNull(),

@@ -396,7 +396,8 @@ export interface CodeRelation {
   specifier?: string;
 }
 
-export type AnnotationSource = 'jsdoc' | 'line' | 'block';
+export const ANNOTATION_SOURCES = ['jsdoc', 'line', 'block'] as const;
+export type AnnotationSource = (typeof ANNOTATION_SOURCES)[number];
 
 export interface ExtractedAnnotation {
   tag: string;

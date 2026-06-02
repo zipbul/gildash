@@ -1,6 +1,7 @@
 import { eq, and, sql } from 'drizzle-orm';
 import { annotations } from '../schema';
 import type { DbConnection } from '../connection';
+import type { AnnotationSource } from '../../extractor/types';
 
 export interface AnnotationRecord {
   id: number;
@@ -8,7 +9,7 @@ export interface AnnotationRecord {
   filePath: string;
   tag: string;
   value: string;
-  source: string;
+  source: AnnotationSource;
   symbolName: string | null;
   startLine: number;
   startColumn: number;
@@ -58,7 +59,7 @@ export class AnnotationRepository {
     tag?: string;
     filePath?: string;
     symbolName?: string;
-    source?: string;
+    source?: AnnotationSource;
     ftsQuery?: string;
     limit?: number;
   }): AnnotationRecord[] {

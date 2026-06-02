@@ -27,7 +27,7 @@ export interface AnnotationRepositoryReader {
     tag?: string;
     filePath?: string;
     symbolName?: string;
-    source?: string;
+    source?: AnnotationSource;
     ftsQuery?: string;
     limit?: number;
   }): AnnotationRecord[];
@@ -60,7 +60,7 @@ export function annotationSearch(options: {
   return records.map((r) => ({
     tag: r.tag,
     value: r.value,
-    source: r.source as AnnotationSource,
+    source: r.source,
     filePath: r.filePath,
     symbolName: r.symbolName,
     span: {

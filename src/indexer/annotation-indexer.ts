@@ -1,4 +1,5 @@
 import type { ParsedFile } from '../parser/types';
+import type { AnnotationSource } from '../extractor/types';
 import { extractAnnotations } from '../extractor/annotation-extractor';
 import type { AnnotationRepository } from '../store/repositories/annotation.repository';
 
@@ -12,7 +13,7 @@ interface AnnotationRepoPart {
       filePath: string;
       tag: string;
       value: string;
-      source: string;
+      source: AnnotationSource;
       symbolName: string | null;
       startLine: number;
       startColumn: number;
