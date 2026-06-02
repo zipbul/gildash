@@ -27,6 +27,10 @@ export function getSymbolChanges(
   });
 
   return records.map((r) => ({
+    // The change_type column only ever holds a valid SymbolChangeType (written
+    // exclusively as the literals 'added'|'modified'|'removed'|'renamed'|'moved'
+    // in index-coordinator). A schema-level enum would require relocating
+    // SymbolChangeType out of the facade layer, so we assert at this boundary.
     changeType: r.changeType as SymbolChange['changeType'],
     symbolName: r.symbolName,
     symbolKind: r.symbolKind,
