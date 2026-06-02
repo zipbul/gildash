@@ -158,16 +158,18 @@ export interface ExpressionUnresolvable {
  * - `'namespace'` — `namespace`, `declare namespace`, and `declare module` declarations
  * - `'property'` — class properties and interface/type members
  */
-export type SymbolKind =
-  | 'function'
-  | 'method'
-  | 'class'
-  | 'variable'
-  | 'type'
-  | 'interface'
-  | 'enum'
-  | 'namespace'
-  | 'property';
+export const SYMBOL_KINDS = [
+  'function',
+  'method',
+  'class',
+  'variable',
+  'type',
+  'interface',
+  'enum',
+  'namespace',
+  'property',
+] as const;
+export type SymbolKind = (typeof SYMBOL_KINDS)[number];
 
 /**
  * TypeScript declaration modifiers attached to a symbol.

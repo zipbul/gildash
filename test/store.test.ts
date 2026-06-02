@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { relPath } from '../src/common/path-utils';
+import type { SymbolKind } from '../src/extractor/types';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,7 +29,7 @@ function makeFileRecord(overrides: Partial<{
 }
 
 function makeSymbolRecord(overrides: Partial<{
-  project: string; filePath: string; kind: string; name: string;
+  project: string; filePath: string; kind: SymbolKind; name: string;
   startLine: number; startColumn: number; endLine: number; endColumn: number;
   isExported: number; signature: string | null; fingerprint: string | null;
   detailJson: string | null; contentHash: string; indexedAt: string;
@@ -37,7 +38,7 @@ function makeSymbolRecord(overrides: Partial<{
   return {
     project: 'test-project',
     filePath: 'src/index.ts',
-    kind: 'function',
+    kind: 'function' as SymbolKind,
     name: 'myFn',
     startLine: 1,
     startColumn: 0,

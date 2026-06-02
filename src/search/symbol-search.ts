@@ -109,7 +109,7 @@ export interface SymbolRepositoryReader {
   searchByQuery(opts: {
     ftsQuery?: string;
     exactName?: string;
-    kind?: string;
+    kind?: SymbolKind;
     filePath?: RelPath;
     isExported?: boolean;
     project?: string;
@@ -166,7 +166,7 @@ export function symbolSearch(options: {
     return {
       id: r.id,
       filePath: r.filePath,
-      kind: r.kind as SymbolKind,
+      kind: r.kind,
       name: r.name,
       memberName: dotIdx >= 0 ? r.name.slice(dotIdx + 1) : null,
       span: {

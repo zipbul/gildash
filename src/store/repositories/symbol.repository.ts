@@ -4,13 +4,14 @@ import type { DbConnection } from '../connection';
 import { toFtsPrefixQuery } from './fts-utils';
 import { GildashError } from '../../errors';
 import type { RelPath } from '../../common/path-utils';
+import type { SymbolKind } from '../../extractor/types';
 
 const BATCH_CHUNK_SIZE = 50;
 
 export interface SymbolRecord {
   project: string;
   filePath: string;
-  kind: string;
+  kind: SymbolKind;
   name: string;
   startLine: number;
   startColumn: number;
@@ -27,7 +28,7 @@ export interface SymbolRecord {
 }
 
 export interface SearchOptions {
-  kind?: string;
+  kind?: SymbolKind;
   limit?: number;
 }
 
@@ -50,7 +51,7 @@ export class SymbolRepository {
     project: string,
     filePath: string,
     contentHash: string,
-    syms: ReadonlyArray<Partial<SymbolRecord>>,
+    syms: ReadonlyArray<Partial<SymbolRecord> & { kind: SymbolKind }>,
   ): void {
     this.db.drizzleDb
       .delete(symbols)
@@ -63,7 +64,7 @@ export class SymbolRepository {
     const rows = syms.map((sym) => ({
       project,
       filePath,
-      kind: sym.kind ?? 'unknown',
+      kind: sym.kind,
       name: sym.name ?? '',
       startLine: sym.startLine ?? 0,
       startColumn: sym.startColumn ?? 0,
@@ -113,7 +114,7 @@ export class SymbolRepository {
     return builder.all();
   }
 
-  searchByKind(project: string, kind: string): SymbolRecord[] {
+  searchByKind(project: string, kind: SymbolKind): SymbolRecord[] {
     return this.db.drizzleDb
       .select()
       .from(symbols)
@@ -155,7 +156,7 @@ export class SymbolRepository {
   searchByQuery(opts: {
     ftsQuery?: string;
     exactName?: string;
-    kind?: string;
+    kind?: SymbolKind;
     filePath?: RelPath;
     isExported?: boolean;
     project?: string;

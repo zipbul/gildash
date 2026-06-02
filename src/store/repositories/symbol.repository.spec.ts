@@ -3,6 +3,7 @@ import { relPath } from '../../common/path-utils';
 import type { Mock } from 'bun:test';
 import { SymbolRepository } from './symbol.repository';
 import type { SymbolRecord } from './symbol.repository';
+import type { SymbolKind } from '../../extractor/types';
 import type { DbConnection } from '../connection';
 
 function makeChainMock() {
@@ -25,11 +26,11 @@ function makeDbMock() {
   return { db, chain };
 }
 
-function makeSymRecord(overrides: Partial<SymbolRecord> = {}): Partial<SymbolRecord> {
+function makeSymRecord(overrides: Partial<SymbolRecord> = {}): Partial<SymbolRecord> & { kind: SymbolKind } {
   return {
     project: 'test-project',
     filePath: 'src/index.ts',
-    kind: 'function',
+    kind: 'function' as SymbolKind,
     name: 'myFn',
     startLine: 1,
     startColumn: 0,
@@ -460,7 +461,7 @@ describe('SymbolRepository', () => {
 
     // Act
     expect(() =>
-      repo.searchByQuery({ resolvedType: 'number', isExported: true, kind: 'const', limit: 20 }),
+      repo.searchByQuery({ resolvedType: 'number', isExported: true, kind: 'variable', limit: 20 }),
     ).not.toThrow();
 
     // Assert
