@@ -300,47 +300,6 @@ describe('SymbolRepository', () => {
     expect(symbolRepo.getFileSymbols('test-project', relPath('src/missing.ts'))).toEqual([]);
   });
 
-  it('should find symbol by name prefix when searchByName uses FTS5', () => {
-    symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
-      makeSymbolRecord({ name: 'handleRequest' }),
-    ]);
-    const result = symbolRepo.searchByName('test-project', 'handleR');
-    expect(result.length).toBeGreaterThan(0);
-    expect(result[0]!.name).toBe('handleRequest');
-  });
-
-  it('should return empty array when searchByName has no match', () => {
-    symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [makeSymbolRecord()]);
-    expect(symbolRepo.searchByName('test-project', 'zzzzNonExistent')).toEqual([]);
-  });
-
-  it('should filter searchByName by kind when kind filter is provided', () => {
-    symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
-      makeSymbolRecord({ name: 'MyClass', kind: 'class' }),
-      makeSymbolRecord({ name: 'myFn', kind: 'function', fingerprint: 'fp002' }),
-    ]);
-    const result = symbolRepo.searchByName('test-project', 'my', { kind: 'class' });
-    expect(result.every((r) => r.kind === 'class')).toBe(true);
-  });
-
-  it('should cap results at limit when searchByName limit is provided', () => {
-    const symbols = Array.from({ length: 10 }, (_, i) =>
-      makeSymbolRecord({ name: `fn${i}`, fingerprint: `fp${i}` }),
-    );
-    symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', symbols);
-    const result = symbolRepo.searchByName('test-project', 'fn', { limit: 3 });
-    expect(result.length).toBeLessThanOrEqual(3);
-  });
-
-  it('should return symbols by kind when searchByKind is called', () => {
-    symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
-      makeSymbolRecord({ kind: 'class', name: 'MyClass', fingerprint: 'fp-c' }),
-      makeSymbolRecord({ kind: 'function', name: 'myFn', fingerprint: 'fp-f' }),
-    ]);
-    const result = symbolRepo.searchByKind('test-project', 'class');
-    expect(result.every((r) => r.kind === 'class')).toBe(true);
-  });
-
   it('should return correct stats when project has indexed symbols', () => {
     fileRepo.upsertFile(makeFileRecord({ filePath: 'src/extra.ts' }));
     symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
@@ -378,20 +337,6 @@ describe('SymbolRepository', () => {
     expect(symbolRepo.getFileSymbols('test-project', relPath('src/index.ts'))).toEqual([]);
   });
 
-  it('should reflect FTS5 insert immediately when replaceFileSymbols inserts symbol', () => {
-    symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
-      makeSymbolRecord({ name: 'freshSymbol', fingerprint: 'fp-fresh' }),
-    ]);
-    const result = symbolRepo.searchByName('test-project', 'freshSymbol');
-    expect(result.length).toBe(1);
-  });
-
-  it('should not throw when searchByName query contains special FTS characters', () => {
-    symbolRepo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [
-      makeSymbolRecord({ name: 'A"B', fingerprint: 'fp-special' }),
-    ]);
-    expect(() => symbolRepo.searchByName('test-project', 'A"B')).not.toThrow();
-  });
 });
 
 // ── RelationRepository ─────────────────────────────────────────────────────

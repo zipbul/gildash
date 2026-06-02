@@ -320,12 +320,6 @@ describe('Private (#name) members — integration', () => {
     expect(fooMembers.length).toBe(2);
     expect(fooMembers.some(s => s.name === 'C.foo')).toBe(true);
     expect(fooMembers.some(s => s.name === 'C.#foo')).toBe(true);
-
-    // Verify FTS tokenizer treats `#` as a separator so "foo" search still finds #foo
-    const ftsHits = symbolRepo.searchByName('private-test', 'foo');
-    const names = ftsHits.map((r: { name: string }) => r.name).sort();
-    expect(names).toContain('C.foo');
-    expect(names).toContain('C.#foo');
   });
 });
 

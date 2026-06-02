@@ -82,40 +82,6 @@ describe('SymbolRepository', () => {
     expect(result).toEqual(records);
   });
 
-  it('should return search results when searchByName receives a non-empty query', () => {
-    const { db, chain } = makeDbMock();
-    const records = [makeSymRecord() as SymbolRecord];
-    chain['all']!.mockReturnValue(records as unknown[]);
-
-    const repo = new SymbolRepository(db);
-    const result = repo.searchByName('test-project', 'myFn');
-
-    expect(result).toEqual(records);
-    expect(chain['select']).toHaveBeenCalled();
-    expect(chain['all']).toHaveBeenCalled();
-  });
-
-  it('should pass kind filter into where clause when searchByName is called with opts.kind', () => {
-    const { db, chain } = makeDbMock();
-    const repo = new SymbolRepository(db);
-
-    repo.searchByName('test-project', 'myFn', { kind: 'function' });
-
-    expect(chain['where']).toHaveBeenCalled();
-    expect(chain['all']).toHaveBeenCalled();
-  });
-
-  it('should return type-filtered records when searchByKind is called', () => {
-    const { db, chain } = makeDbMock();
-    const records = [makeSymRecord({ kind: 'class' }) as SymbolRecord];
-    chain['all']!.mockReturnValue(records as unknown[]);
-
-    const repo = new SymbolRepository(db);
-    const result = repo.searchByKind('test-project', 'class');
-
-    expect(result).toEqual(records);
-  });
-
   it('should return symbolCount and fileCount when getStats finds matching rows', () => {
     const { db, chain } = makeDbMock();
     chain['get']!.mockReturnValue({ symbolCount: 5, fileCount: 2 } as unknown);
@@ -184,16 +150,6 @@ describe('SymbolRepository', () => {
     expect(chain['insert']).not.toHaveBeenCalled();
   });
 
-  it('should return empty array immediately when searchByName receives an empty query string', () => {
-    const { db, chain } = makeDbMock();
-    const repo = new SymbolRepository(db);
-
-    const result = repo.searchByName('test-project', '');
-
-    expect(result).toEqual([]);
-    expect(chain['select']).not.toHaveBeenCalled();
-  });
-
   it('should return zeros when getStats row is undefined and ?? 0 coalesces', () => {
     const { db, chain } = makeDbMock();
     chain['get']!.mockReturnValue(undefined as unknown);
@@ -212,15 +168,6 @@ describe('SymbolRepository', () => {
     repo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [makeSymRecord()]);
 
     expect(chain['insert']).toHaveBeenCalledTimes(1);
-  });
-
-  it('should apply kind filter and limit when searchByName receives both opts simultaneously', () => {
-    const { db, chain } = makeDbMock();
-    const repo = new SymbolRepository(db);
-
-    expect(() => repo.searchByName('test-project', 'fn', { kind: 'function', limit: 5 })).not.toThrow();
-    expect(chain['limit']).toHaveBeenCalled();
-    expect(chain['all']).toHaveBeenCalled();
   });
 
   it('should execute delete before insert on each replaceFileSymbols call', () => {

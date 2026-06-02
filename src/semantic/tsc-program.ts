@@ -161,11 +161,6 @@ export class TscProgram {
     return program;
   }
 
-  getChecker(): ts.TypeChecker {
-    this.#assertNotDisposed();
-    return this.getProgram().getTypeChecker();
-  }
-
   /**
    * The project's compiler options, read from the host without forcing a
    * Program sync (so callers that don't need the Program stay cheap).

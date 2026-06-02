@@ -13,7 +13,6 @@
  *   instance.isDisposed                            — boolean getter
  *   instance.dispose()                             — idempotent
  *   instance.getProgram()                          — throws if disposed
- *   instance.getChecker()                          — throws if disposed
  *   instance.getLanguageService()                  — throws if disposed
  *   instance.__testing__: { host: ts.LanguageServiceHost }
  */
@@ -101,19 +100,6 @@ describe("TscProgram", () => {
     // Assert
     expect(program).not.toBeNull();
     expect(program).not.toBeUndefined();
-  });
-
-  // 4. [HP] 생성 직후 getChecker() → non-null TypeChecker
-  it("should return non-null type checker when called after successful create", () => {
-    // Arrange
-    const prog = createOrThrow();
-
-    // Act
-    const checker = prog.getChecker();
-
-    // Assert
-    expect(checker).not.toBeNull();
-    expect(checker).not.toBeUndefined();
   });
 
   // 5. [HP] 생성 직후 getLanguageService() → non-null LanguageService
@@ -397,16 +383,6 @@ describe("TscProgram", () => {
     expect(() => prog.getProgram()).toThrow();
   });
 
-  // 20. [NE] dispose 후 getChecker() → throw
-  it("should throw when getChecker is called after dispose", () => {
-    // Arrange
-    const prog = createOrThrow();
-    prog.dispose();
-
-    // Act & Assert
-    expect(() => prog.getChecker()).toThrow();
-  });
-
   // 21. [NE] dispose 후 getLanguageService() → throw
   it("should throw when getLanguageService is called after dispose", () => {
     // Arrange
@@ -501,14 +477,12 @@ describe("TscProgram", () => {
 
     // Act — normal use
     prog.getProgram();
-    prog.getChecker();
     prog.getLanguageService();
     prog.notifyFileChanged("/project/src/x.ts", "const x = 1;");
     prog.dispose();
 
     // Assert — all post-dispose calls throw
     expect(() => prog.getProgram()).toThrow();
-    expect(() => prog.getChecker()).toThrow();
     expect(() => prog.getLanguageService()).toThrow();
   });
 
