@@ -7,13 +7,10 @@ import { SymbolRepository } from '../store/repositories/symbol.repository';
 import { RelationRepository } from '../store/repositories/relation.repository';
 import { ProjectWatcher } from '../watcher/project-watcher';
 import { IndexCoordinator } from '../indexer/index-coordinator';
-import type { IndexResult } from '../indexer/index-coordinator';
 import type { FileChangeEvent } from '../watcher/types';
 import { acquireWatcherRole, releaseWatcherRole, updateHeartbeat } from '../watcher/ownership';
-import type { WatcherOwnerStore } from '../watcher/ownership';
 import { discoverProjects } from '../common/project-discovery';
 import type { ProjectBoundary } from '../common/project-discovery';
-import type { TsconfigPaths } from '../common/tsconfig-resolver';
 import { loadTsconfigPaths, clearTsconfigPathsCache } from '../common/tsconfig-resolver';
 import { ParseCache } from '../parser/parse-cache';
 import { parseSource as defaultParseSource } from '../parser/parse-source';
@@ -30,9 +27,9 @@ import { annotationSearch as defaultAnnotationSearch } from '../search/annotatio
 import { GildashError } from '../errors';
 import { DATA_DIR, DB_FILE } from '../constants';
 import { invalidateGraphCache } from './graph-api';
-import type { IDependencyGraphRepo } from '../search/dependency-graph';
-import type { GildashContext, CoordinatorLike, WatcherLike, DbStore } from './context';
-import type { GildashOptions, Logger } from './types';
+import type { DependencyGraphRelationReader } from '../search/dependency-graph';
+import type { GildashContext, CoordinatorLike, WatcherLike } from './context';
+import type { GildashOptions } from './types';
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -53,7 +50,7 @@ export function applyBoundariesChange(
 
 export interface GildashInternalOptions {
   existsSyncFn?: (p: string) => boolean;
-  dbConnectionFactory?: () => DbStore;
+  dbConnectionFactory?: () => DbConnection;
   watcherFactory?: () => WatcherLike;
   coordinatorFactory?: () => CoordinatorLike;
   repositoryFactory?: () => {
@@ -157,7 +154,7 @@ export async function setupOwnerInfrastructure(
         fileRepo: ctx.fileRepo,
         symbolRepo: ctx.symbolRepo,
         relationRepo: ctx.relationRepo,
-        annotationRepo: (ctx.annotationRepo as AnnotationRepository | null) ?? undefined,
+        annotationRepo: ctx.annotationRepo ?? undefined,
         changelogRepo: ctx.changelogRepo ?? undefined,
         onBoundariesChanged: (b) => applyBoundariesChange(ctx, b),
         logger: ctx.logger,
@@ -172,7 +169,7 @@ export async function setupOwnerInfrastructure(
   c.onIndexed((result) => {
     const total = result.changedFiles.length + result.deletedFiles.length;
     if (ctx.graphCache && total > 0 && total < 100) {
-      const repo = ctx.relationRepo as unknown as IDependencyGraphRepo;
+      const repo: DependencyGraphRelationReader = ctx.relationRepo;
       ctx.graphCache.patchFiles(result.changedFiles, result.deletedFiles, (filePath) => {
         const projects = [ctx.defaultProject, ...ctx.boundaries.map(b => b.project)];
         return projects.flatMap(p =>
@@ -290,7 +287,7 @@ export async function initializeContext(
   const repos = repositoryFactory
     ? repositoryFactory()
     : (() => {
-        const connection = db as DbConnection;
+        const connection = db;
         return {
           fileRepo: new FileRepository(connection),
           symbolRepo: new SymbolRepository(connection),
@@ -299,7 +296,7 @@ export async function initializeContext(
         };
       })();
 
-  const connection = repositoryFactory ? null : (db as DbConnection);
+  const connection = repositoryFactory ? null : db;
   const annotationRepo = connection ? new AnnotationRepository(connection) : null;
   const changelogRepo = connection ? new ChangelogRepository(connection) : null;
 
@@ -486,7 +483,7 @@ export async function closeContext(
     if (sig === 'beforeExit') {
       process.off('beforeExit', handler);
     } else {
-      process.off(sig as NodeJS.Signals, handler);
+      process.off(sig, handler);
     }
   }
   ctx.signalHandlers = [];

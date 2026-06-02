@@ -1,6 +1,6 @@
 import type { ParsedFile } from '../parser/types';
 import type { ExtractedSymbol, CodeRelation } from '../extractor/types';
-import { GildashError } from '../errors';
+import { assertOpen } from './guard';
 import type { GildashContext } from './context';
 
 /** Extract all symbol declarations from a previously parsed file. */
@@ -8,7 +8,7 @@ export function extractSymbols(
   ctx: GildashContext,
   parsed: ParsedFile,
 ): ExtractedSymbol[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  assertOpen(ctx);
   return ctx.extractSymbolsFn(parsed);
 }
 
@@ -17,7 +17,7 @@ export function extractRelations(
   ctx: GildashContext,
   parsed: ParsedFile,
 ): CodeRelation[] {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
+  assertOpen(ctx);
   return ctx.extractRelationsFn(
     parsed.program,
     parsed.filePath,

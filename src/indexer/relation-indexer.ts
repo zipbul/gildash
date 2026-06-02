@@ -1,5 +1,6 @@
 import type { Program } from 'oxc-parser';
 import { extractRelations } from '../extractor/relation-extractor';
+import type { RelationType } from '../extractor/types';
 import { toAbsolutePath, toRelativePath } from '../common/path-utils';
 import { resolveImport } from '../extractor/extractor-utils';
 import { resolveFileProject } from '../common/project-discovery';
@@ -8,7 +9,7 @@ import type { TsconfigPaths } from '../common/tsconfig-resolver';
 
 export interface RelationDbRow {
   project: string;
-  type: string;
+  type: RelationType;
   srcFilePath: string;
   srcSymbolName: string | null;
   dstProject: string | null;

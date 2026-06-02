@@ -1,6 +1,8 @@
 import type { CodeRelation } from '../extractor/types';
 import { GildashError } from '../errors';
 import type { RelationRecord } from '../store/repositories/relation.repository';
+import { inboundRelPath, type RelPath } from '../common/path-utils';
+import type { RelationType } from '../extractor/types';
 
 /**
  * A {@link CodeRelation} enriched with the destination project identifier
@@ -53,14 +55,14 @@ export interface RelationSearchQuery {
   isExternal?: boolean;
 }
 
-export interface IRelationRepo {
+export interface RelationRepositoryReader {
   searchRelations(opts: {
-    srcFilePath?: string;
+    srcFilePath?: RelPath;
     srcSymbolName?: string;
-    dstFilePath?: string;
+    dstFilePath?: RelPath;
     dstSymbolName?: string;
     dstProject?: string;
-    type?: string;
+    type?: RelationType;
     project?: string;
     specifier?: string;
     isExternal?: boolean;
@@ -75,11 +77,12 @@ export interface IRelationRepo {
  * @returns An array of {@link CodeRelation} entries matching the query.
  */
 export function relationSearch(options: {
-  relationRepo: IRelationRepo;
+  relationRepo: RelationRepositoryReader;
+  projectRoot: string;
   project?: string;
   query: RelationSearchQuery;
 }): StoredCodeRelation[] {
-  const { relationRepo, project, query } = options;
+  const { relationRepo, projectRoot, project, query } = options;
 
   if (query.srcFilePath && query.srcFilePathPattern) {
     throw new GildashError('validation', 'srcFilePath and srcFilePathPattern are mutually exclusive');
@@ -95,9 +98,11 @@ export function relationSearch(options: {
   const dbLimit = usePatternFilter ? undefined : limit;
 
   const records = relationRepo.searchRelations({
-    srcFilePath: query.srcFilePath,
+    // Exact path filters normalize to the store's RelPath domain here (single
+    // point); pattern filters (globs) are app-level and stay raw strings.
+    srcFilePath: query.srcFilePath !== undefined ? inboundRelPath(projectRoot, query.srcFilePath) : undefined,
     srcSymbolName: query.srcSymbolName,
-    dstFilePath: query.dstFilePath,
+    dstFilePath: query.dstFilePath !== undefined ? inboundRelPath(projectRoot, query.dstFilePath) : undefined,
     dstSymbolName: query.dstSymbolName,
     dstProject: query.dstProject,
     type: query.type,
@@ -117,7 +122,7 @@ export function relationSearch(options: {
       }
     }
     return {
-      type: r.type as CodeRelation['type'],
+      type: r.type,
       srcFilePath: r.srcFilePath,
       srcSymbolName: r.srcSymbolName,
       dstFilePath: r.dstFilePath,

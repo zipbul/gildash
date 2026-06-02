@@ -1,7 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test';
+import { relPath } from '../../common/path-utils';
 import type { Mock } from 'bun:test';
 import { SymbolRepository } from './symbol.repository';
 import type { SymbolRecord } from './symbol.repository';
+import type { SymbolKind } from '../../extractor/types';
 import type { DbConnection } from '../connection';
 
 function makeChainMock() {
@@ -24,11 +26,11 @@ function makeDbMock() {
   return { db, chain };
 }
 
-function makeSymRecord(overrides: Partial<SymbolRecord> = {}): Partial<SymbolRecord> {
+function makeSymRecord(overrides: Partial<SymbolRecord> = {}): Partial<SymbolRecord> & { kind: SymbolKind } {
   return {
     project: 'test-project',
     filePath: 'src/index.ts',
-    kind: 'function',
+    kind: 'function' as SymbolKind,
     name: 'myFn',
     startLine: 1,
     startColumn: 0,
@@ -75,41 +77,7 @@ describe('SymbolRepository', () => {
     chain['all']!.mockReturnValue(records as unknown[]);
 
     const repo = new SymbolRepository(db);
-    const result = repo.getFileSymbols('test-project', 'src/index.ts');
-
-    expect(result).toEqual(records);
-  });
-
-  it('should return search results when searchByName receives a non-empty query', () => {
-    const { db, chain } = makeDbMock();
-    const records = [makeSymRecord() as SymbolRecord];
-    chain['all']!.mockReturnValue(records as unknown[]);
-
-    const repo = new SymbolRepository(db);
-    const result = repo.searchByName('test-project', 'myFn');
-
-    expect(result).toEqual(records);
-    expect(chain['select']).toHaveBeenCalled();
-    expect(chain['all']).toHaveBeenCalled();
-  });
-
-  it('should pass kind filter into where clause when searchByName is called with opts.kind', () => {
-    const { db, chain } = makeDbMock();
-    const repo = new SymbolRepository(db);
-
-    repo.searchByName('test-project', 'myFn', { kind: 'function' });
-
-    expect(chain['where']).toHaveBeenCalled();
-    expect(chain['all']).toHaveBeenCalled();
-  });
-
-  it('should return type-filtered records when searchByKind is called', () => {
-    const { db, chain } = makeDbMock();
-    const records = [makeSymRecord({ kind: 'class' }) as SymbolRecord];
-    chain['all']!.mockReturnValue(records as unknown[]);
-
-    const repo = new SymbolRepository(db);
-    const result = repo.searchByKind('test-project', 'class');
+    const result = repo.getFileSymbols('test-project', relPath('src/index.ts'));
 
     expect(result).toEqual(records);
   });
@@ -140,7 +108,7 @@ describe('SymbolRepository', () => {
     const { db, chain } = makeDbMock();
     const repo = new SymbolRepository(db);
 
-    repo.deleteFileSymbols('test-project', 'src/index.ts');
+    repo.deleteFileSymbols('test-project', relPath('src/index.ts'));
 
     expect(chain['delete']).toHaveBeenCalled();
     expect(chain['run']).toHaveBeenCalled();
@@ -182,16 +150,6 @@ describe('SymbolRepository', () => {
     expect(chain['insert']).not.toHaveBeenCalled();
   });
 
-  it('should return empty array immediately when searchByName receives an empty query string', () => {
-    const { db, chain } = makeDbMock();
-    const repo = new SymbolRepository(db);
-
-    const result = repo.searchByName('test-project', '');
-
-    expect(result).toEqual([]);
-    expect(chain['select']).not.toHaveBeenCalled();
-  });
-
   it('should return zeros when getStats row is undefined and ?? 0 coalesces', () => {
     const { db, chain } = makeDbMock();
     chain['get']!.mockReturnValue(undefined as unknown);
@@ -210,15 +168,6 @@ describe('SymbolRepository', () => {
     repo.replaceFileSymbols('test-project', 'src/index.ts', 'abc123', [makeSymRecord()]);
 
     expect(chain['insert']).toHaveBeenCalledTimes(1);
-  });
-
-  it('should apply kind filter and limit when searchByName receives both opts simultaneously', () => {
-    const { db, chain } = makeDbMock();
-    const repo = new SymbolRepository(db);
-
-    expect(() => repo.searchByName('test-project', 'fn', { kind: 'function', limit: 5 })).not.toThrow();
-    expect(chain['limit']).toHaveBeenCalled();
-    expect(chain['all']).toHaveBeenCalled();
   });
 
   it('should execute delete before insert on each replaceFileSymbols call', () => {
@@ -459,7 +408,7 @@ describe('SymbolRepository', () => {
 
     // Act
     expect(() =>
-      repo.searchByQuery({ resolvedType: 'number', isExported: true, kind: 'const', limit: 20 }),
+      repo.searchByQuery({ resolvedType: 'number', isExported: true, kind: 'variable', limit: 20 }),
     ).not.toThrow();
 
     // Assert

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import type { RelationRecord } from '../store/repositories/relation.repository';
 import { relationSearch } from './relation-search';
-import type { IRelationRepo, RelationSearchQuery, StoredCodeRelation } from './relation-search';
+import type { RelationRepositoryReader, RelationSearchQuery, StoredCodeRelation } from './relation-search';
 import type { CodeRelation } from '../extractor/types';
 import { GildashError } from '../errors';
 
@@ -22,115 +22,115 @@ function makeRelationRecord(overrides: Partial<RelationRecord> = {}): RelationRe
 }
 
 let mockSearchRelations: ReturnType<typeof mock>;
-let mockRepo: IRelationRepo;
+let mockRepo: RelationRepositoryReader;
 
 beforeEach(() => {
   mockSearchRelations = mock((opts: unknown) => [] as RelationRecord[]);
-  mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+  mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
 });
 
 describe('relationSearch', () => {
 
   it('should pass srcFilePath to searchRelations when srcFilePath is set', () => {
     const query: RelationSearchQuery = { srcFilePath: 'src/a.ts' };
-    relationSearch({ relationRepo: mockRepo, query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.srcFilePath).toBe('src/a.ts');
   });
 
   it('should pass srcSymbolName to searchRelations when srcSymbolName is set', () => {
     const query: RelationSearchQuery = { srcSymbolName: 'myFn' };
-    relationSearch({ relationRepo: mockRepo, query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.srcSymbolName).toBe('myFn');
   });
 
   it('should pass dstFilePath to searchRelations when dstFilePath is set', () => {
     const query: RelationSearchQuery = { dstFilePath: 'src/b.ts' };
-    relationSearch({ relationRepo: mockRepo, query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.dstFilePath).toBe('src/b.ts');
   });
 
   it('should pass dstSymbolName to searchRelations when dstSymbolName is set', () => {
     const query: RelationSearchQuery = { dstSymbolName: 'MyClass' };
-    relationSearch({ relationRepo: mockRepo, query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.dstSymbolName).toBe('MyClass');
   });
 
   it('should pass type to searchRelations when type is set', () => {
     const query: RelationSearchQuery = { type: 'imports' };
-    relationSearch({ relationRepo: mockRepo, query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.type).toBe('imports');
   });
 
   it('should use options.project as effectiveProject when query.project is absent', () => {
     const query: RelationSearchQuery = {};
-    relationSearch({ relationRepo: mockRepo, project: 'p1', query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', project: 'p1', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.project).toBe('p1');
   });
 
   it('should use query.project as effectiveProject when options.project is also provided', () => {
     const query: RelationSearchQuery = { project: 'p2' };
-    relationSearch({ relationRepo: mockRepo, project: 'p1', query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', project: 'p1', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.project).toBe('p2');
   });
 
   it('should pass effectiveProject=undefined when neither project is set', () => {
     const query: RelationSearchQuery = {};
-    relationSearch({ relationRepo: mockRepo, query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.project).toBeUndefined();
   });
 
   it('should pass limit=50 to searchRelations when query.limit is 50', () => {
     const query: RelationSearchQuery = { limit: 50 };
-    relationSearch({ relationRepo: mockRepo, query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.limit).toBe(50);
   });
 
   it('should pass limit=undefined to searchRelations when query.limit is absent', () => {
     const query: RelationSearchQuery = {};
-    relationSearch({ relationRepo: mockRepo, query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.limit).toBeUndefined();
   });
 
   it('should set result.srcSymbolName=null when record.srcSymbolName is null', () => {
     mockSearchRelations = mock(() => [makeRelationRecord({ srcSymbolName: null })]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.srcSymbolName).toBeNull();
   });
 
   it('should preserve result.srcSymbolName when record.srcSymbolName is a string', () => {
     mockSearchRelations = mock(() => [makeRelationRecord({ srcSymbolName: 'myFn' })]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.srcSymbolName).toBe('myFn');
   });
 
   it('should set result.dstSymbolName=null when record.dstSymbolName is null', () => {
     mockSearchRelations = mock(() => [makeRelationRecord({ dstSymbolName: null })]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.dstSymbolName).toBeNull();
   });
 
   it('should set result.metaJson=undefined when record.metaJson is null', () => {
     mockSearchRelations = mock(() => [makeRelationRecord({ metaJson: null })]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.metaJson).toBeUndefined();
   });
 
   it('should call searchRelations with limit=undefined and no filters when empty query is given', () => {
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results).toEqual([]);
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.limit).toBeUndefined();
@@ -146,7 +146,7 @@ describe('relationSearch', () => {
       project: 'proj',
       limit: 10,
     };
-    relationSearch({ relationRepo: mockRepo, query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.srcFilePath).toBe('src/a.ts');
     expect(opts.srcSymbolName).toBe('fn');
@@ -159,18 +159,18 @@ describe('relationSearch', () => {
 
   it('should propagate error when relationRepo.searchRelations throws', () => {
     mockSearchRelations = mock(() => { throw new Error('db error'); });
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    expect(() => relationSearch({ relationRepo: mockRepo, query: {} })).toThrow('db error');
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    expect(() => relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} })).toThrow('db error');
   });
 
   it('should return [] when searchRelations returns empty array', () => {
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results).toEqual([]);
   });
 
   it('should use empty string as effectiveProject when query.project is "" (not null/undefined)', () => {
     const query: RelationSearchQuery = { project: '' };
-    relationSearch({ relationRepo: mockRepo, project: 'real', query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', project: 'real', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.project).toBe('');
   });
@@ -186,8 +186,8 @@ describe('relationSearch', () => {
         metaJson: '{}',
       }),
     ]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results).toHaveLength(1);
     const r = results[0]!;
     expect(r.type).toBe('imports');
@@ -203,16 +203,16 @@ describe('relationSearch', () => {
   // 1. [HP] valid metaJson → meta object parsed
   it('should set meta to parsed object when metaJson is valid JSON', () => {
     mockSearchRelations = mock(() => [makeRelationRecord({ metaJson: '{"isType":true}' })]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.meta).toEqual({ isType: true });
   });
 
   // 2. [HP] multi-key metaJson → meta with all keys
   it('should set meta with all key-value pairs when metaJson has multiple entries', () => {
     mockSearchRelations = mock(() => [makeRelationRecord({ metaJson: '{"a":1,"b":"hello","flag":true}' })]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.meta).toEqual({ a: 1, b: 'hello', flag: true });
   });
 
@@ -220,8 +220,8 @@ describe('relationSearch', () => {
   it('should preserve metaJson field alongside meta in the returned CodeRelation', () => {
     const json = '{"isReExport":true}';
     mockSearchRelations = mock(() => [makeRelationRecord({ metaJson: json })]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.metaJson).toBe(json);
     expect(results[0]!.meta).toEqual({ isReExport: true });
   });
@@ -232,8 +232,8 @@ describe('relationSearch', () => {
       makeRelationRecord({ metaJson: '{"k":1}', srcFilePath: 'a.ts' }),
       makeRelationRecord({ metaJson: '{"k":2}', srcFilePath: 'b.ts' }),
     ]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.meta).toEqual({ k: 1 });
     expect(results[1]!.meta).toEqual({ k: 2 });
   });
@@ -241,16 +241,16 @@ describe('relationSearch', () => {
   // 5. [NE] metaJson=null → meta=undefined
   it('should set meta to undefined when metaJson is null', () => {
     mockSearchRelations = mock(() => [makeRelationRecord({ metaJson: null })]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.meta).toBeUndefined();
   });
 
   // 6. [NE] malformed JSON → meta=undefined
   it('should set meta to undefined when metaJson is malformed JSON', () => {
     mockSearchRelations = mock(() => [makeRelationRecord({ metaJson: '{broken' })]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.meta).toBeUndefined();
   });
 
@@ -260,8 +260,8 @@ describe('relationSearch', () => {
       makeRelationRecord({ metaJson: null, srcFilePath: 'a.ts' }),
       makeRelationRecord({ metaJson: '{"a":1}', srcFilePath: 'b.ts' }),
     ]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.meta).toBeUndefined();
     expect(results[1]!.meta).toEqual({ a: 1 });
   });
@@ -269,24 +269,24 @@ describe('relationSearch', () => {
   // 8. [ED] empty string metaJson → falsy → meta=undefined
   it('should set meta to undefined when metaJson is empty string', () => {
     mockSearchRelations = mock(() => [makeRelationRecord({ metaJson: '' as any })]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.meta).toBeUndefined();
   });
 
   // 9. [ED] metaJson='{}' → meta={}
   it('should set meta to empty object when metaJson is empty JSON object', () => {
     mockSearchRelations = mock(() => [makeRelationRecord({ metaJson: '{}' })]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.meta).toEqual({});
   });
 
   // 10. [ED] records=[] → returns [] no meta parsing
   it('should return empty array with no meta parsing when searchRelations returns no records', () => {
     mockSearchRelations = mock(() => []);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results).toHaveLength(0);
   });
 
@@ -297,8 +297,8 @@ describe('relationSearch', () => {
       makeRelationRecord({ metaJson: '{bad}', srcFilePath: 'a.ts' }),
       makeRelationRecord({ metaJson: '{"ok":1}', srcFilePath: 'b.ts' }),
     ]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.meta).toBeUndefined();
     expect(results[1]!.meta).toEqual({ ok: 1 });
     spyError.mockRestore();
@@ -308,9 +308,9 @@ describe('relationSearch', () => {
   it('should return same meta value on repeated calls with identical records', () => {
     const json = '{"k":42}';
     mockSearchRelations = mock(() => [makeRelationRecord({ metaJson: json })]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
-    const r1 = relationSearch({ relationRepo: mockRepo, query: {} });
-    const r2 = relationSearch({ relationRepo: mockRepo, query: {} });
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
+    const r1 = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
+    const r2 = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(r1[0]!.meta).toEqual({ k: 42 });
     expect(r2[0]!.meta).toEqual({ k: 42 });
   });
@@ -318,14 +318,14 @@ describe('relationSearch', () => {
   it('should include dstProject in the returned relation when record has dstProject set', () => {
     mockSearchRelations.mockReturnValue([makeRelationRecord({ dstProject: 'ext-project' })]);
 
-    const results = relationSearch({ relationRepo: mockRepo, query: {} }) as StoredCodeRelation[];
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} }) as StoredCodeRelation[];
     expect(results[0]?.dstProject).toBe('ext-project');
   });
 
   it('should forward dstProject filter to searchRelations when dstProject is set in query', () => {
     mockSearchRelations.mockReturnValue([]);
 
-    relationSearch({ relationRepo: mockRepo, query: { dstProject: 'ext-project' } });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: { dstProject: 'ext-project' } });
 
     const callArgs = (mockSearchRelations as { mock: { calls: any[][] } }).mock.calls[0]?.[0];
     expect(callArgs?.dstProject).toBe('ext-project');
@@ -340,9 +340,10 @@ describe('relationSearch', () => {
       makeRelationRecord({ dstFilePath: 'src/main.ts' }),
       makeRelationRecord({ dstFilePath: 'lib/external.ts' }),
     ]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
     const results = relationSearch({
       relationRepo: mockRepo,
+      projectRoot: '/root',
       query: { dstFilePathPattern: 'packages/*/src/**' },
     });
     expect(results).toHaveLength(2);
@@ -356,9 +357,10 @@ describe('relationSearch', () => {
       makeRelationRecord({ srcFilePath: 'src/main.ts' }),
       makeRelationRecord({ srcFilePath: 'packages/utils/src/helpers.ts' }),
     ]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
     const results = relationSearch({
       relationRepo: mockRepo,
+      projectRoot: '/root',
       query: { srcFilePathPattern: 'packages/*/src/**' },
     });
     expect(results).toHaveLength(2);
@@ -370,12 +372,14 @@ describe('relationSearch', () => {
     expect(() =>
       relationSearch({
         relationRepo: mockRepo,
+        projectRoot: '/root',
         query: { srcFilePath: 'src/a.ts', srcFilePathPattern: 'src/**' },
       })
     ).toThrow(GildashError);
     try {
       relationSearch({
         relationRepo: mockRepo,
+        projectRoot: '/root',
         query: { srcFilePath: 'src/a.ts', srcFilePathPattern: 'src/**' },
       });
     } catch (e) {
@@ -387,12 +391,14 @@ describe('relationSearch', () => {
     expect(() =>
       relationSearch({
         relationRepo: mockRepo,
+        projectRoot: '/root',
         query: { dstFilePath: 'src/b.ts', dstFilePathPattern: 'src/**' },
       })
     ).toThrow(GildashError);
     try {
       relationSearch({
         relationRepo: mockRepo,
+        projectRoot: '/root',
         query: { dstFilePath: 'src/b.ts', dstFilePathPattern: 'src/**' },
       });
     } catch (e) {
@@ -408,9 +414,10 @@ describe('relationSearch', () => {
       })
     );
     mockSearchRelations = mock(() => records);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
     const results = relationSearch({
       relationRepo: mockRepo,
+      projectRoot: '/root',
       query: { srcFilePathPattern: 'src/**', limit: 3 },
     });
     expect(results).toHaveLength(3);
@@ -422,9 +429,10 @@ describe('relationSearch', () => {
       makeRelationRecord({ dstFilePath: 'src/a.ts' }),
       makeRelationRecord({ dstFilePath: 'src/b.ts' }),
     ]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
     const results = relationSearch({
       relationRepo: mockRepo,
+      projectRoot: '/root',
       query: { dstFilePathPattern: 'nonexistent/**' },
     });
     expect(results).toEqual([]);
@@ -436,9 +444,10 @@ describe('relationSearch', () => {
       makeRelationRecord({ type: 'imports', dstFilePath: 'src/main.ts' }),
       makeRelationRecord({ type: 'imports', dstFilePath: 'lib/helpers.ts' }),
     ]);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
     const results = relationSearch({
       relationRepo: mockRepo,
+      projectRoot: '/root',
       query: { type: 'imports', dstFilePathPattern: 'lib/**' },
     });
     expect(results).toHaveLength(2);
@@ -448,9 +457,10 @@ describe('relationSearch', () => {
 
   it('should pass limit=undefined to repo when pattern is used to fetch all for app-level filtering', () => {
     mockSearchRelations = mock(() => []);
-    mockRepo = { searchRelations: mockSearchRelations } as IRelationRepo;
+    mockRepo = { searchRelations: mockSearchRelations } as RelationRepositoryReader;
     relationSearch({
       relationRepo: mockRepo,
+      projectRoot: '/root',
       query: { srcFilePathPattern: 'src/**', limit: 10 },
     });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
@@ -461,7 +471,7 @@ describe('relationSearch', () => {
 
   it('should pass both srcSymbolName and dstSymbolName to searchRelations when both are set', () => {
     const query: RelationSearchQuery = { srcSymbolName: 'myFn', dstSymbolName: 'MyClass' };
-    relationSearch({ relationRepo: mockRepo, query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.srcSymbolName).toBe('myFn');
     expect(opts.dstSymbolName).toBe('MyClass');
@@ -469,7 +479,7 @@ describe('relationSearch', () => {
 
   it('should pass both srcFilePath and type to searchRelations when both are set', () => {
     const query: RelationSearchQuery = { srcFilePath: 'src/a.ts', type: 'imports' };
-    relationSearch({ relationRepo: mockRepo, query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.srcFilePath).toBe('src/a.ts');
     expect(opts.type).toBe('imports');
@@ -477,7 +487,7 @@ describe('relationSearch', () => {
 
   it('should pass both dstFilePath and type to searchRelations when both are set', () => {
     const query: RelationSearchQuery = { dstFilePath: 'src/b.ts', type: 'calls' };
-    relationSearch({ relationRepo: mockRepo, query });
+    relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchRelations.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.dstFilePath).toBe('src/b.ts');
     expect(opts.type).toBe('calls');
@@ -487,7 +497,7 @@ describe('relationSearch', () => {
     mockSearchRelations.mockReturnValue([
       makeRelationRecord({ isExternal: 1, specifier: 'lodash', dstFilePath: null }),
     ]);
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.isExternal).toBe(true);
     expect(results[0]!.specifier).toBe('lodash');
   });
@@ -496,7 +506,7 @@ describe('relationSearch', () => {
     mockSearchRelations.mockReturnValue([
       makeRelationRecord({ isExternal: 0, specifier: null }),
     ]);
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.isExternal).toBe(false);
     expect(results[0]!.specifier).toBeNull();
   });
@@ -505,7 +515,7 @@ describe('relationSearch', () => {
     mockSearchRelations.mockReturnValue([
       makeRelationRecord({ dstFilePath: 'src/utils.ts', specifier: null, isExternal: 0 }),
     ]);
-    const results = relationSearch({ relationRepo: mockRepo, query: {} });
+    const results = relationSearch({ relationRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.specifier).toBeNull();
     expect(results[0]!.dstFilePath).toBe('src/utils.ts');
   });

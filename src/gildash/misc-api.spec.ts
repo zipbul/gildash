@@ -186,6 +186,11 @@ describe('onIndexed', () => {
 
     expect(ctx.onIndexedCallbacks.has(callback)).toBe(false);
   });
+
+  it('should throw when closed (uniform with all facade ops)', () => {
+    const ctx = makeCtx({ closed: true });
+    expect(() => onIndexed(ctx, mock(() => {}))).toThrow(GildashError);
+  });
 });
 
 // ─── onFileChanged ──────────────────────────────────────────────────
@@ -202,6 +207,11 @@ describe('onFileChanged', () => {
     dispose();
 
     expect(ctx.onFileChangedCallbacks.has(callback)).toBe(false);
+  });
+
+  it('should throw when closed (uniform with all facade ops)', () => {
+    const ctx = makeCtx({ closed: true });
+    expect(() => onFileChanged(ctx, mock(() => {}))).toThrow(GildashError);
   });
 });
 
@@ -220,6 +230,11 @@ describe('onError', () => {
 
     expect(ctx.onErrorCallbacks.has(callback)).toBe(false);
   });
+
+  it('should throw when closed (uniform with all facade ops)', () => {
+    const ctx = makeCtx({ closed: true });
+    expect(() => onError(ctx, mock(() => {}))).toThrow(GildashError);
+  });
 });
 
 // ─── onRoleChanged ──────────────────────────────────────────────────
@@ -236,6 +251,11 @@ describe('onRoleChanged', () => {
     dispose();
 
     expect(ctx.onRoleChangedCallbacks.has(callback)).toBe(false);
+  });
+
+  it('should throw when closed (uniform with all facade ops)', () => {
+    const ctx = makeCtx({ closed: true });
+    expect(() => onRoleChanged(ctx, mock(() => {}))).toThrow(GildashError);
   });
 });
 
@@ -398,6 +418,27 @@ describe('resolveSymbol', () => {
     expect(searchFn).toHaveBeenCalledWith(
       expect.objectContaining({ project: 'my-proj' }),
     );
+  });
+
+  it('should wrap a raw error from relationSearchFn in a GildashError', () => {
+    const raw = new Error('db boom');
+    const ctx = makeCtx({ relationSearchFn: mock(() => { throw raw; }) as any });
+
+    try {
+      resolveSymbol(ctx, 'Foo', 'a.ts');
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GildashError);
+      expect((e as GildashError).type).toBe('search');
+      expect((e as GildashError).cause).toBe(raw);
+    }
+  });
+
+  it('should re-throw a GildashError from relationSearchFn unchanged', () => {
+    const original = new GildashError('validation', 'boom');
+    const ctx = makeCtx({ relationSearchFn: mock(() => { throw original; }) as any });
+
+    expect(() => resolveSymbol(ctx, 'Foo', 'a.ts')).toThrow(original);
   });
 });
 

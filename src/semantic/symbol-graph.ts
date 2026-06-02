@@ -44,7 +44,7 @@ function buildParentNode(symbol: ts.Symbol): SymbolNode {
   const decl = symbol.declarations?.[0];
   const sourceFile = decl?.getSourceFile();
   const nameNode = decl
-    ? ts.getNameOfDeclaration(decl as ts.Declaration)
+    ? ts.getNameOfDeclaration(decl)
     : undefined;
   return {
     name: symbol.getName(),
@@ -66,7 +66,7 @@ function buildSymbolNode(symbol: InternalSymbol, depth = 0, checker?: ts.TypeChe
   const decl = symbol.declarations?.[0];
   const sourceFile = decl?.getSourceFile();
   const nameNode = decl
-    ? ts.getNameOfDeclaration(decl as ts.Declaration)
+    ? ts.getNameOfDeclaration(decl)
     : undefined;
   const filePath = sourceFile?.fileName ?? "";
   const position =
@@ -81,7 +81,7 @@ function buildSymbolNode(symbol: InternalSymbol, depth = 0, checker?: ts.TypeChe
   };
 
   // parent — 컨테이너 심볼이 있으면 얕게 빌드
-  const internalSym = symbol as InternalSymbol;
+  const internalSym = symbol;
   if (internalSym.parent) {
     node.parent = buildParentNode(internalSym.parent);
   }

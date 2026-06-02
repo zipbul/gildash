@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test';
+import { relPath } from '../../common/path-utils';
 import type { Mock } from 'bun:test';
 import { FileRepository } from './file.repository';
 import type { FileRecord } from './file.repository';
@@ -43,7 +44,7 @@ describe('FileRepository', () => {
     chain['get']!.mockReturnValue(record as unknown);
 
     const repo = new FileRepository(db);
-    const result = repo.getFile('test-project', 'src/index.ts');
+    const result = repo.getFile('test-project', relPath('src/index.ts'));
 
     expect(result).toEqual(record);
     expect(chain['select']).toHaveBeenCalled();
@@ -103,7 +104,7 @@ describe('FileRepository', () => {
     const { db, chain } = makeDbMock();
 
     const repo = new FileRepository(db);
-    repo.deleteFile('test-project', 'src/index.ts');
+    repo.deleteFile('test-project', relPath('src/index.ts'));
 
     expect(chain['delete']).toHaveBeenCalled();
     expect(chain['where']).toHaveBeenCalled();
@@ -115,7 +116,7 @@ describe('FileRepository', () => {
     chain['get']!.mockReturnValue(undefined as unknown);
 
     const repo = new FileRepository(db);
-    const result = repo.getFile('test-project', 'src/missing.ts');
+    const result = repo.getFile('test-project', relPath('src/missing.ts'));
 
     expect(result).toBeNull();
   });
@@ -161,7 +162,7 @@ describe('FileRepository', () => {
     repo.upsertFile(record);
 
     chain['get']!.mockReturnValue(record as unknown);
-    const fetched = repo.getFile('test-project', 'src/index.ts');
+    const fetched = repo.getFile('test-project', relPath('src/index.ts'));
 
     expect(fetched).toEqual(record);
     expect(chain['insert']).toHaveBeenCalled();
@@ -174,7 +175,7 @@ describe('FileRepository', () => {
 
     const repo = new FileRepository(db);
     expect(() => repo.getAllFiles('test-project')).not.toThrow();
-    expect(() => repo.deleteFile('test-project', 'src/index.ts')).not.toThrow();
+    expect(() => repo.deleteFile('test-project', relPath('src/index.ts'))).not.toThrow();
     expect(() => repo.upsertFile(makeFileRecord())).not.toThrow();
   });
 

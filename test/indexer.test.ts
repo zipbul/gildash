@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { relPath } from '../src/common/path-utils';
+import type { RelationType } from '../src/extractor/types';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,16 +30,16 @@ function makeFileRecord(overrides: Partial<{
 }
 
 function makeRelationRecord(overrides: Partial<{
-  project: string; type: string; srcFilePath: string;
+  project: string; type: RelationType; srcFilePath: string;
   srcSymbolName: string | null; dstFilePath: string;
   dstSymbolName: string | null; metaJson: string | null;
 }> = {}) {
   return {
     project: 'test-project',
-    type: 'imports',
-    srcFilePath: 'src/index.ts',
+    type: 'imports' as RelationType,
+    srcFilePath: relPath('src/index.ts'),
     srcSymbolName: null,
-    dstFilePath: 'src/utils.ts',
+    dstFilePath: relPath('src/utils.ts'),
     dstSymbolName: null,
     metaJson: null,
     ...overrides,
@@ -117,8 +119,8 @@ describe('RelationRepository.retargetRelations — null symbol (file-level move)
     // src/a.ts → src/old.ts (파일 레벨 import, symbol 없음)
     relationRepo.replaceFileRelations('test-project', 'src/a.ts', [
       makeRelationRecord({
-        srcFilePath: 'src/a.ts',
-        dstFilePath: 'src/old.ts',
+        srcFilePath: relPath('src/a.ts'),
+        dstFilePath: relPath('src/old.ts'),
         dstSymbolName: null,
       }),
     ]);
@@ -127,7 +129,7 @@ describe('RelationRepository.retargetRelations — null symbol (file-level move)
     relationRepo.retargetRelations({ dstProject: 'test-project', oldFile: 'src/old.ts', oldSymbol: null, newFile: 'src/new.ts', newSymbol: null });
 
     // src/new.ts에 들어오는 관계가 갱신되어야 한다
-    const incoming = relationRepo.getIncoming({ dstProject: 'test-project', dstFilePath: 'src/new.ts' });
+    const incoming = relationRepo.getIncoming({ dstProject: 'test-project', dstFilePath: relPath('src/new.ts') });
     expect(incoming.length).toBeGreaterThan(0);
     expect(incoming[0]!.dstFilePath).toBe('src/new.ts');
     expect(incoming[0]!.dstSymbolName).toBeNull();
@@ -318,12 +320,6 @@ describe('Private (#name) members — integration', () => {
     expect(fooMembers.length).toBe(2);
     expect(fooMembers.some(s => s.name === 'C.foo')).toBe(true);
     expect(fooMembers.some(s => s.name === 'C.#foo')).toBe(true);
-
-    // Verify FTS tokenizer treats `#` as a separator so "foo" search still finds #foo
-    const ftsHits = symbolRepo.searchByName('private-test', 'foo');
-    const names = ftsHits.map((r: { name: string }) => r.name).sort();
-    expect(names).toContain('C.foo');
-    expect(names).toContain('C.#foo');
   });
 });
 

@@ -1,5 +1,5 @@
 import type { ParsedFile } from '../parser/types';
-import type { ExtractedSymbol } from '../extractor/types';
+import type { ExtractedSymbol, SymbolKind } from '../extractor/types';
 import { extractSymbols } from '../extractor/symbol-extractor';
 import { hashString } from '../common/hasher';
 
@@ -19,7 +19,7 @@ function stableStringify(value: unknown): string {
 export interface SymbolDbRow {
   project: string;
   filePath: string;
-  kind: string;
+  kind: SymbolKind;
   name: string;
   startLine: number;
   startColumn: number;

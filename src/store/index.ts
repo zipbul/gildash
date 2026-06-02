@@ -3,7 +3,7 @@ export type { DbConnectionOptions } from './connection';
 export { FileRepository } from './repositories/file.repository';
 export type { FileRecord } from './repositories/file.repository';
 export { SymbolRepository } from './repositories/symbol.repository';
-export type { SymbolRecord, SearchOptions, SymbolStats } from './repositories/symbol.repository';
+export type { SymbolRecord, SymbolStats } from './repositories/symbol.repository';
 export { RelationRepository } from './repositories/relation.repository';
 export type { RelationRecord } from './repositories/relation.repository';
 export { AnnotationRepository } from './repositories/annotation.repository';

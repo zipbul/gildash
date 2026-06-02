@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -240,6 +240,9 @@ describe('Gildash integration', () => {
     it('should parse TypeScript source and store result in cache', () => {
       const code = 'export function greet(name: string): string { return `Hello ${name}`; }';
       const parsed = g.parseSource('/virtual/test.ts', code);
+      expect(parsed.sourceText).toBe(code);
+      expect(parsed.errors).toHaveLength(0);
+      expect(parsed.program.body.length).toBeGreaterThan(0);
 
       const cached = g.getParsedAst('/virtual/test.ts');
       expect(cached).toBeDefined();
@@ -345,6 +348,30 @@ describe('Gildash integration', () => {
       expect(result).toBeNull();
     });
 
+    // ── Regression: path-taking APIs must accept an ABSOLUTE filePath the same as
+    // a relative one (the store keys on project-relative paths; an absolute input
+    // must be normalized before the DB query). Before path branding these silently
+    // returned null / threw "not in index" for an absolute path. ───────────────
+    it('should accept an absolute filePath in getFileInfo (normalized to relative)', () => {
+      const result = g.getFileInfo(join(tmpDir, 'src/utils.ts'));
+      expect(result).not.toBeNull();
+      expect(result!.filePath).toBe('src/utils.ts');
+    });
+
+    it('should accept an absolute filePath in getFileStats', () => {
+      const rel = g.getFileStats('src/utils.ts');
+      const abs = g.getFileStats(join(tmpDir, 'src/utils.ts'));
+      expect(abs.symbolCount).toBe(rel.symbolCount);
+      expect(abs.filePath).toBe('src/utils.ts');
+    });
+
+    it('should accept an absolute filePath in getFullSymbol', () => {
+      const rel = g.getFullSymbol('Base', 'src/models.ts');
+      const abs = g.getFullSymbol('Base', join(tmpDir, 'src/models.ts'));
+      expect(abs).not.toBeNull();
+      expect(abs!.name).toBe(rel!.name);
+    });
+
     it('should return symbols by file via getSymbolsByFile', () => {
       const result = g.getSymbolsByFile('src/utils.ts');
       expect(result.length).toBeGreaterThanOrEqual(2);
@@ -394,6 +421,20 @@ describe('Gildash integration', () => {
       expect(result.some((p: string) => p.includes('app'))).toBe(true);
     });
 
+    it('should accept an absolute filePath in getDependencies', () => {
+      const rel = g.getDependencies('src/app.ts');
+      const abs = g.getDependencies(join(tmpDir, 'src/app.ts'));
+      expect(abs).toEqual(rel);
+      expect(abs.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should accept an absolute filePath in getDependents', () => {
+      const rel = g.getDependents('src/utils.ts');
+      const abs = g.getDependents(join(tmpDir, 'src/utils.ts'));
+      expect(abs).toEqual(rel);
+      expect(abs.length).toBeGreaterThanOrEqual(1);
+    });
+
     it('should return transitively affected files via getAffected', async () => {
       // Changing utils.ts should affect app.ts (imports utils) and index.ts (re-exports from app/utils)
       const result = await g.getAffected(['src/utils.ts']);
@@ -420,6 +461,38 @@ describe('Gildash integration', () => {
       const result = await g.getTransitiveDependents('src/utils.ts');
       expect(result.length).toBeGreaterThanOrEqual(1);
       expect(result.some((p: string) => p.includes('app'))).toBe(true);
+    });
+
+    // ── Regression: the graph keys on project-relative paths, but the public
+    // graph APIs accept an absolute filePath too. Before normalization these
+    // silently returned empty/zero (a DB-key miss). ────────────────────────────
+    it('should accept an absolute filePath in getTransitiveDependencies', async () => {
+      const rel = await g.getTransitiveDependencies('src/app.ts');
+      const abs = await g.getTransitiveDependencies(join(tmpDir, 'src/app.ts'));
+      expect(abs).toEqual(rel);
+      expect(abs.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should accept an absolute filePath in getTransitiveDependents', async () => {
+      const rel = await g.getTransitiveDependents('src/utils.ts');
+      const abs = await g.getTransitiveDependents(join(tmpDir, 'src/utils.ts'));
+      expect(abs).toEqual(rel);
+      expect(abs.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should accept absolute filePaths in getAffected', async () => {
+      const rel = await g.getAffected(['src/utils.ts']);
+      const abs = await g.getAffected([join(tmpDir, 'src/utils.ts')]);
+      expect(abs).toEqual(rel);
+      expect(abs.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should accept an absolute filePath in getFanMetrics', async () => {
+      const rel = await g.getFanMetrics('src/utils.ts');
+      const abs = await g.getFanMetrics(join(tmpDir, 'src/utils.ts'));
+      expect(abs.fanIn).toBe(rel.fanIn);
+      expect(abs.fanOut).toBe(rel.fanOut);
+      expect(rel.fanIn).toBeGreaterThanOrEqual(1);
     });
 
     it('should detect cycle and return cycle paths when circular imports exist', async () => {
@@ -680,6 +753,8 @@ describe('Gildash integration', () => {
 
       // Reindex
       const reindexResult = await g.reindex();
+      expect(reindexResult.indexedFiles).toBeGreaterThanOrEqual(1);
+      expect(reindexResult.totalSymbols).toBeGreaterThanOrEqual(1);
 
       // Verify new symbol is found
       const afterResult = g.searchSymbols({ text: 'newFunction', exact: true });
@@ -1293,8 +1368,10 @@ describe('Gildash integration', () => {
       const rels = g.searchRelations({ type: 'imports', srcFilePath: 'src/ns-reexport.ts' });
       // export * from './utils' should not produce an import relation (it's a re-export)
       // But the module path should correctly distinguish imports from re-exports
+      expect(rels.some((r) => r.dstFilePath?.includes('utils'))).toBe(false);
       const reExports = g.searchRelations({ type: 're-exports', srcFilePath: 'src/ns-reexport.ts' });
       expect(reExports.length).toBeGreaterThanOrEqual(1);
+      expect(reExports.some((r) => r.dstFilePath?.includes('utils'))).toBe(true);
     });
   });
 });

@@ -441,7 +441,7 @@ export class IndexCoordinator {
           const parseFn = this.opts.parseSourceFn ?? parseSource;
           const parseResult = parseFn(absPath, text);
           if (isErr(parseResult)) throw parseResult.data;
-          const parsed = parseResult as ParsedFile;
+          const parsed = parseResult;
           prepared.push({ filePath: file.filePath, text, contentHash, parsed, project });
         } catch (e) {
           this.logger.error(`[IndexCoordinator] Failed to prepare ${file.filePath}:`, e);
@@ -799,14 +799,19 @@ export class IndexCoordinator {
       }
     }
 
+    // A parse-failed file must not be counted as indexed nor listed as changed —
+    // it appears only in `failedFiles`.
+    const failedSet = new Set(allFailedFiles);
+    const indexedChanged = changed.filter((f) => !failedSet.has(f.filePath));
+
     return {
-      indexedFiles: changed.length,
+      indexedFiles: indexedChanged.length,
       removedFiles: deleted.length,
       totalSymbols,
       totalRelations,
       totalAnnotations,
       durationMs: Date.now() - start,
-      changedFiles: changed.map((f) => f.filePath),
+      changedFiles: indexedChanged.map((f) => f.filePath),
       deletedFiles: [...deleted],
       failedFiles: allFailedFiles,
       changedSymbols,

@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { relPath } from '../src/common/path-utils';
 import { mkdir, mkdtemp, rm, writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -219,7 +220,7 @@ describe('Incremental indexing: move detection', () => {
     await coordinator.fullIndex();
 
     // Verify initial relation exists
-    const beforeRels = relationRepo.getOutgoing('test-project', 'src/consumer.ts');
+    const beforeRels = relationRepo.getOutgoing('test-project', relPath('src/consumer.ts'));
     const importRel = beforeRels.find(r => r.type === 'imports' && r.dstFilePath === 'src/utils.ts');
     expect(importRel).toBeDefined();
 
@@ -380,15 +381,15 @@ describe('Monorepo: cross-project relations', () => {
     await coordinator.fullIndex();
 
     // Verify symbols are assigned to correct projects
-    const coreSymbols = symbolRepo.getFileSymbols('@mono/core', 'packages/core/src/utils.ts');
+    const coreSymbols = symbolRepo.getFileSymbols('@mono/core', relPath('packages/core/src/utils.ts'));
     expect(coreSymbols.length).toBeGreaterThanOrEqual(1);
     expect(coreSymbols[0]!.name).toBe('coreHelper');
 
-    const appSymbols = symbolRepo.getFileSymbols('@mono/app', 'packages/app/src/main.ts');
+    const appSymbols = symbolRepo.getFileSymbols('@mono/app', relPath('packages/app/src/main.ts'));
     expect(appSymbols.length).toBeGreaterThanOrEqual(1);
 
     // Verify cross-project relation: app → core
-    const appRelations = relationRepo.getOutgoing('@mono/app', 'packages/app/src/main.ts');
+    const appRelations = relationRepo.getOutgoing('@mono/app', relPath('packages/app/src/main.ts'));
     const crossProjectImport = appRelations.find(
       r => r.type === 'imports' && r.dstFilePath === 'packages/core/src/utils.ts',
     );
@@ -430,15 +431,15 @@ describe('Monorepo: cross-project relations', () => {
     await coordinator.fullIndex();
 
     // Verify shared symbols indexed under @ws/shared
-    const sharedSymbols = symbolRepo.getFileSymbols('@ws/shared', 'libs/shared/src/lib.ts');
+    const sharedSymbols = symbolRepo.getFileSymbols('@ws/shared', relPath('libs/shared/src/lib.ts'));
     expect(sharedSymbols.find(s => s.name === 'SHARED')).toBeDefined();
 
     // Verify web symbols indexed under @ws/web
-    const webSymbols = symbolRepo.getFileSymbols('@ws/web', 'apps/web/src/page.ts');
+    const webSymbols = symbolRepo.getFileSymbols('@ws/web', relPath('apps/web/src/page.ts'));
     expect(webSymbols.find(s => s.name === 'val')).toBeDefined();
 
     // Verify cross-project relation
-    const webRelations = relationRepo.getOutgoing('@ws/web', 'apps/web/src/page.ts');
+    const webRelations = relationRepo.getOutgoing('@ws/web', relPath('apps/web/src/page.ts'));
     const crossImport = webRelations.find(r => r.type === 'imports' && r.dstFilePath === 'libs/shared/src/lib.ts');
     expect(crossImport).toBeDefined();
     expect(crossImport!.dstProject).toBe('@ws/shared');
@@ -480,7 +481,7 @@ describe('External imports: isExternal and specifier', () => {
 
     await coordinator.fullIndex();
 
-    const relations = relationRepo.getOutgoing('ext-test', 'src/app.ts');
+    const relations = relationRepo.getOutgoing('ext-test', relPath('src/app.ts'));
 
     // express — bare specifier, external
     const expressRel = relations.find(r => r.specifier === 'express');
@@ -527,7 +528,7 @@ describe('External imports: isExternal and specifier', () => {
 
     await coordinator.fullIndex();
 
-    const relations = relationRepo.getOutgoing('scoped-test', 'src/index.ts');
+    const relations = relationRepo.getOutgoing('scoped-test', relPath('src/index.ts'));
 
     const honoRel = relations.find(r => r.specifier === '@hono/zod-validator');
     expect(honoRel).toBeDefined();
@@ -568,7 +569,7 @@ describe('External imports: isExternal and specifier', () => {
 
     await coordinator.fullIndex();
 
-    const relations = relationRepo.getOutgoing('dynamic-test', 'src/loader.ts');
+    const relations = relationRepo.getOutgoing('dynamic-test', relPath('src/loader.ts'));
     const dynamicImport = relations.find(r => r.specifier === 'lodash');
     expect(dynamicImport).toBeDefined();
     expect(dynamicImport!.isExternal).toBe(1);
@@ -596,7 +597,7 @@ describe('External imports: isExternal and specifier', () => {
 
     await coordinator.fullIndex();
 
-    const relations = relationRepo.getOutgoing('spec-resolved-test', 'src/a.ts');
+    const relations = relationRepo.getOutgoing('spec-resolved-test', relPath('src/a.ts'));
     const internalRel = relations.find(r => r.dstFilePath === 'src/b.ts');
     expect(internalRel).toBeDefined();
     expect(internalRel!.specifier).toBe('./b');
@@ -624,7 +625,7 @@ describe('External imports: isExternal and specifier', () => {
 
     await coordinator.fullIndex();
 
-    const relations = relationRepo.getOutgoing('spec-bare-reexport-test', 'src/idx.ts');
+    const relations = relationRepo.getOutgoing('spec-bare-reexport-test', relPath('src/idx.ts'));
     const reExport = relations.find(r => r.type === 're-exports' && r.dstFilePath === 'src/m.ts');
     expect(reExport).toBeDefined();
     expect(reExport!.specifier).toBe('./m');
@@ -808,7 +809,7 @@ describe('Gildash facade: monorepo cross-project searchRelations', () => {
     // searchRelations uses defaultProject (first boundary), which may not be @m/app.
     // searchAllRelations queries across all projects.
     const allRels = g.searchAllRelations({
-      srcFilePath: 'packages/app/src/main.ts',
+      srcFilePath: relPath('packages/app/src/main.ts'),
       type: 'imports',
     });
     const crossRel = allRels.find(r => r.dstFilePath?.includes('lib'));

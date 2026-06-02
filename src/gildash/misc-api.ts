@@ -1,11 +1,12 @@
 import path from 'node:path';
 import { toRelativePath } from '../common/path-utils';
 import type { SymbolSearchResult } from '../search/symbol-search';
-import type { CodeRelation } from '../extractor/types';
+import type { StoredCodeRelation } from '../search/relation-search';
 import type { IndexResult } from '../indexer/index-coordinator';
 import type { FileChangeEvent } from '../watcher/types';
 import type { PatternMatch } from '../search/pattern-search';
 import { GildashError } from '../errors';
+import { assertOpen, guard, guardAsync } from './guard';
 import type { GildashContext } from './context';
 import type { SymbolDiff, ResolvedSymbol, HeritageNode } from './types';
 import { invalidateGraphCache } from './graph-api';
@@ -39,6 +40,7 @@ export function onIndexed(
   ctx: GildashContext,
   callback: (result: IndexResult) => void,
 ): () => void {
+  assertOpen(ctx);
   ctx.onIndexedCallbacks.add(callback);
   if (!ctx.coordinator) {
     return () => { ctx.onIndexedCallbacks.delete(callback); };
@@ -54,18 +56,14 @@ export function onIndexed(
 export async function reindex(
   ctx: GildashContext,
 ): Promise<IndexResult> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  if (!ctx.coordinator) {
-    throw new GildashError('closed', 'Gildash: reindex() is not available for readers');
-  }
-  try {
+  return guardAsync(ctx, 'index', 'reindex', async () => {
+    if (!ctx.coordinator) {
+      throw new GildashError('closed', 'Gildash: reindex() is not available for readers');
+    }
     const result = await ctx.coordinator.fullIndex();
     invalidateGraphCache(ctx);
     return result;
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('index', 'Gildash: reindex failed', { cause: e });
-  }
+  });
 }
 
 /** Resolve the original definition location of a symbol by following its re-export chain. */
@@ -75,56 +73,57 @@ export function resolveSymbol(
   filePath: string,
   project?: string,
 ): ResolvedSymbol {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  const effectiveProject = project ?? ctx.defaultProject;
-  const visited = new Set<string>();
-  const chain: Array<{ filePath: string; exportedAs: string }> = [];
+  return guard(ctx, 'search', 'resolveSymbol', () => {
+    const effectiveProject = project ?? ctx.defaultProject;
+    const visited = new Set<string>();
+    const chain: Array<{ filePath: string; exportedAs: string }> = [];
 
-  let currentName = symbolName;
-  let currentFile = filePath;
+    let currentName = symbolName;
+    let currentFile = filePath;
 
-  for (;;) {
-    const key = `${currentFile}::${currentName}`;
-    if (visited.has(key)) {
-      return { originalName: currentName, originalFilePath: currentFile, reExportChain: chain, circular: true };
-    }
-    visited.add(key);
-
-    const rels = ctx.relationSearchFn({
-      relationRepo: ctx.relationRepo,
-      project: effectiveProject,
-      query: { type: 're-exports', srcFilePath: currentFile, limit: 500 },
-    }) as CodeRelation[];
-
-    let nextFile: string | undefined;
-    let nextName: string | undefined;
-
-    for (const rel of rels) {
-      let specifiers: Array<{ local: string; exported: string }> | undefined;
-      if (rel.metaJson) {
-        try {
-          const meta = JSON.parse(rel.metaJson) as Record<string, unknown>;
-          if (Array.isArray(meta['specifiers'])) {
-            specifiers = meta['specifiers'] as Array<{ local: string; exported: string }>;
-          }
-        } catch { /* ignore malformed metaJson */ }
+    for (;;) {
+      const key = `${currentFile}::${currentName}`;
+      if (visited.has(key)) {
+        return { originalName: currentName, originalFilePath: currentFile, reExportChain: chain, circular: true };
       }
-      if (!specifiers) continue;
-      const match = specifiers.find((s) => s.exported === currentName);
-      if (!match) continue;
-      nextFile = rel.dstFilePath ?? undefined;
-      nextName = match.local;
-      break;
-    }
+      visited.add(key);
 
-    if (!nextFile || !nextName) {
-      return { originalName: currentName, originalFilePath: currentFile, reExportChain: chain, circular: false };
-    }
+      const rels = ctx.relationSearchFn({
+        relationRepo: ctx.relationRepo, projectRoot: ctx.projectRoot,
+        project: effectiveProject,
+        query: { type: 're-exports', srcFilePath: currentFile, limit: 500 },
+      });
 
-    chain.push({ filePath: currentFile, exportedAs: currentName });
-    currentFile = nextFile;
-    currentName = nextName;
-  }
+      let nextFile: string | undefined;
+      let nextName: string | undefined;
+
+      for (const rel of rels) {
+        let specifiers: Array<{ local: string; exported: string }> | undefined;
+        if (rel.metaJson) {
+          try {
+            const meta = JSON.parse(rel.metaJson) as Record<string, unknown>;
+            if (Array.isArray(meta['specifiers'])) {
+              specifiers = meta['specifiers'] as Array<{ local: string; exported: string }>;
+            }
+          } catch { /* ignore malformed metaJson */ }
+        }
+        if (!specifiers) continue;
+        const match = specifiers.find((s) => s.exported === currentName);
+        if (!match) continue;
+        nextFile = rel.dstFilePath ?? undefined;
+        nextName = match.local;
+        break;
+      }
+
+      if (!nextFile || !nextName) {
+        return { originalName: currentName, originalFilePath: currentFile, reExportChain: chain, circular: false };
+      }
+
+      chain.push({ filePath: currentFile, exportedAs: currentName });
+      currentFile = nextFile;
+      currentName = nextName;
+    }
+  });
 }
 
 /** Register a callback that fires whenever a watched file changes. */
@@ -132,6 +131,7 @@ export function onFileChanged(
   ctx: GildashContext,
   callback: (event: FileChangeEvent) => void,
 ): () => void {
+  assertOpen(ctx);
   ctx.onFileChangedCallbacks.add(callback);
   return () => { ctx.onFileChangedCallbacks.delete(callback); };
 }
@@ -141,6 +141,7 @@ export function onError(
   ctx: GildashContext,
   callback: (error: GildashError) => void,
 ): () => void {
+  assertOpen(ctx);
   ctx.onErrorCallbacks.add(callback);
   return () => { ctx.onErrorCallbacks.delete(callback); };
 }
@@ -150,6 +151,7 @@ export function onRoleChanged(
   ctx: GildashContext,
   callback: (newRole: 'owner' | 'reader') => void,
 ): () => void {
+  assertOpen(ctx);
   ctx.onRoleChangedCallbacks.add(callback);
   return () => { ctx.onRoleChangedCallbacks.delete(callback); };
 }
@@ -160,18 +162,14 @@ export async function findPattern(
   pattern: string,
   opts?: { filePaths?: string[]; project?: string },
 ): Promise<PatternMatch[]> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
+  return guardAsync(ctx, 'search', 'findPattern', async () => {
     const effectiveProject = opts?.project ?? ctx.defaultProject;
     const filePaths: string[] = opts?.filePaths
       ? opts.filePaths
       : ctx.fileRepo.getAllFiles(effectiveProject).map((f) => f.filePath);
 
     return await ctx.patternSearchFn({ pattern, filePaths });
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: findPattern failed', { cause: e });
-  }
+  });
 }
 
 /** Recursively traverse extends/implements relations to build a heritage tree. */
@@ -181,8 +179,7 @@ export async function getHeritageChain(
   filePath: string,
   project?: string,
 ): Promise<HeritageNode> {
-  if (ctx.closed) throw new GildashError('closed', 'Gildash: instance is closed');
-  try {
+  return guard(ctx, 'search', 'getHeritageChain', () => {
     const proj = project ?? ctx.defaultProject;
     const visited = new Set<string>();
 
@@ -194,13 +191,13 @@ export async function getHeritageChain(
       visited.add(key);
 
       const rels = ctx.relationSearchFn({
-        relationRepo: ctx.relationRepo,
+        relationRepo: ctx.relationRepo, projectRoot: ctx.projectRoot,
         project: proj,
         query: { srcFilePath: fp, srcSymbolName: symName, limit: 1000 },
-      }) as CodeRelation[];
+      });
 
       const heritageRels = rels.filter(
-        (r): r is CodeRelation & { type: 'extends' | 'implements' } =>
+        (r): r is StoredCodeRelation & { type: 'extends' | 'implements' } =>
           r.type === 'extends' || r.type === 'implements',
       );
 
@@ -219,8 +216,5 @@ export async function getHeritageChain(
       : filePath;
 
     return buildNode(symbolName, rootPath);
-  } catch (e) {
-    if (e instanceof GildashError) throw e;
-    throw new GildashError('search', 'Gildash: getHeritageChain failed', { cause: e });
-  }
+  });
 }

@@ -158,16 +158,18 @@ export interface ExpressionUnresolvable {
  * - `'namespace'` — `namespace`, `declare namespace`, and `declare module` declarations
  * - `'property'` — class properties and interface/type members
  */
-export type SymbolKind =
-  | 'function'
-  | 'method'
-  | 'class'
-  | 'variable'
-  | 'type'
-  | 'interface'
-  | 'enum'
-  | 'namespace'
-  | 'property';
+export const SYMBOL_KINDS = [
+  'function',
+  'method',
+  'class',
+  'variable',
+  'type',
+  'interface',
+  'enum',
+  'namespace',
+  'property',
+] as const;
+export type SymbolKind = (typeof SYMBOL_KINDS)[number];
 
 /**
  * TypeScript declaration modifiers attached to a symbol.
@@ -346,9 +348,19 @@ export interface ImportReference {
  * - `'extends'` — class/interface in file A extends one in file B
  * - `'implements'` — class in file A implements an interface in file B
  */
+export const RELATION_TYPES = [
+  'imports',
+  'type-references',
+  're-exports',
+  'calls',
+  'extends',
+  'implements',
+] as const;
+export type RelationType = (typeof RELATION_TYPES)[number];
+
 export interface CodeRelation {
   /** The kind of relationship. */
-  type: 'imports' | 'type-references' | 're-exports' | 'calls' | 'extends' | 'implements';
+  type: RelationType;
   /** File path where the relationship originates. */
   srcFilePath: string;
   /** Source symbol name, or `null` for module-level relationships. */
@@ -384,7 +396,8 @@ export interface CodeRelation {
   specifier?: string;
 }
 
-export type AnnotationSource = 'jsdoc' | 'line' | 'block';
+export const ANNOTATION_SOURCES = ['jsdoc', 'line', 'block'] as const;
+export type AnnotationSource = (typeof ANNOTATION_SOURCES)[number];
 
 export interface ExtractedAnnotation {
   tag: string;

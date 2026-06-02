@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { SymbolRecord } from '../store/repositories/symbol.repository';
 import { symbolSearch } from './symbol-search';
-import type { ISymbolRepo, SymbolSearchQuery, SymbolSearchResult } from './symbol-search';
+import type { SymbolRepositoryReader, SymbolSearchQuery, SymbolSearchResult } from './symbol-search';
 
 function makeSymbolRecord(overrides: Partial<SymbolRecord & { id: number }> = {}): SymbolRecord & { id: number } {
   return {
@@ -25,18 +25,32 @@ function makeSymbolRecord(overrides: Partial<SymbolRecord & { id: number }> = {}
 }
 
 let mockSearchByQuery: ReturnType<typeof mock>;
-let mockRepo: ISymbolRepo;
+let mockRepo: SymbolRepositoryReader;
 
 beforeEach(() => {
   mockSearchByQuery = mock((opts: unknown) => [] as (SymbolRecord & { id: number })[]);
-  mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
+  mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
 });
 
 describe('symbolSearch', () => {
 
+  it('should normalize an absolute query filePath to a project-relative path for the repo', () => {
+    const query: SymbolSearchQuery = { filePath: '/root/src/a.ts' };
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
+    const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
+    expect(opts.filePath).toBe('src/a.ts');
+  });
+
+  it('should keep an already-relative query filePath (normalized) for the repo', () => {
+    const query: SymbolSearchQuery = { filePath: 'src/a.ts' };
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
+    const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
+    expect(opts.filePath).toBe('src/a.ts');
+  });
+
   it('should pass quoted FTS prefix query to searchByQuery when text is "User"', () => {
     const query: SymbolSearchQuery = { text: 'User' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     expect(mockSearchByQuery).toHaveBeenCalledTimes(1);
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.ftsQuery).toBe('"User"*');
@@ -44,21 +58,21 @@ describe('symbolSearch', () => {
 
   it('should pass quoted FTS prefix query for each token when text has multiple words', () => {
     const query: SymbolSearchQuery = { text: 'User Service' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.ftsQuery).toBe('"User"* "Service"*');
   });
 
   it('should escape double quotes inside tokens when building ftsQuery', () => {
     const query: SymbolSearchQuery = { text: 'A"B' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.ftsQuery).toBe('"A""B"*');
   });
 
   it('should call searchByQuery without ftsQuery when kind-only filter is given', () => {
     const query: SymbolSearchQuery = { kind: 'function' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.ftsQuery).toBeUndefined();
     expect(opts.kind).toBe('function');
@@ -66,92 +80,92 @@ describe('symbolSearch', () => {
 
   it('should pass filePath filter to searchByQuery when filePath-only filter is given', () => {
     const query: SymbolSearchQuery = { filePath: 'src/a.ts' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.filePath).toBe('src/a.ts');
   });
 
   it('should pass isExported=true to searchByQuery when isExported is true', () => {
     const query: SymbolSearchQuery = { isExported: true };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.isExported).toBe(true);
   });
 
   it('should pass isExported=false to searchByQuery when isExported is false', () => {
     const query: SymbolSearchQuery = { isExported: false };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.isExported).toBe(false);
   });
 
   it('should use options.project as effectiveProject when query.project is absent', () => {
     const query: SymbolSearchQuery = {};
-    symbolSearch({ symbolRepo: mockRepo, project: 'p1', query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', project: 'p1', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.project).toBe('p1');
   });
 
   it('should use query.project as effectiveProject when options.project is absent', () => {
     const query: SymbolSearchQuery = { project: 'p2' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.project).toBe('p2');
   });
 
   it('should use query.project and ignore options.project when both are set', () => {
     const query: SymbolSearchQuery = { project: 'p2' };
-    symbolSearch({ symbolRepo: mockRepo, project: 'p1', query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', project: 'p1', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.project).toBe('p2');
   });
 
   it('should pass effectiveProject=undefined when neither options.project nor query.project is set', () => {
     const query: SymbolSearchQuery = {};
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.project).toBeUndefined();
   });
 
   it('should pass limit=10 to searchByQuery when query.limit is 10', () => {
     const query: SymbolSearchQuery = { limit: 10 };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.limit).toBe(10);
   });
 
   it('should pass limit=undefined to searchByQuery when query.limit is absent', () => {
     const query: SymbolSearchQuery = {};
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.limit).toBeUndefined();
   });
 
   it('should set result.detail to {} when detailJson is null', () => {
     mockSearchByQuery = mock(() => [makeSymbolRecord({ detailJson: null })]);
-    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.detail).toEqual({});
   });
 
   it('should parse detailJson and set result.detail when detailJson is a JSON string', () => {
     mockSearchByQuery = mock(() => [makeSymbolRecord({ detailJson: '{"returnType":"void"}' })]);
-    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.detail).toEqual({ returnType: 'void' });
   });
 
   it('should set result.isExported=true when record.isExported is 1', () => {
     mockSearchByQuery = mock(() => [makeSymbolRecord({ isExported: 1 })]);
-    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.isExported).toBe(true);
   });
 
   it('should set result.isExported=false when record.isExported is 0', () => {
     mockSearchByQuery = mock(() => [makeSymbolRecord({ isExported: 0 })]);
-    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.isExported).toBe(false);
   });
 
@@ -159,8 +173,8 @@ describe('symbolSearch', () => {
     mockSearchByQuery = mock(() => [
       makeSymbolRecord({ startLine: 10, startColumn: 2, endLine: 20, endColumn: 5 }),
     ]);
-    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.span).toEqual({
       start: { line: 10, column: 2 },
       end: { line: 20, column: 5 },
@@ -176,7 +190,7 @@ describe('symbolSearch', () => {
       project: 'proj',
       limit: 5,
     };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.ftsQuery).toBe('"fn"*');
     expect(opts.kind).toBe('function');
@@ -187,7 +201,7 @@ describe('symbolSearch', () => {
   });
 
   it('should return [] and call searchByQuery with limit=undefined when empty query is given', () => {
-    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results).toEqual([]);
     expect(mockSearchByQuery).toHaveBeenCalledTimes(1);
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
@@ -195,48 +209,48 @@ describe('symbolSearch', () => {
   });
 
   it('should return [] when symbolRepo.searchByQuery returns empty array', () => {
-    const results = symbolSearch({ symbolRepo: mockRepo, query: { text: 'nothing' } });
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: { text: 'nothing' } });
     expect(results).toEqual([]);
   });
 
   it('should propagate error when symbolRepo.searchByQuery throws', () => {
     mockSearchByQuery = mock(() => { throw new Error('db error'); });
-    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    expect(() => symbolSearch({ symbolRepo: mockRepo, query: {} })).toThrow('db error');
+    mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
+    expect(() => symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} })).toThrow('db error');
   });
 
   it('should return detail:{} when detailJson is invalid JSON (safe parse)', () => {
     mockSearchByQuery = mock(() => [makeSymbolRecord({ detailJson: '{invalid' })]);
-    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results).toHaveLength(1);
     expect(results[0]!.detail).toEqual({});
   });
 
   it('should call searchByQuery without ftsQuery when text is empty string', () => {
     const query: SymbolSearchQuery = { text: '' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.ftsQuery).toBeUndefined();
   });
 
   it('should pass limit=0 to searchByQuery when query.limit is 0', () => {
     const query: SymbolSearchQuery = { limit: 0 };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.limit).toBe(0);
   });
 
   it('should produce quoted ftsQuery when text is a single character "a"', () => {
     const query: SymbolSearchQuery = { text: 'a' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.ftsQuery).toBe('"a"*');
   });
 
   it('should quote special FTS5 characters safely when escaping query terms', () => {
     const query: SymbolSearchQuery = { text: 'fn-auth' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     const ftsQuery = opts.ftsQuery as string;
     expect(ftsQuery).toBe('"fn-auth"*');
@@ -244,7 +258,7 @@ describe('symbolSearch', () => {
 
   it('should skip FTS and apply kind filter when text is empty string and kind is set', () => {
     const query: SymbolSearchQuery = { text: '', kind: 'function' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.ftsQuery).toBeUndefined();
     expect(opts.kind).toBe('function');
@@ -252,14 +266,14 @@ describe('symbolSearch', () => {
 
   it('should use empty string as effectiveProject when query.project is "" (not null/undefined)', () => {
     const query: SymbolSearchQuery = { project: '' };
-    symbolSearch({ symbolRepo: mockRepo, project: 'real', query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', project: 'real', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.project).toBe('');
   });
 
   it('should pass exactName to searchByQuery when exact is true', () => {
     const query: SymbolSearchQuery = { text: 'handle', exact: true };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.exactName).toBe('handle');
     expect(opts.ftsQuery).toBeUndefined();
@@ -267,7 +281,7 @@ describe('symbolSearch', () => {
 
   it('should not set ftsQuery when exact is true', () => {
     const query: SymbolSearchQuery = { text: 'User', exact: true };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.ftsQuery).toBeUndefined();
     expect(opts.exactName).toBe('User');
@@ -275,7 +289,7 @@ describe('symbolSearch', () => {
 
   it('should ignore exact flag and set no filters when text is not provided and exact is true', () => {
     const query: SymbolSearchQuery = { exact: true };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.exactName).toBeUndefined();
     expect(opts.ftsQuery).toBeUndefined();
@@ -286,7 +300,7 @@ describe('symbolSearch', () => {
   // [HP] decorator 전달 → opts.decorator 설정됨
   it('should pass decorator to searchByQuery when decorator is set in query', () => {
     const query: SymbolSearchQuery = { decorator: 'Injectable' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.decorator).toBe('Injectable');
   });
@@ -294,7 +308,7 @@ describe('symbolSearch', () => {
   // [HP] regex 전달 → opts.regex 설정됨
   it('should pass regex to searchByQuery when regex is set in query', () => {
     const query: SymbolSearchQuery = { regex: '^get' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.regex).toBe('^get');
   });
@@ -302,7 +316,7 @@ describe('symbolSearch', () => {
   // [NE] decorator 미설정 → opts.decorator undefined
   it('should not set decorator in opts when decorator is absent from query', () => {
     const query: SymbolSearchQuery = { kind: 'function' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.decorator).toBeUndefined();
   });
@@ -310,7 +324,7 @@ describe('symbolSearch', () => {
   // [NE] regex 미설정 → opts.regex undefined
   it('should not set regex in opts when regex is absent from query', () => {
     const query: SymbolSearchQuery = {};
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.regex).toBeUndefined();
   });
@@ -318,7 +332,7 @@ describe('symbolSearch', () => {
   // [CO] decorator + kind 동시 → 두 필드 모두 opts에 설정됨
   it('should pass both decorator and kind to searchByQuery when both are set', () => {
     const query: SymbolSearchQuery = { decorator: 'Component', kind: 'class' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.decorator).toBe('Component');
     expect(opts.kind).toBe('class');
@@ -329,7 +343,7 @@ describe('symbolSearch', () => {
   // [HP] resolvedType 전달 → opts.resolvedType 설정됨
   it('should pass resolvedType to searchByQuery when resolvedType is set in query', () => {
     const query: SymbolSearchQuery = { resolvedType: 'string' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.resolvedType).toBe('string');
   });
@@ -337,7 +351,7 @@ describe('symbolSearch', () => {
   // [ED] resolvedType 미설정 → opts.resolvedType undefined
   it('should not set resolvedType in opts when resolvedType is absent from query', () => {
     const query: SymbolSearchQuery = { kind: 'function' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.resolvedType).toBeUndefined();
   });
@@ -345,7 +359,7 @@ describe('symbolSearch', () => {
   // [CO] resolvedType + kind 동시 → 둘 다 opts에 설정됨
   it('should pass both resolvedType and kind to searchByQuery when both are set', () => {
     const query: SymbolSearchQuery = { resolvedType: 'Promise<void>', kind: 'function' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.resolvedType).toBe('Promise<void>');
     expect(opts.kind).toBe('function');
@@ -355,36 +369,36 @@ describe('symbolSearch', () => {
 
   it('should set memberName to unqualified name when record name contains a dot', () => {
     mockSearchByQuery = mock(() => [makeSymbolRecord({ name: 'MyClass.doThing' })]);
-    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.memberName).toBe('doThing');
   });
 
   it('should set memberName to null when record name has no dot', () => {
     mockSearchByQuery = mock(() => [makeSymbolRecord({ name: 'myFn' })]);
-    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.memberName).toBeNull();
   });
 
   it('should use first dot as split point when record name has multiple dots', () => {
     mockSearchByQuery = mock(() => [makeSymbolRecord({ name: 'A.B.C' })]);
-    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.memberName).toBe('B.C');
   });
 
   it('should set memberName to empty string when name ends with a dot', () => {
     mockSearchByQuery = mock(() => [makeSymbolRecord({ name: 'Class.' })]);
-    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.memberName).toBe('');
   });
 
   it('should set memberName to the part after first dot when name starts with a dot', () => {
     mockSearchByQuery = mock(() => [makeSymbolRecord({ name: '.method' })]);
-    mockRepo = { searchByQuery: mockSearchByQuery } as ISymbolRepo;
-    const results = symbolSearch({ symbolRepo: mockRepo, query: {} });
+    mockRepo = { searchByQuery: mockSearchByQuery } as SymbolRepositoryReader;
+    const results = symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query: {} });
     expect(results[0]!.memberName).toBe('method');
   });
 
@@ -392,7 +406,7 @@ describe('symbolSearch', () => {
 
   it('should pass both exactName and kind to searchByQuery when exact and kind are set', () => {
     const query: SymbolSearchQuery = { text: 'foo', exact: true, kind: 'method' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.exactName).toBe('foo');
     expect(opts.kind).toBe('method');
@@ -401,7 +415,7 @@ describe('symbolSearch', () => {
 
   it('should pass both exactName and isExported to searchByQuery when exact and isExported are set', () => {
     const query: SymbolSearchQuery = { text: 'foo', exact: true, isExported: true };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.exactName).toBe('foo');
     expect(opts.isExported).toBe(true);
@@ -410,7 +424,7 @@ describe('symbolSearch', () => {
 
   it('should pass both decorator and regex to searchByQuery when both are set', () => {
     const query: SymbolSearchQuery = { decorator: 'Inject', regex: '^get' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.decorator).toBe('Inject');
     expect(opts.regex).toBe('^get');
@@ -420,7 +434,7 @@ describe('symbolSearch', () => {
 
   it('should pass limit=undefined to searchByQuery when regex is set without explicit limit', () => {
     const query: SymbolSearchQuery = { regex: '^get' };
-    symbolSearch({ symbolRepo: mockRepo, query });
+    symbolSearch({ symbolRepo: mockRepo, projectRoot: '/root', query });
     const opts = mockSearchByQuery.mock.calls[0]![0] as Record<string, unknown>;
     expect(opts.limit).toBeUndefined();
   });

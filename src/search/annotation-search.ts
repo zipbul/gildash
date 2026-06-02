@@ -21,20 +21,20 @@ export interface AnnotationSearchResult {
   span: { start: { line: number; column: number }; end: { line: number; column: number } };
 }
 
-export interface IAnnotationRepo {
+export interface AnnotationRepositoryReader {
   search(opts: {
     project?: string;
     tag?: string;
     filePath?: string;
     symbolName?: string;
-    source?: string;
+    source?: AnnotationSource;
     ftsQuery?: string;
     limit?: number;
   }): AnnotationRecord[];
 }
 
 export function annotationSearch(options: {
-  annotationRepo: IAnnotationRepo;
+  annotationRepo: AnnotationRepositoryReader;
   project?: string;
   query: AnnotationSearchQuery;
 }): AnnotationSearchResult[] {
@@ -60,7 +60,7 @@ export function annotationSearch(options: {
   return records.map((r) => ({
     tag: r.tag,
     value: r.value,
-    source: r.source as AnnotationSource,
+    source: r.source,
     filePath: r.filePath,
     symbolName: r.symbolName,
     span: {

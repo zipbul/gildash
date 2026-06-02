@@ -32,7 +32,7 @@ export class LruCache<K, V> {
     this.#map.set(key, value);
 
     if (this.#map.size > this.#capacity) {
-      const oldestKey = this.#map.keys().next().value as K | undefined;
+      const oldestKey = this.#map.keys().next().value;
       if (oldestKey !== undefined) {
         this.#map.delete(oldestKey);
       }

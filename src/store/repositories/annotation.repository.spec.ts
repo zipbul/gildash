@@ -6,6 +6,7 @@ import { DbConnection } from '../connection';
 import { DATA_DIR } from '../../constants';
 import { FileRepository } from './file.repository';
 import { AnnotationRepository } from './annotation.repository';
+import type { AnnotationSource } from '../../extractor/types';
 
 let tmpDir: string;
 let db: DbConnection;
@@ -54,7 +55,7 @@ describe('AnnotationRepository', () => {
     annotationRepo.insertBatch('test', 'src/index.ts', [
       {
         project: 'test', filePath: 'src/index.ts',
-        tag: 'todo', value: 'fix this', source: 'line',
+        tag: 'todo', value: 'fix this', source: 'line' as AnnotationSource,
         symbolName: null, startLine: 1, startColumn: 0,
         endLine: 1, endColumn: 10, indexedAt: now,
       },
@@ -68,7 +69,7 @@ describe('AnnotationRepository', () => {
   it('should filter by tag', () => {
     const now = new Date().toISOString();
     annotationRepo.insertBatch('test', 'src/index.ts', [
-      { project: 'test', filePath: 'src/index.ts', tag: 'todo', value: 'a', source: 'line', symbolName: null, startLine: 1, startColumn: 0, endLine: 1, endColumn: 5, indexedAt: now },
+      { project: 'test', filePath: 'src/index.ts', tag: 'todo', value: 'a', source: 'line' as AnnotationSource, symbolName: null, startLine: 1, startColumn: 0, endLine: 1, endColumn: 5, indexedAt: now },
       { project: 'test', filePath: 'src/index.ts', tag: 'deprecated', value: 'b', source: 'jsdoc', symbolName: null, startLine: 2, startColumn: 0, endLine: 2, endColumn: 5, indexedAt: now },
     ]);
 
@@ -80,8 +81,8 @@ describe('AnnotationRepository', () => {
   it('should filter by symbolName', () => {
     const now = new Date().toISOString();
     annotationRepo.insertBatch('test', 'src/index.ts', [
-      { project: 'test', filePath: 'src/index.ts', tag: 'todo', value: 'a', source: 'line', symbolName: 'foo', startLine: 1, startColumn: 0, endLine: 1, endColumn: 5, indexedAt: now },
-      { project: 'test', filePath: 'src/index.ts', tag: 'todo', value: 'b', source: 'line', symbolName: 'bar', startLine: 2, startColumn: 0, endLine: 2, endColumn: 5, indexedAt: now },
+      { project: 'test', filePath: 'src/index.ts', tag: 'todo', value: 'a', source: 'line' as AnnotationSource, symbolName: 'foo', startLine: 1, startColumn: 0, endLine: 1, endColumn: 5, indexedAt: now },
+      { project: 'test', filePath: 'src/index.ts', tag: 'todo', value: 'b', source: 'line' as AnnotationSource, symbolName: 'bar', startLine: 2, startColumn: 0, endLine: 2, endColumn: 5, indexedAt: now },
     ]);
 
     const results = annotationRepo.search({ project: 'test', symbolName: 'foo', limit: 10 });
@@ -92,7 +93,7 @@ describe('AnnotationRepository', () => {
   it('should search via FTS', () => {
     const now = new Date().toISOString();
     annotationRepo.insertBatch('test', 'src/index.ts', [
-      { project: 'test', filePath: 'src/index.ts', tag: 'todo', value: 'implement caching', source: 'line', symbolName: null, startLine: 1, startColumn: 0, endLine: 1, endColumn: 5, indexedAt: now },
+      { project: 'test', filePath: 'src/index.ts', tag: 'todo', value: 'implement caching', source: 'line' as AnnotationSource, symbolName: null, startLine: 1, startColumn: 0, endLine: 1, endColumn: 5, indexedAt: now },
       { project: 'test', filePath: 'src/index.ts', tag: 'see', value: 'other module', source: 'jsdoc', symbolName: null, startLine: 2, startColumn: 0, endLine: 2, endColumn: 5, indexedAt: now },
     ]);
 
@@ -107,7 +108,7 @@ describe('AnnotationRepository', () => {
     const now = new Date().toISOString();
     const rows = Array.from({ length: 80 }, (_, i) => ({
       project: 'test', filePath: 'src/index.ts',
-      tag: 'todo', value: `item ${i}`, source: 'line',
+      tag: 'todo', value: `item ${i}`, source: 'line' as AnnotationSource,
       symbolName: null, startLine: i + 1, startColumn: 0,
       endLine: i + 1, endColumn: 10, indexedAt: now,
     }));
@@ -122,7 +123,7 @@ describe('AnnotationRepository', () => {
     const now = new Date().toISOString();
     const rows = Array.from({ length: 81 }, (_, i) => ({
       project: 'test', filePath: 'src/index.ts',
-      tag: 'todo', value: `item ${i}`, source: 'line',
+      tag: 'todo', value: `item ${i}`, source: 'line' as AnnotationSource,
       symbolName: null, startLine: i + 1, startColumn: 0,
       endLine: i + 1, endColumn: 10, indexedAt: now,
     }));

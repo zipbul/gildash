@@ -55,6 +55,33 @@ describe('searchAnnotations', () => {
     expect(() => searchAnnotations(ctx, {})).toThrow(GildashError);
   });
 
+  it('should wrap a raw error from annotationSearchFn in a GildashError', () => {
+    const raw = new Error('db boom');
+    const ctx = makeCtx({
+      annotationRepo: {} as any,
+      annotationSearchFn: mock(() => { throw raw; }) as any,
+    });
+
+    try {
+      searchAnnotations(ctx, { tag: 'TODO' });
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GildashError);
+      expect((e as GildashError).type).toBe('search');
+      expect((e as GildashError).cause).toBe(raw);
+    }
+  });
+
+  it('should re-throw a GildashError from annotationSearchFn unchanged', () => {
+    const original = new GildashError('validation', 'boom');
+    const ctx = makeCtx({
+      annotationRepo: {} as any,
+      annotationSearchFn: mock(() => { throw original; }) as any,
+    });
+
+    expect(() => searchAnnotations(ctx, { tag: 'TODO' })).toThrow(original);
+  });
+
   it('should return empty array when annotationRepo is null', () => {
     const ctx = makeCtx({
       annotationRepo: null,

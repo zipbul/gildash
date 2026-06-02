@@ -1,15 +1,16 @@
 import { eq, and, sql, count } from 'drizzle-orm';
 import { symbols } from '../schema';
 import type { DbConnection } from '../connection';
-import { toFtsPrefixQuery } from './fts-utils';
 import { GildashError } from '../../errors';
+import type { RelPath } from '../../common/path-utils';
+import type { SymbolKind } from '../../extractor/types';
 
 const BATCH_CHUNK_SIZE = 50;
 
 export interface SymbolRecord {
   project: string;
   filePath: string;
-  kind: string;
+  kind: SymbolKind;
   name: string;
   startLine: number;
   startColumn: number;
@@ -23,11 +24,6 @@ export interface SymbolRecord {
   indexedAt: string;
   resolvedType?: string | null;
   structuralFingerprint?: string | null;
-}
-
-export interface SearchOptions {
-  kind?: string;
-  limit?: number;
 }
 
 /**
@@ -49,7 +45,7 @@ export class SymbolRepository {
     project: string,
     filePath: string,
     contentHash: string,
-    syms: ReadonlyArray<Partial<SymbolRecord>>,
+    syms: ReadonlyArray<Partial<SymbolRecord> & { kind: SymbolKind }>,
   ): void {
     this.db.drizzleDb
       .delete(symbols)
@@ -62,7 +58,7 @@ export class SymbolRepository {
     const rows = syms.map((sym) => ({
       project,
       filePath,
-      kind: sym.kind ?? 'unknown',
+      kind: sym.kind,
       name: sym.name ?? '',
       startLine: sym.startLine ?? 0,
       startColumn: sym.startColumn ?? 0,
@@ -82,42 +78,11 @@ export class SymbolRepository {
     }
   }
 
-  getFileSymbols(project: string, filePath: string): SymbolRecord[] {
+  getFileSymbols(project: string, filePath: RelPath): SymbolRecord[] {
     return this.db.drizzleDb
       .select()
       .from(symbols)
       .where(and(eq(symbols.project, project), eq(symbols.filePath, filePath)))
-      .all();
-  }
-
-  searchByName(project: string, query: string, opts: SearchOptions = {}): SymbolRecord[] {
-    const limit = opts.limit ?? 50;
-    const ftsQuery = toFtsPrefixQuery(query);
-
-    if (!ftsQuery) return [];
-
-    let builder = this.db.drizzleDb
-      .select()
-      .from(symbols)
-      .where(
-        and(
-          sql`${symbols.id} IN (SELECT rowid FROM symbols_fts WHERE symbols_fts MATCH ${ftsQuery})`,
-          eq(symbols.project, project),
-          opts.kind ? eq(symbols.kind, opts.kind) : undefined,
-        ),
-      )
-      .orderBy(symbols.name)
-      .limit(limit);
-
-    return builder.all();
-  }
-
-  searchByKind(project: string, kind: string): SymbolRecord[] {
-    return this.db.drizzleDb
-      .select()
-      .from(symbols)
-      .where(and(eq(symbols.project, project), eq(symbols.kind, kind)))
-      .orderBy(symbols.name)
       .all();
   }
 
@@ -144,7 +109,7 @@ export class SymbolRepository {
       .all();
   }
 
-  deleteFileSymbols(project: string, filePath: string): void {
+  deleteFileSymbols(project: string, filePath: RelPath): void {
     this.db.drizzleDb
       .delete(symbols)
       .where(and(eq(symbols.project, project), eq(symbols.filePath, filePath)))
@@ -154,8 +119,8 @@ export class SymbolRepository {
   searchByQuery(opts: {
     ftsQuery?: string;
     exactName?: string;
-    kind?: string;
-    filePath?: string;
+    kind?: SymbolKind;
+    filePath?: RelPath;
     isExported?: boolean;
     project?: string;
     limit?: number;

@@ -1,6 +1,7 @@
 import { eq, and } from 'drizzle-orm';
 import { files } from '../schema';
 import type { DbConnection } from '../connection';
+import type { RelPath } from '../../common/path-utils';
 
 /**
  * Metadata record for an indexed source file.
@@ -28,7 +29,7 @@ export interface FileRecord {
 export class FileRepository {
   constructor(private readonly db: DbConnection) {}
 
-  getFile(project: string, filePath: string): FileRecord | null {
+  getFile(project: string, filePath: RelPath): FileRecord | null {
     return this.db.drizzleDb
       .select()
       .from(files)
@@ -76,7 +77,7 @@ export class FileRepository {
     return map;
   }
 
-  deleteFile(project: string, filePath: string): void {
+  deleteFile(project: string, filePath: RelPath): void {
     this.db.drizzleDb
       .delete(files)
       .where(and(eq(files.project, project), eq(files.filePath, filePath)))

@@ -1,10 +1,12 @@
 import { eq, and, isNull, or, sql } from 'drizzle-orm';
 import { relations as relationsTable } from '../schema';
 import type { DbConnection } from '../connection';
+import type { RelPath } from '../../common/path-utils';
+import type { RelationType } from '../../extractor/types';
 
 export interface RelationRecord {
   project: string;
-  type: string;
+  type: RelationType;
   srcFilePath: string;
   srcSymbolName: string | null;
   dstProject: string | null;
@@ -34,7 +36,7 @@ export class RelationRepository {
   replaceFileRelations(
     project: string,
     srcFilePath: string,
-    rels: ReadonlyArray<Partial<RelationRecord>>,
+    rels: ReadonlyArray<Partial<RelationRecord> & { type: RelationType }>,
   ): void {
     this.db.transaction((tx) => {
       tx.drizzleDb
@@ -47,7 +49,7 @@ export class RelationRepository {
       for (const rel of rels) {
         tx.drizzleDb.insert(relationsTable).values({
           project,
-          type: rel.type ?? 'unknown',
+          type: rel.type,
           srcFilePath: rel.srcFilePath ?? srcFilePath,
           srcSymbolName: rel.srcSymbolName ?? null,
           dstProject: rel.dstProject ?? (rel.dstFilePath != null ? project : null),
@@ -61,7 +63,7 @@ export class RelationRepository {
     });
   }
 
-  getOutgoing(project: string, srcFilePath: string, srcSymbolName?: string): RelationRecord[] {
+  getOutgoing(project: string, srcFilePath: RelPath, srcSymbolName?: string): RelationRecord[] {
     if (srcSymbolName !== undefined) {
       return this.db.drizzleDb
         .select(RELATION_SELECT)
@@ -91,7 +93,7 @@ export class RelationRepository {
       .all();
   }
 
-  getIncoming(opts: { dstProject: string; dstFilePath: string }): RelationRecord[] {
+  getIncoming(opts: { dstProject: string; dstFilePath: RelPath }): RelationRecord[] {
     const { dstProject, dstFilePath } = opts;
     return this.db.drizzleDb
       .select(RELATION_SELECT)
@@ -105,7 +107,7 @@ export class RelationRepository {
       .all();
   }
 
-  getByType(project: string, type: string): RelationRecord[] {
+  getByType(project: string, type: RelationType): RelationRecord[] {
     return this.db.drizzleDb
       .select(RELATION_SELECT)
       .from(relationsTable)
@@ -118,14 +120,14 @@ export class RelationRepository {
       .all();
   }
 
-  deleteFileRelations(project: string, srcFilePath: string): void {
+  deleteFileRelations(project: string, srcFilePath: RelPath): void {
     this.db.drizzleDb
       .delete(relationsTable)
       .where(and(eq(relationsTable.project, project), eq(relationsTable.srcFilePath, srcFilePath)))
       .run();
   }
 
-  deleteIncomingRelations(dstProject: string, dstFilePath: string): void {
+  deleteIncomingRelations(dstProject: string, dstFilePath: RelPath): void {
     this.db.drizzleDb
       .delete(relationsTable)
       .where(and(eq(relationsTable.dstProject, dstProject), eq(relationsTable.dstFilePath, dstFilePath)))
@@ -133,12 +135,12 @@ export class RelationRepository {
   }
 
   searchRelations(opts: {
-    srcFilePath?: string;
+    srcFilePath?: RelPath;
     srcSymbolName?: string;
     dstProject?: string;
-    dstFilePath?: string;
+    dstFilePath?: RelPath;
     dstSymbolName?: string;
-    type?: string;
+    type?: RelationType;
     project?: string;
     specifier?: string;
     isExternal?: boolean;

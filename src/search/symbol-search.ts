@@ -1,6 +1,7 @@
 import type { SymbolKind, Modifier, Decorator, JsDocBlock, ExpressionValue } from '../extractor/types';
 import type { SymbolRecord } from '../store/repositories/symbol.repository';
 import { toFtsPrefixQuery } from '../store/repositories/fts-utils';
+import { inboundRelPath, type RelPath } from '../common/path-utils';
 
 /**
  * Filters for {@link symbolSearch}.
@@ -104,12 +105,12 @@ export interface SymbolSearchResult {
   detail: SymbolDetail;
 }
 
-export interface ISymbolRepo {
+export interface SymbolRepositoryReader {
   searchByQuery(opts: {
     ftsQuery?: string;
     exactName?: string;
-    kind?: string;
-    filePath?: string;
+    kind?: SymbolKind;
+    filePath?: RelPath;
     isExported?: boolean;
     project?: string;
     limit?: number;
@@ -126,16 +127,20 @@ export interface ISymbolRepo {
  * @returns An array of {@link SymbolSearchResult} entries matching the query.
  */
 export function symbolSearch(options: {
-  symbolRepo: ISymbolRepo;
+  symbolRepo: SymbolRepositoryReader;
+  projectRoot: string;
   project?: string;
   query: SymbolSearchQuery;
 }): SymbolSearchResult[] {
-  const { symbolRepo, project, query } = options;
+  const { symbolRepo, projectRoot, project, query } = options;
   const effectiveProject = query.project ?? project;
 
-  const opts: Parameters<ISymbolRepo['searchByQuery']>[0] = {
+  const opts: Parameters<SymbolRepositoryReader['searchByQuery']>[0] = {
     kind: query.kind,
-    filePath: query.filePath,
+    // Normalize the inbound (possibly absolute) path to the store's RelPath
+    // domain here, the single point — the repo requires a RelPath so a caller
+    // cannot query by an un-normalized path.
+    filePath: query.filePath !== undefined ? inboundRelPath(projectRoot, query.filePath) : undefined,
     isExported: query.isExported,
     project: effectiveProject,
     limit: query.limit,
@@ -161,7 +166,7 @@ export function symbolSearch(options: {
     return {
       id: r.id,
       filePath: r.filePath,
-      kind: r.kind as SymbolKind,
+      kind: r.kind,
       name: r.name,
       memberName: dotIdx >= 0 ? r.name.slice(dotIdx + 1) : null,
       span: {
