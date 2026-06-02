@@ -177,7 +177,7 @@ export interface GildashContext {
   coordinator: CoordinatorLike | null;
   watcher: WatcherLike | null;
   timer: ReturnType<typeof setInterval> | null;
-  signalHandlers: Array<[string, () => void]>;
+  signalHandlers: Array<[NodeJS.Signals | 'beforeExit', () => void]>;
   tsconfigPaths: TsconfigPaths | null;
   boundaries: ProjectBoundary[];
   onIndexedCallbacks: Set<(result: IndexResult) => void>;
