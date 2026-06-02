@@ -58,11 +58,6 @@ export function relPath(p: string): RelPath {
   return normalizePath(p) as RelPath;
 }
 
-/** Brand an already-absolute path as {@link AbsPath}, normalizing separators. */
-export function absPath(p: string): AbsPath {
-  return normalizePath(p) as AbsPath;
-}
-
 /**
  * Normalize an inbound caller path (which may be absolute or relative) to the
  * store's {@link RelPath} domain. This is the single entry-point every public
@@ -70,11 +65,4 @@ export function absPath(p: string): AbsPath {
  */
 export function inboundRelPath(projectRoot: string, filePath: string): RelPath {
   return path.isAbsolute(filePath) ? toRelativePath(projectRoot, filePath) : relPath(filePath);
-}
-
-/**
- * Normalize an inbound caller path to the fs/tsc {@link AbsPath} domain.
- */
-export function inboundAbsPath(projectRoot: string, filePath: string): AbsPath {
-  return path.isAbsolute(filePath) ? absPath(filePath) : toAbsolutePath(projectRoot, filePath);
 }
