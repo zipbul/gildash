@@ -9,7 +9,7 @@ import {
   foreignKey,
   check,
 } from 'drizzle-orm/sqlite-core';
-import { SYMBOL_KINDS } from '../extractor/types';
+import { SYMBOL_KINDS, RELATION_TYPES } from '../extractor/types';
 
 export const files = sqliteTable(
   'files',
@@ -63,7 +63,7 @@ export const relations = sqliteTable(
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     project: text('project').notNull(),
-    type: text('type').notNull(),
+    type: text('type', { enum: RELATION_TYPES }).notNull(),
     srcFilePath: text('src_file_path').notNull(),
     srcSymbolName: text('src_symbol_name'),
     dstProject: text('dst_project'),

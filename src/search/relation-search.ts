@@ -2,6 +2,7 @@ import type { CodeRelation } from '../extractor/types';
 import { GildashError } from '../errors';
 import type { RelationRecord } from '../store/repositories/relation.repository';
 import { inboundRelPath, type RelPath } from '../common/path-utils';
+import type { RelationType } from '../extractor/types';
 
 /**
  * A {@link CodeRelation} enriched with the destination project identifier
@@ -61,7 +62,7 @@ export interface RelationRepositoryReader {
     dstFilePath?: RelPath;
     dstSymbolName?: string;
     dstProject?: string;
-    type?: string;
+    type?: RelationType;
     project?: string;
     specifier?: string;
     isExternal?: boolean;
@@ -121,7 +122,7 @@ export function relationSearch(options: {
       }
     }
     return {
-      type: r.type as CodeRelation['type'],
+      type: r.type,
       srcFilePath: r.srcFilePath,
       srcSymbolName: r.srcSymbolName,
       dstFilePath: r.dstFilePath,

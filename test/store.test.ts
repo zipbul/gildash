@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { relPath } from '../src/common/path-utils';
-import type { SymbolKind } from '../src/extractor/types';
+import type { SymbolKind, RelationType } from '../src/extractor/types';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,13 +56,13 @@ function makeSymbolRecord(overrides: Partial<{
 }
 
 function makeRelationRecord(overrides: Partial<{
-  project: string; type: string; srcFilePath: string;
+  project: string; type: RelationType; srcFilePath: string;
   srcSymbolName: string | null; dstProject: string; dstFilePath: string;
   dstSymbolName: string | null; metaJson: string | null;
 }> = {}) {
   return {
     project: 'test-project',
-    type: 'imports',
+    type: 'imports' as RelationType,
     srcFilePath: relPath('src/index.ts'),
     srcSymbolName: null,
     dstProject: 'test-project',

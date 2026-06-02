@@ -3,6 +3,7 @@ import { relPath } from '../../common/path-utils';
 import type { Mock } from 'bun:test';
 import { RelationRepository } from './relation.repository';
 import type { RelationRecord } from './relation.repository';
+import type { RelationType } from '../../extractor/types';
 import type { DbConnection } from '../connection';
 
 function makeChainMock() {
@@ -26,10 +27,10 @@ function makeDbMock() {
   return { db, chain };
 }
 
-function makeRelRecord(overrides: Partial<RelationRecord> = {}): Partial<RelationRecord> {
+function makeRelRecord(overrides: Partial<RelationRecord> = {}): Partial<RelationRecord> & { type: RelationType } {
   return {
     project: 'test-project',
-    type: 'imports',
+    type: 'imports' as RelationType,
     srcFilePath: relPath('src/index.ts'),
     srcSymbolName: null,
     dstProject: 'test-project',
@@ -249,7 +250,7 @@ describe('RelationRepository', () => {
     const { db, chain } = makeDbMock();
     const repo = new RelationRepository(db);
 
-    const relNoProject: Partial<RelationRecord> = { type: 'imports', dstFilePath: relPath('src/b.ts') };
+    const relNoProject: Partial<RelationRecord> & { type: RelationType } = { type: 'imports', dstFilePath: relPath('src/b.ts') };
     repo.replaceFileRelations('proj-a', 'src/a.ts', [relNoProject]);
 
     const insertedValues = (chain['values'] as { mock: { calls: any[][] } }).mock.calls[0]?.[0];

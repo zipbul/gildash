@@ -348,9 +348,19 @@ export interface ImportReference {
  * - `'extends'` — class/interface in file A extends one in file B
  * - `'implements'` — class in file A implements an interface in file B
  */
+export const RELATION_TYPES = [
+  'imports',
+  'type-references',
+  're-exports',
+  'calls',
+  'extends',
+  'implements',
+] as const;
+export type RelationType = (typeof RELATION_TYPES)[number];
+
 export interface CodeRelation {
   /** The kind of relationship. */
-  type: 'imports' | 'type-references' | 're-exports' | 'calls' | 'extends' | 'implements';
+  type: RelationType;
   /** File path where the relationship originates. */
   srcFilePath: string;
   /** Source symbol name, or `null` for module-level relationships. */
