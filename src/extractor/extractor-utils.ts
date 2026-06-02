@@ -84,34 +84,31 @@ export function buildImportMap(
   ) => string[] = resolveImport,
 ): Map<string, ImportReference> {
   const map = new Map<string, ImportReference>();
-  // oxc-parser's Program type doesn't expose `.body` — cast through unknown as a type bridge
-  const body = (ast as unknown as { body?: Array<Record<string, unknown>> }).body ?? [];
 
-  for (const node of body) {
+  for (const node of ast.body) {
     if (node.type !== 'ImportDeclaration') continue;
 
-    const sourcePath: string = ((node.source as { value?: string } | undefined)?.value) ?? '';
+    const sourcePath: string = node.source.value;
     const candidates = resolveImportFn(currentFilePath, sourcePath, tsconfigPaths);
     if (candidates.length === 0) continue;
     const resolved = candidates[0];
 
-    const specifiers = (node.specifiers as Array<Record<string, unknown>> | undefined) ?? [];
-    for (const spec of specifiers) {
+    for (const spec of node.specifiers) {
       switch (spec.type) {
         case 'ImportSpecifier':
-          map.set((spec.local as { name: string }).name, {
+          map.set(spec.local.name, {
             path: resolved!,
-            importedName: (spec.imported as { name: string }).name,
+            importedName: 'name' in spec.imported ? spec.imported.name : spec.imported.value,
           });
           break;
         case 'ImportDefaultSpecifier':
-          map.set((spec.local as { name: string }).name, {
+          map.set(spec.local.name, {
             path: resolved!,
             importedName: 'default',
           });
           break;
         case 'ImportNamespaceSpecifier':
-          map.set((spec.local as { name: string }).name, {
+          map.set(spec.local.name, {
             path: resolved!,
             importedName: '*',
           });

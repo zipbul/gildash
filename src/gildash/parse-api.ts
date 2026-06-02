@@ -34,7 +34,7 @@ export async function batchParse(
         const text = await ctx.readFileFn(fp);
         const result = ctx.parseSourceFn(fp, text, options);
         if (!isErr(result)) {
-          parsed.set(fp, result as ParsedFile);
+          parsed.set(fp, result);
         } else {
           failures.push({ filePath: fp, error: result.data });
         }

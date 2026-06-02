@@ -441,7 +441,7 @@ export class IndexCoordinator {
           const parseFn = this.opts.parseSourceFn ?? parseSource;
           const parseResult = parseFn(absPath, text);
           if (isErr(parseResult)) throw parseResult.data;
-          const parsed = parseResult as ParsedFile;
+          const parsed = parseResult;
           prepared.push({ filePath: file.filePath, text, contentHash, parsed, project });
         } catch (e) {
           this.logger.error(`[IndexCoordinator] Failed to prepare ${file.filePath}:`, e);

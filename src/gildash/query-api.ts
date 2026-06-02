@@ -192,7 +192,7 @@ export function getModuleInterface(
       symbolRepo: ctx.symbolRepo, projectRoot: ctx.projectRoot,
       project: project ?? ctx.defaultProject,
       query: { filePath, isExported: true },
-    }) as SymbolSearchResult[];
+    });
     const exports = symbols.map((s) => ({
       name: s.name,
       kind: s.kind,
