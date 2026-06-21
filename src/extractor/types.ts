@@ -143,6 +143,15 @@ export interface ExpressionTemplate {
 export interface ExpressionUnresolvable {
   kind: 'unresolvable';
   sourceText: string;
+  /**
+   * Why the node could not be structurally represented.
+   *
+   * - `'depth-cap'` — the node was truncated at the extractor's recursion depth
+   *   limit for stack safety, *not* because its form is unsupported. The real
+   *   value is recoverable by re-parsing `sourceText`.
+   * - `undefined` — the node's syntactic form is genuinely not representable.
+   */
+  reason?: 'depth-cap';
 }
 
 /**
