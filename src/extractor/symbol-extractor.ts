@@ -8,6 +8,7 @@ import type {
   ExpressionCall,
   ExpressionNew,
   ExpressionFunction,
+  ExpressionUnresolvable,
   ExpressionObjectProperty,
   ExpressionObjectEntry,
   KeyExpression,
@@ -255,7 +256,28 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     return sourceText.slice(inner.start, inner.end);
   }
 
-  const MAX_EXPRESSION_DEPTH = 8;
+  /**
+   * Bounds the JS recursion of {@link convertExpression}. This is a stack-safety
+   * guard only — oxc has already materialized the full AST in Rust; the walker
+   * here just descends an existing tree. The value gives ample headroom over any
+   * hand-authored config/module nesting (realistically < ~20 levels) while
+   * staying far below the JS call-stack ceiling, so adversarial or machine-
+   * generated input cannot overflow it. Nodes truncated by this cap are returned
+   * as `unresolvable` with `reason: 'depth-cap'`, and consumers can recover the
+   * original value by re-parsing the node's `sourceText`.
+   */
+  const MAX_EXPRESSION_DEPTH = 64;
+
+  /**
+   * Build an `unresolvable` expression value for a node we cannot structurally
+   * represent. `reason` distinguishes a depth-cap truncation (recoverable) from a
+   * genuinely unsupported syntactic form (left `undefined`).
+   */
+  function unresolvable(node: { start: number; end: number }, reason?: ExpressionUnresolvable['reason']): ExpressionUnresolvable {
+    const result: ExpressionUnresolvable = { kind: 'unresolvable', sourceText: sourceText.slice(node.start, node.end) };
+    if (reason) result.reason = reason;
+    return result;
+  }
 
   /** Resolve the leftmost identifier of a callee (simple or member) to its import info. */
   function resolveCalleeImport(callee: Expression): ImportInfo | undefined {
@@ -275,7 +297,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
    */
   function convertExpression(node: OxcPropertyKey | SpreadElement, depth: number = 0): ExpressionValue {
     if (depth >= MAX_EXPRESSION_DEPTH) {
-      return { kind: 'unresolvable', sourceText: sourceText.slice(node.start, node.end) };
+      return unresolvable(node, 'depth-cap');
     }
 
     // Literals — oxc-parser emits ESTree "Literal" for all literal types
@@ -294,7 +316,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       if (typeof value === 'string') return { kind: 'string', value };
       if (typeof value === 'number') return { kind: 'number', value };
       if (typeof value === 'boolean') return { kind: 'boolean', value };
-      return { kind: 'unresolvable', sourceText: sourceText.slice(node.start, node.end) };
+      return unresolvable(node);
     }
 
     // Identifier — oxc-parser emits 'Identifier' for all identifier nodes
@@ -324,7 +346,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           if (imp) result.importSource = imp.specifier;
           return result;
         }
-        return { kind: 'unresolvable', sourceText: sourceText.slice(node.start, node.end) };
+        return unresolvable(node);
       }
       const obj = node.object;
       const objectText = sourceText.slice(obj.start, obj.end);
@@ -420,7 +442,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
       if (node.operator === 'void') {
         return { kind: 'undefined', value: null };
       }
-      return { kind: 'unresolvable', sourceText: sourceText.slice(node.start, node.end) };
+      return unresolvable(node);
     }
 
     // Transparent wrappers — unwrap to inner expression
@@ -439,7 +461,7 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     }
 
     // Fallback: anything we can't structurally represent
-    return { kind: 'unresolvable', sourceText: sourceText.slice(node.start, node.end) };
+    return unresolvable(node);
   }
 
   function extractDecorators(decorators: readonly OxcDecorator[]): ExtractorDecorator[] {

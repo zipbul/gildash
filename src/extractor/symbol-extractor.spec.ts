@@ -2,7 +2,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { isErr } from '@zipbul/result';
 import { parseSource } from '../parser/parse-source';
 import type { ParsedFile } from '../parser/types';
-import type { JsDocTag, ExpressionObject, ExpressionObjectProperty, ExpressionObjectEntry } from '../extractor/types';
+import type { JsDocTag, ExpressionObject, ExpressionObjectProperty, ExpressionObjectEntry, ExpressionValue, ExpressionUnresolvable } from '../extractor/types';
 
 /** Narrow object literal entries to non-spread key/value properties. */
 function objectProps(obj: ExpressionObject): ExpressionObjectProperty[] {
@@ -11,10 +11,10 @@ function objectProps(obj: ExpressionObject): ExpressionObjectProperty[] {
   );
 }
 
-const mockBuildLineOffsets = mock((sourceText: string) => [0]);
-const mockGetLineColumn = mock((offsets: number[], offset: number) => ({ line: 1, column: 0 }));
+const mockBuildLineOffsets = mock((_sourceText: string) => [0]);
+const mockGetLineColumn = mock((_offsets: number[], _offset: number) => ({ line: 1, column: 0 }));
 
-const mockParseJsDoc = mock((commentText: string) => ({ description: '', tags: [] as JsDocTag[] }));
+const mockParseJsDoc = mock((_commentText: string) => ({ description: '', tags: [] as JsDocTag[] }));
 
 mock.module('../parser/source-position', () => ({
   buildLineOffsets: mockBuildLineOffsets,
@@ -2083,20 +2083,75 @@ describe('extractSymbols', () => {
   });
 
   describe('expression depth limit', () => {
-    it('should fall back to unresolvable when nesting exceeds depth limit', () => {
-      // 9 levels of nesting: [[[[[[[[['x']]]]]]]]]
-      const deep = '[[[[[[[[["x"]]]]]]]]]';
-      const parsed = makeFixture(`const x = ${deep};`);
-      const v = extractSymbols(parsed).find(s => s.name === 'x')!;
-      // Walk down to find the unresolvable at depth limit
-      let current = v.initializer!;
-      let depth = 0;
-      while (current.kind === 'array' && depth < 20) {
-        current = (current as { elements: any[] }).elements[0]!;
-        depth++;
+    const MAX_EXPRESSION_DEPTH = 64;
+
+    /** Narrow to an array element / call argument / object property, failing the test on mismatch. */
+    function elementOf(value: ExpressionValue): ExpressionValue {
+      if (value.kind !== 'array') throw new Error(`expected array, got ${value.kind}`);
+      const first = value.elements[0];
+      if (!first) throw new Error('expected a non-empty array');
+      return first;
+    }
+    function argOf(value: ExpressionValue): ExpressionValue {
+      if (value.kind !== 'call') throw new Error(`expected call, got ${value.kind}`);
+      const first = value.arguments[0];
+      if (!first) throw new Error('expected a call argument');
+      return first;
+    }
+    function propOf(value: ExpressionValue, key: string): ExpressionValue {
+      if (value.kind !== 'object') throw new Error(`expected object, got ${value.kind}`);
+      const prop = objectProps(value).find(p => p.key.kind === 'string' && p.key.value === key);
+      if (!prop) throw new Error(`expected property "${key}"`);
+      return prop.value;
+    }
+    function asUnresolvable(value: ExpressionValue): ExpressionUnresolvable {
+      if (value.kind !== 'unresolvable') throw new Error(`expected unresolvable, got ${value.kind}`);
+      return value;
+    }
+
+    /** Build `const x = [[...["v"]...]];` and return the innermost converted node. */
+    function nestedArrayLeaf(levels: number): ExpressionValue {
+      const src = `const x = ${'['.repeat(levels)}"v"${']'.repeat(levels)};`;
+      const v = extractSymbols(makeFixture(src)).find(s => s.name === 'x')!;
+      let current: ExpressionValue = v.initializer!;
+      while (current.kind === 'array') {
+        const next = current.elements[0];
+        if (!next) break;
+        current = next;
       }
-      // Should hit unresolvable before reaching the innermost string
-      expect(current.kind).toBe('unresolvable');
+      return current;
+    }
+
+    it('should resolve a leaf literal sitting just inside the depth limit', () => {
+      // leaf "v" lives at depth = levels; the deepest resolvable depth is MAX-1
+      const leaf = nestedArrayLeaf(MAX_EXPRESSION_DEPTH - 1);
+      expect(leaf).toEqual({ kind: 'string', value: 'v' });
+    });
+
+    it('should fall back to unresolvable when nesting reaches the depth limit', () => {
+      const capped = nestedArrayLeaf(MAX_EXPRESSION_DEPTH);
+      expect(capped.kind).toBe('unresolvable');
+    });
+
+    it('should tag depth-capped fallbacks with reason=depth-cap', () => {
+      const capped = asUnresolvable(nestedArrayLeaf(MAX_EXPRESSION_DEPTH));
+      expect(capped.reason).toBe('depth-cap');
+    });
+
+    it('should keep realistic config nesting fully resolved (regression for defineModule)', () => {
+      const src = `const m = defineModule({ adapters: [{ adapter: HttpAdapter, middlewares: { OnRequest: [corsMiddleware({ origin: 'https://x', maxAge: 600 })] } }] });`;
+      const m = extractSymbols(makeFixture(src)).find(s => s.name === 'm')!;
+      // call -> arg object -> adapters[0] -> middlewares -> OnRequest[0] (call) -> arg object
+      const corsObj = argOf(elementOf(propOf(propOf(elementOf(propOf(argOf(m.initializer!), 'adapters')), 'middlewares'), 'OnRequest')));
+      expect(propOf(corsObj, 'origin')).toEqual({ kind: 'string', value: 'https://x' });
+      expect(propOf(corsObj, 'maxAge')).toEqual({ kind: 'number', value: 600 });
+    });
+
+    it('should NOT tag genuinely-unsupported fallbacks with a reason', () => {
+      // `typeof y` is an unsupported unary expression -> unresolvable, but not depth-capped
+      const v = extractSymbols(makeFixture(`const x = typeof y;`)).find(s => s.name === 'x')!;
+      const init = asUnresolvable(v.initializer!);
+      expect(init.reason).toBeUndefined();
     });
   });
 });
