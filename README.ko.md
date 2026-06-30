@@ -230,10 +230,14 @@ try {
 | `logger` | `Logger` | `console` | 커스텀 로거 (`{ error(...args): void }`) |
 | `watchMode` | `boolean` | `true` | `false`이면 파일 워처 비활성화 (스캔 전용 모드) |
 | `semantic` | `boolean` | `false` | tsc TypeChecker 기반 시맨틱 분석 활성화 |
+| `tsconfigs` | `string[]` | — | 시맨틱 레이어용 명시적 tsconfig 경로(권위적, 자동 발견 생략). 비표준 이름·모호한 레이아웃에 사용 |
+| `semanticScope` | `'auto' \| 'root'` | `'auto'` | `'auto'`는 `projectRoot` 아래 모든 `tsconfig.json`(+참조 프로젝트)을 발견해 각 파일을 자기 config로 해석; `'root'`는 `<projectRoot>/tsconfig.json` 하나만 사용(단일 프로그램, 레거시) |
 
 **반환**: `Promise<Gildash>`. 실패 시 `GildashError`를 throw합니다.
 
-> **참고:** `semantic: true`는 프로젝트 루트에 `tsconfig.json`이 필요합니다. 없으면 `Gildash.open()`이 `GildashError`를 throw합니다.
+> **모노레포 (멀티-tsconfig):** `semantic: true` + 기본 `semanticScope: 'auto'`이면 gildash는 지배하는 `tsconfig.json`마다 tsc 프로그램을 하나씩 만들어, 서브 프로젝트(예: 자체 config를 가진 앱) 파일을 그 프로젝트의 컴파일러 옵션으로 분석합니다. 빌드 불가한 `tsconfig.json`은 자기 파일만 degrade하며(`isFileInSemanticProgram` 참고), 한 프로젝트의 config가 없거나 깨져도 `open()`은 더 이상 throw하지 않습니다.
+>
+> 현재 한계: 세션 중 tsconfig 파일 변경은 재오픈 필요; 프로젝트 간 2-파일 질의(예: 프로젝트를 가로지르는 `isTypeAssignableTo`)와 프로젝트 간 참조는 해석되지 않습니다.
 
 <br>
 
@@ -312,6 +316,7 @@ try {
 | `lineColumnToPosition(filePath, line, column)` | `number \| null` | 라인/컬럼 → 바이트 오프셋 변환 |
 | `findNamePosition(filePath, declarationPos, name)` | `number \| null` | 선언 내 식별자의 바이트 위치 탐색 |
 | `getSemanticDiagnostics(filePath, opts?)` | `SemanticDiagnostic[]` | 파일의 tsc 진단 |
+| `isFileInSemanticProgram(filePath)` | `boolean` | 파일이 정상 시맨틱 프로그램에 속하는지 — 완전한 타입/참조/바인딩 답이 가능할 때만 `true`. 발견된 어떤 tsconfig에도 없거나, tsconfig 빌드 실패, 또는 시맨틱 비활성이면 `false`. 파일 단위 degrade에 사용(예: `getStandaloneFileBindings` 폴백) |
 
 `getFullSymbol()`은 semantic 활성 시 자동으로 `resolvedType` 필드를 보강합니다.
 `searchSymbols({ resolvedType })`로 resolved type 문자열 기반 필터링이 가능합니다.

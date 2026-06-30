@@ -179,7 +179,8 @@ export function getSemanticModuleInterface(
 ): SemanticModuleInterface {
   return guard(ctx, 'search', 'getSemanticModuleInterface', () => {
     if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
-    return ctx.semanticLayer.getModuleInterface(filePath);
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    return ctx.semanticLayer.getModuleInterface(absPath);
   });
 }
 
@@ -355,6 +356,20 @@ export function getStandaloneFileBindings(
     if (!ctx.semanticLayer) throw new GildashError('semantic', 'Gildash: semantic layer is not enabled');
     const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
     return ctx.semanticLayer.getStandaloneFileBindings(absPath, content);
+  });
+}
+
+/**
+ * Whether `filePath` is in a healthy semantic program (full type/reference/binding
+ * answers available). `false` for files outside every discovered tsconfig, files
+ * whose tsconfig failed to build, or when the semantic layer is disabled. Lets
+ * callers degrade per-file (e.g. fall back to {@link getStandaloneFileBindings}).
+ */
+export function isFileInSemanticProgram(ctx: GildashContext, filePath: string): boolean {
+  return guard(ctx, 'semantic', 'isFileInSemanticProgram', () => {
+    if (!ctx.semanticLayer) return false;
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(ctx.projectRoot, filePath);
+    return ctx.semanticLayer.isFileInSemanticProgram(absPath);
   });
 }
 
