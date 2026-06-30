@@ -1769,6 +1769,88 @@ describe('IndexCoordinator', () => {
     expect(result.failedFiles).toEqual([]);
   });
 
+  // fullIndex() uses the useTransaction=true path that open() runs. A single
+  // unparseable file must degrade (skip + report), not hard-fail the whole index.
+  describe('fullIndex parse-failure degrade (transaction path)', () => {
+    function failParseFor(needle: string) {
+      (mockParseSource as any).mockImplementation((fp: string, text: string) => {
+        if (fp.includes(needle)) return err(new Error('Failed to parse file: ' + fp));
+        return { filePath: fp, program: { body: [] }, errors: [], comments: [], sourceText: text };
+      });
+    }
+
+    it('should resolve and index the good file when one file fails to parse', async () => {
+      failParseFor('parsefail');
+      mockDetectChanges.mockResolvedValue({
+        changed: [makeFakeFile('src/ok.ts'), makeFakeFile('src/parsefail.ts')],
+        unchanged: [], deleted: [],
+      });
+
+      const result = await makeCoordinator().fullIndex();
+
+      expect(result.failedFiles).toContain('src/parsefail.ts');
+      expect(result.changedFiles).toEqual(['src/ok.ts']);
+      expect(result.indexedFiles).toBe(1);
+      expect(mockIndexFileSymbols).toHaveBeenCalledTimes(1);
+    });
+
+    it('should index nothing and report all when every file fails to parse', async () => {
+      failParseFor('.ts');
+      mockDetectChanges.mockResolvedValue({
+        changed: [makeFakeFile('src/a.ts'), makeFakeFile('src/b.ts')],
+        unchanged: [], deleted: [],
+      });
+
+      const result = await makeCoordinator().fullIndex();
+
+      expect(result.indexedFiles).toBe(0);
+      expect(result.failedFiles).toEqual(['src/a.ts', 'src/b.ts']);
+      expect(mockIndexFileSymbols).not.toHaveBeenCalled();
+    });
+
+    it('should still delete stale symbols for a file that becomes unparseable', async () => {
+      failParseFor('parsefail');
+      const fileRepo = makeFileRepo();
+      mockDetectChanges.mockResolvedValue({
+        changed: [makeFakeFile('src/parsefail.ts')], unchanged: [], deleted: [],
+      });
+
+      await makeCoordinator({ fileRepo }).fullIndex();
+
+      const deleted = (fileRepo.deleteFile.mock.calls as any[]).map((c) => c[1]);
+      expect(deleted).toContain('src/parsefail.ts');
+    });
+
+    it('should commit later files even when an earlier file fails to parse', async () => {
+      failParseFor('parsefail');
+      mockDetectChanges.mockResolvedValue({
+        changed: [makeFakeFile('src/parsefail.ts'), makeFakeFile('src/ok.ts')],
+        unchanged: [], deleted: [],
+      });
+
+      const result = await makeCoordinator().fullIndex();
+
+      expect(result.changedFiles).toEqual(['src/ok.ts']);
+      expect(mockIndexFileSymbols).toHaveBeenCalledTimes(1);
+    });
+
+    it('should degrade when parseSource throws synchronously (oxc panic)', async () => {
+      (mockParseSource as any).mockImplementation((fp: string, text: string) => {
+        if (fp.includes('panic')) throw new Error('oxc panic');
+        return { filePath: fp, program: { body: [] }, errors: [], comments: [], sourceText: text };
+      });
+      mockDetectChanges.mockResolvedValue({
+        changed: [makeFakeFile('src/ok.ts'), makeFakeFile('src/panic.ts')],
+        unchanged: [], deleted: [],
+      });
+
+      const result = await makeCoordinator().fullIndex();
+
+      expect(result.failedFiles).toContain('src/panic.ts');
+      expect(result.changedFiles).toEqual(['src/ok.ts']);
+    });
+  });
+
   describe('renamedSymbols / movedSymbols', () => {
     it('should include renamed symbol in renamedSymbols when same-file rename is detected', async () => {
       const symbolRepo = makeSymbolRepo();
