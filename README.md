@@ -270,10 +270,14 @@ try {
 | `logger` | `Logger` | `console` | Custom logger (`{ error(...args): void }`) |
 | `watchMode` | `boolean` | `true` | `false` disables the file watcher (scan-only mode) |
 | `semantic` | `boolean` | `false` | Enable tsc TypeChecker-backed semantic analysis |
+| `tsconfigs` | `string[]` | — | Explicit tsconfig paths for the semantic layer (authoritative; skips auto-discovery). Use for non-standard config names or ambiguous layouts |
+| `semanticScope` | `'auto' \| 'root'` | `'auto'` | `'auto'` discovers every `tsconfig.json` under `projectRoot` (plus referenced projects) and resolves each file under its own config; `'root'` uses only `<projectRoot>/tsconfig.json` (single-program, legacy) |
 
 Returns `Promise<Gildash>`. Throws `GildashError` on failure.
 
-> **Note:** `semantic: true` requires a `tsconfig.json` in the project root. If not found, `Gildash.open()` throws a `GildashError`.
+> **Monorepo (multi-tsconfig):** with `semantic: true` and the default `semanticScope: 'auto'`, gildash builds one tsc program per governing `tsconfig.json`, so files in a sub-project (e.g. an app with its own config) are analyzed under that project's compiler options. A `tsconfig.json` that cannot build degrades only its own files (see `isFileInSemanticProgram`) — `open()` no longer throws because one project's config is missing or broken.
+>
+> Current limitations: changes to tsconfig files mid-session require reopening; cross-project two-file queries (e.g. `isTypeAssignableTo` across projects) and cross-project references are not resolved.
 
 <br>
 
@@ -356,6 +360,7 @@ Requires `semantic: true` at open time.
 | `getFileBindings(filePath)` | `FileBinding[]` | All bindings in a file (single pass), each with its in-file enriched references — `O(identifiers)` for dataflow |
 | `getFileBindingsBatch(files)` | `Map<string, FileBinding[]>` | Batch `getFileBindings` over many in-memory `{ filePath, content }` — one tsc rebuild for the whole batch |
 | `getStandaloneFileBindings(filePath, content)` | `FileBinding[]` | Isolated `O(file)` bindings for a self-contained source — never touches the shared program (no cross-file/global resolution) |
+| `isFileInSemanticProgram(filePath)` | `boolean` | Whether the file is in a healthy semantic program — `true` only when full type/reference/binding answers are available. `false` for files outside every discovered tsconfig, files whose tsconfig failed to build, or when semantic is disabled. Use to degrade per-file (e.g. fall back to `getStandaloneFileBindings`) |
 | `notifyFileChanged(filePath, content)` | `void` | Register/replace an ad-hoc in-memory source (idempotent on identical content) |
 | `notifyFileDeleted(filePath)` | `void` | Remove an ad-hoc in-memory source |
 | `getImplementationsAtPosition(filePath, position)` | `Implementation[]` | Implementations of the symbol at a position |

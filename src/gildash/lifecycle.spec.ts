@@ -2,6 +2,7 @@ import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:te
 import { err } from '@zipbul/result';
 import { GildashError } from '../errors';
 import type { GildashContext, CoordinatorLike, WatcherLike } from './context';
+import { SemanticProjectRouter } from '../semantic/project-router';
 import { ProjectWatcher } from '../watcher/project-watcher';
 
 // ─── Module Mocks ───────────────────────────────────────────────────
@@ -238,7 +239,7 @@ describe('initializeContext', () => {
     expect(ctx.defaultProject).toBe('project');
   });
 
-  it('should create semanticLayer when semantic is true', async () => {
+  it('should create the semantic project router when semantic is true', async () => {
     const semanticLayer = { dispose: mock(() => {}), notifyFileChanged: mock(() => {}) };
     const opts = makeInitOptions({
       semantic: true,
@@ -247,7 +248,8 @@ describe('initializeContext', () => {
 
     const ctx = await initializeContext(opts);
 
-    expect(ctx.semanticLayer).toBe(semanticLayer as any);
+    // ctx.semanticLayer is the multi-tsconfig router (per-config layers built lazily).
+    expect(ctx.semanticLayer).toBeInstanceOf(SemanticProjectRouter);
   });
 
   it('should create reader with healthcheck timer when role is reader', async () => {
@@ -282,7 +284,9 @@ describe('initializeContext', () => {
     await expect(initializeContext(opts)).rejects.toThrow(GildashError);
   });
 
-  it('should throw when semantic layer creation fails and close db', async () => {
+  it('should open in a degraded state (not throw) when a semantic config fails to build', async () => {
+    // A config whose program fails to build is isolated by the router; open must
+    // still succeed so a monorepo with one broken tsconfig is usable.
     const db = makeDb();
     const opts = makeInitOptions({
       dbConnectionFactory: mock(() => db),
@@ -290,8 +294,10 @@ describe('initializeContext', () => {
       semanticLayerFactory: mock(() => { throw new GildashError('semantic', 'tsc failed'); }),
     });
 
-    await expect(initializeContext(opts)).rejects.toThrow(GildashError);
-    expect(db.close).toHaveBeenCalledTimes(1);
+    const ctx = await initializeContext(opts);
+
+    expect(ctx.semanticLayer).toBeInstanceOf(SemanticProjectRouter);
+    expect(db.close).not.toHaveBeenCalled();
   });
 
   it('should throw on outer catch and close db', async () => {

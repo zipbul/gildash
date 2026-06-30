@@ -21,6 +21,9 @@ import { relationSearch as defaultRelationSearch } from '../search/relation-sear
 import { patternSearch as defaultPatternSearch } from '../search/pattern-search';
 import type { PatternMatch } from '../search/pattern-search';
 import { SemanticLayer } from '../semantic/index';
+import { discoverTsconfigs } from '../semantic/tsconfig-discovery';
+import { SemanticProjectResolver } from '../semantic/project-resolver';
+import { SemanticProjectRouter, type SemanticLayerFactory } from '../semantic/project-router';
 import { AnnotationRepository } from '../store/repositories/annotation.repository';
 import { ChangelogRepository } from '../store/repositories/changelog.repository';
 import { annotationSearch as defaultAnnotationSearch } from '../search/annotation-search';
@@ -125,7 +128,11 @@ function createWatcherCallback(
 
 async function feedSemanticLayer(ctx: GildashContext): Promise<void> {
   if (!ctx.semanticLayer) return;
-  const files = ctx.fileRepo.getAllFiles(ctx.defaultProject);
+  // Feed every indexed file across all project boundaries (not just the default
+  // project). The router notifies each file into the program of its governing
+  // tsconfig, so monorepo sub-projects are resolved under their own options.
+  const projects = [...new Set([ctx.defaultProject, ...ctx.boundaries.map((b) => b.project)])];
+  const files = projects.flatMap((p) => ctx.fileRepo.getAllFiles(p));
   await Promise.all(
     files.map(async (f) => {
       try {
@@ -265,6 +272,8 @@ export async function initializeContext(
     watchMode,
     semantic,
     semanticLayerFactory,
+    tsconfigs,
+    semanticScope = 'auto',
   } = options;
 
   if (!path.isAbsolute(projectRoot)) {
@@ -367,21 +376,31 @@ export async function initializeContext(
   ctx.tsconfigPaths = await loadTsconfigPathsFn(projectRoot);
 
   if (semantic) {
-    const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
-    try {
-      if (semanticLayerFactory) {
-        ctx.semanticLayer = semanticLayerFactory(tsconfigPath);
-      } else {
-        const semanticResult = SemanticLayer.create(tsconfigPath);
-        if (isErr(semanticResult)) {
-          throw semanticResult.data;
-        }
-        ctx.semanticLayer = semanticResult;
-      }
-    } catch (e) {
-      if (e instanceof GildashError) throw e;
-      throw new GildashError('semantic', 'Gildash: semantic layer creation failed', { cause: e });
+    // Model the workspace as one tsc program per governing tsconfig (monorepo
+    // support). Discovery + per-config program creation are routed through
+    // SemanticProjectRouter, which builds layers lazily and isolates a config
+    // whose program fails to build — so a broken/uncompilable tsconfig degrades
+    // only its own files instead of failing `open`.
+    const rootTsconfig = path.join(projectRoot, 'tsconfig.json');
+    let entries: Array<{ configPath: string; dir: string }>;
+    if (tsconfigs && tsconfigs.length > 0) {
+      // Explicit configs are authoritative (their references are still followed).
+      entries = discoverTsconfigs(projectRoot, { ignorePatterns, explicit: tsconfigs });
+    } else if (semanticScope === 'root') {
+      // Legacy single-program: only the root tsconfig, no discovery/references.
+      entries = [{ configPath: rootTsconfig, dir: projectRoot }];
+    } else {
+      const discovered = discoverTsconfigs(projectRoot, { ignorePatterns });
+      entries = discovered.length > 0 ? discovered : [{ configPath: rootTsconfig, dir: projectRoot }];
     }
+
+    const createLayer: SemanticLayerFactory = (configPath) => {
+      if (semanticLayerFactory) return semanticLayerFactory(configPath);
+      const result = SemanticLayer.create(configPath);
+      if (isErr(result)) throw result.data;
+      return result;
+    };
+    ctx.semanticLayer = new SemanticProjectRouter(new SemanticProjectResolver(entries), createLayer);
   }
 
   if (role === 'owner') {

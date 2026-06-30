@@ -127,6 +127,7 @@ export type SemanticLayerLike = Pick<
   | 'isDisposed'
   | 'lineColumnToPosition'
   | 'findNamePosition'
+  | 'isFileInSemanticProgram'
 >;
 
 // ─── GildashContext ─────────────────────────────────────────────────

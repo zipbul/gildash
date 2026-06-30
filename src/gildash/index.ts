@@ -768,6 +768,16 @@ export class Gildash {
   }
 
   /**
+   * Whether `filePath` is served by a healthy semantic program — `true` when full
+   * type/reference/binding answers are available, `false` for files outside every
+   * discovered tsconfig, files whose tsconfig failed to build, or when semantic is
+   * disabled. Use to degrade per-file (e.g. fall back to {@link getStandaloneFileBindings}).
+   */
+  isFileInSemanticProgram(filePath: string): boolean {
+    return semanticApi.isFileInSemanticProgram(this._ctx, filePath);
+  }
+
+  /**
    * Register or replace an in-memory file in the semantic layer (tsc Program).
    * Identical content is a no-op (no recompute). Pair with {@link getFileBindings}
    * for ad-hoc sources not backed by disk.

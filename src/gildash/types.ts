@@ -194,4 +194,20 @@ export interface GildashOptions {
    * @default false
    */
   semantic?: boolean;
+  /**
+   * Explicit tsconfig paths for the semantic layer (monorepo support). When
+   * given, these configs (and their project references) are authoritative and
+   * tsconfig auto-discovery is skipped. Use for non-standard config names or
+   * ambiguous layouts.
+   */
+  tsconfigs?: string[];
+  /**
+   * How the semantic layer maps files to TypeScript programs:
+   * - `'auto'` (default) — discover every `tsconfig.json` under `projectRoot`
+   *   (plus referenced projects) and route each file to its nearest-up config.
+   * - `'root'` — use only `<projectRoot>/tsconfig.json` (single-program, legacy).
+   *
+   * @default 'auto'
+   */
+  semanticScope?: 'auto' | 'root';
 }

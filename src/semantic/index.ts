@@ -516,6 +516,12 @@ export class SemanticLayer {
     });
   }
 
+  /** Whether `filePath` is present in this program (and thus has full semantic answers). */
+  isFileInSemanticProgram(filePath: string): boolean {
+    this.#assertNotDisposed();
+    return this.#program.getProgram().getSourceFile(filePath) !== undefined;
+  }
+
   // ── Lifecycle ───────────────────────────────────────────────────────────
 
   dispose(): void {

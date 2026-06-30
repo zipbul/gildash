@@ -153,19 +153,22 @@ describe('Gildash Semantic integration', () => {
     });
 
     // 7. [NE] open with semantic:true but no tsconfig.json → returns error
-    it('should return error when semantic:true but no tsconfig.json exists', async () => {
+    it('should open in a degraded semantic state when semantic:true but no tsconfig.json exists', async () => {
       tmpDir = await mkdtemp(join(tmpdir(), 'gildash-sem-'));
       await mkdir(join(tmpDir, 'src'), { recursive: true });
       await writeFile(join(tmpDir, 'package.json'), JSON.stringify({ name: 'no-tsconfig' }));
       await writeFile(join(tmpDir, 'src', 'index.ts'), 'export const x = 1;');
-      // No tsconfig.json
-
-      await expect(Gildash.open({
+      // No tsconfig.json — a missing/unbuildable config now degrades the semantic
+      // layer (file not in any program) instead of failing open. This is required
+      // so a monorepo with one broken config still opens.
+      const g = await Gildash.open({
         projectRoot: tmpDir,
         extensions: ['.ts'],
         watchMode: false,
         semantic: true,
-      } as any)).rejects.toThrow(GildashError);
+      } as any);
+      expect(g.isFileInSemanticProgram(join(tmpDir, 'src', 'index.ts'))).toBe(false);
+      await g.close();
     });
   });
 
