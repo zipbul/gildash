@@ -554,12 +554,26 @@ export class IndexCoordinator {
         }
 
         // Pass 2: Parse sources and index symbols + relations.
+        // Parse is the only fallible, non-DB step here. A single unparseable file
+        // (oxc returns Err or throws) is skipped and reported via `failedFiles`
+        // rather than aborting the whole transaction — matching the incremental
+        // (non-transaction) path. Its file record was already upserted above and
+        // its stale symbols cascade-deleted, so it simply ends up with no symbols.
+        // Indexing failures below are a genuine internal bug, not untrusted input,
+        // so they are left to propagate and roll the transaction back.
         const parseFn = this.opts.parseSourceFn ?? parseSource;
         for (const fd of preread) {
           const project = resolveFileProject(fd.filePath, boundaries);
-          const parseResult = parseFn(toAbsolutePath(projectRoot, fd.filePath), fd.text);
-          if (isErr(parseResult)) throw parseResult.data;
-          const parsed = parseResult;
+          let parsed: ParsedFile;
+          try {
+            const parseResult = parseFn(toAbsolutePath(projectRoot, fd.filePath), fd.text);
+            if (isErr(parseResult)) throw parseResult.data;
+            parsed = parseResult;
+          } catch (e) {
+            this.logger.error(`[IndexCoordinator] Failed to parse ${fd.filePath}:`, e);
+            allFailedFiles.push(fd.filePath);
+            continue;
+          }
           parsedCacheEntries.push({ filePath: fd.filePath, parsed });
           indexFileSymbols({ parsed, project, filePath: fd.filePath, contentHash: fd.contentHash, symbolRepo });
           if (annotationRepo) {
