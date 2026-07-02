@@ -29,6 +29,8 @@ function makeFileRepo() {
     getFilesMap: mock(() => new Map<string, FileRecord>()),
     getAllFiles: mock((): FileRecord[] => []),
     deleteFile: mock((p: any, f: any) => {}),
+    listProjects: mock((): string[] => []),
+    deleteProjectFiles: mock((p: any) => {}),
   };
 }
 
@@ -77,18 +79,20 @@ const IGNORE_PATTERNS: string[] = [];
 function makeCoordinator(overrides: Partial<{
   fileRepo: any; symbolRepo: any; relationRepo: any;
   dbConnection: any; parseCache: any;
+  ignorePatterns: string[]; discoverProjectsFn: any;
 }> = {}) {
   return new IndexCoordinator({
     projectRoot: PROJECT_ROOT,
     boundaries: BOUNDARIES,
     extensions: EXTENSIONS,
-    ignorePatterns: IGNORE_PATTERNS,
+    ignorePatterns: overrides.ignorePatterns ?? IGNORE_PATTERNS,
     dbConnection: overrides.dbConnection ?? makeDbConnection(),
     parseCache: overrides.parseCache ?? makeParseCache(),
     fileRepo: (overrides.fileRepo ?? makeFileRepo()) as any,
     symbolRepo: (overrides.symbolRepo ?? makeSymbolRepo()) as any,
     relationRepo: overrides.relationRepo ?? makeRelationRepo(),
     parseSourceFn: mockParseSource as any,
+    ...(overrides.discoverProjectsFn ? { discoverProjectsFn: overrides.discoverProjectsFn } : {}),
     logger: { error: mock(() => {}) },
   });
 }
@@ -907,7 +911,49 @@ describe('IndexCoordinator', () => {
 
     jest.runAllTimers();
     for (let i = 0; i < 10; i++) await Promise.resolve();
-    expect(mockDiscoverProjects).toHaveBeenCalledWith(PROJECT_ROOT);
+    expect(mockDiscoverProjects).toHaveBeenCalledWith(PROJECT_ROOT, { ignorePatterns: IGNORE_PATTERNS });
+  });
+
+  it('should prune rows of projects no longer in the boundary set during fullIndex', async () => {
+    // Orphan GC: a boundary rename (or upgrade changing project attribution)
+    // must not leave stale rows double-counting in cross-project queries.
+    mockDetectChanges.mockResolvedValue({ changed: [], unchanged: [], deleted: [] });
+    const fileRepo = makeFileRepo();
+    fileRepo.listProjects.mockReturnValue(['test-project', 'stale-old-name']);
+    const coordinator = makeCoordinator({ fileRepo });
+
+    await coordinator.fullIndex();
+
+    const pruned = (fileRepo.deleteProjectFiles.mock.calls as any[]).map((c) => c[0]);
+    expect(pruned).toEqual(['stale-old-name']);
+  });
+
+  it('should not prune any project during incrementalIndex', async () => {
+    const fileRepo = makeFileRepo();
+    fileRepo.listProjects.mockReturnValue(['test-project', 'stale-old-name']);
+    const coordinator = makeCoordinator({ fileRepo });
+
+    await coordinator.incrementalIndex([]);
+
+    expect(fileRepo.deleteProjectFiles).not.toHaveBeenCalled();
+  });
+
+  it('should pass ignorePatterns to boundary rediscovery on package.json change', async () => {
+    mockDetectChanges.mockResolvedValue({ changed: [], unchanged: [], deleted: [] });
+    const discoverProjectsFn = mock(async () => [{ dir: '.', project: 'main' }]);
+    const coordinator = makeCoordinator({
+      ignorePatterns: ['**/__fixtures__/**'],
+      discoverProjectsFn,
+    });
+
+    coordinator.handleWatcherEvent({ filePath: '/project/package.json', type: 'update' } as any);
+
+    jest.runAllTimers();
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(discoverProjectsFn).toHaveBeenCalledWith(
+      PROJECT_ROOT,
+      expect.objectContaining({ ignorePatterns: ['**/__fixtures__/**'] }),
+    );
   });
 
   it('should reject all waiters when a queued fullIndex fails', async () => {

@@ -9,7 +9,7 @@ import { ProjectWatcher } from '../watcher/project-watcher';
 import { IndexCoordinator } from '../indexer/index-coordinator';
 import type { FileChangeEvent } from '../watcher/types';
 import { acquireWatcherRole, releaseWatcherRole, updateHeartbeat } from '../watcher/ownership';
-import { discoverProjects } from '../common/project-discovery';
+import { discoverProjects, ensureRootBoundary, pickDefaultProject } from '../common/project-discovery';
 import type { ProjectBoundary } from '../common/project-discovery';
 import { loadTsconfigPaths, clearTsconfigPathsCache } from '../common/tsconfig-resolver';
 import { ParseCache } from '../parser/parse-cache';
@@ -45,8 +45,15 @@ export function applyBoundariesChange(
   ctx: GildashContext,
   boundaries: ProjectBoundary[],
 ): void {
-  ctx.boundaries = boundaries;
-  ctx.defaultProject = boundaries[0]?.project ?? path.basename(ctx.projectRoot);
+  // Enforce the root boundary invariant even for injected/custom boundary sets —
+  // otherwise defaultProject and resolveFileProject's fallback disagree and
+  // default-scoped queries silently go empty.
+  const normalized = ensureRootBoundary(boundaries, ctx.projectRoot);
+  ctx.boundaries = normalized;
+  // Root boundary wins — boundaries are sorted deepest-first for file routing,
+  // so [0] would be the deepest subpackage, silently redirecting default-project
+  // queries away from the main project.
+  ctx.defaultProject = pickDefaultProject(normalized) ?? path.basename(ctx.projectRoot);
 }
 
 // ─── Internal Options ───────────────────────────────────────────────
@@ -57,7 +64,7 @@ export interface GildashInternalOptions {
   watcherFactory?: () => WatcherLike;
   coordinatorFactory?: () => CoordinatorLike;
   repositoryFactory?: () => {
-    fileRepo: Pick<FileRepository, 'upsertFile' | 'getAllFiles' | 'getFilesMap' | 'deleteFile' | 'getFile'>;
+    fileRepo: Pick<FileRepository, 'upsertFile' | 'getAllFiles' | 'getFilesMap' | 'deleteFile' | 'getFile' | 'listProjects' | 'deleteProjectFiles'>;
     symbolRepo: SymbolRepository;
     relationRepo: RelationRepository;
     parseCache: Pick<ParseCache, 'set' | 'get' | 'invalidate'>;
@@ -290,8 +297,19 @@ export async function initializeContext(
   if (isErr(openResult)) throw openResult.data;
   try {
 
-  const boundaries = await discoverProjectsFn(projectRoot);
-  const defaultProject = boundaries[0]?.project ?? path.basename(projectRoot);
+  // ensureRootBoundary is idempotent for real discovery output; it protects the
+  // invariant when a custom discoverProjectsFn returns no root boundary.
+  const boundaries = ensureRootBoundary(
+    await discoverProjectsFn(projectRoot, { ignorePatterns }),
+    projectRoot,
+  );
+  const defaultProject = pickDefaultProject(boundaries) ?? path.basename(projectRoot);
+  if (boundaries.length > 1) {
+    logger.warn?.(
+      `[Gildash] discovered ${boundaries.length} package boundaries; defaultProject="${defaultProject}"`,
+      boundaries.map((b) => `${b.project} (${b.dir})`).join(', '),
+    );
+  }
 
   const repos = repositoryFactory
     ? repositoryFactory()

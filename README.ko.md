@@ -225,9 +225,9 @@ try {
 |------|------|--------|------|
 | `projectRoot` | `string` | — | 프로젝트 루트 절대 경로 **(필수)** |
 | `extensions` | `string[]` | `['.ts', '.mts', '.cts']` | 인덱싱 대상 파일 확장자 |
-| `ignorePatterns` | `string[]` | `[]` | 무시할 글로브 패턴 |
+| `ignorePatterns` | `string[]` | `[]` | 무시할 글로브 패턴 — 파일 인덱싱과 **패키지 경계 탐색** 모두에 적용 (ignore된 경로의 `package.json`은 경계가 되지 않음) |
 | `parseCacheCapacity` | `number` | `500` | LRU 파싱 캐시 최대 크기 |
-| `logger` | `Logger` | `console` | 커스텀 로거 (`{ error(...args): void }`) |
+| `logger` | `Logger` | `console` | 커스텀 로거 (`{ error(...args): void; warn?(...args): void }`) — `warn`은 선택이며 다중 경계 발견 같은 알림에 사용 |
 | `watchMode` | `boolean` | `true` | `false`이면 파일 워처 비활성화 (스캔 전용 모드) |
 | `semantic` | `boolean` | `false` | tsc TypeChecker 기반 시맨틱 분석 활성화 |
 | `tsconfigs` | `string[]` | — | 시맨틱 레이어용 명시적 tsconfig 경로(권위적, 자동 발견 생략). 비표준 이름·모호한 레이아웃에 사용 |
@@ -345,7 +345,8 @@ try {
 | `getParsedAst(filePath)` | `ParsedFile \| undefined` | 캐시된 AST 조회 (읽기 전용) |
 | `getFileInfo(filePath)` | `FileRecord \| null` | 파일 메타데이터 (해시, mtime, 크기) |
 | `getStats(project?)` | `SymbolStats` | 심볼/파일 통계 |
-| `projects` | `ProjectBoundary[]` | 탐지된 프로젝트 경계 |
+| `projects` | `ProjectBoundary[]` | 탐지된 프로젝트 경계 (항상 루트 경계 포함) |
+| `defaultProject` | `string` | 루트 경계 — `query.project` 생략 시 범위 질의가 대상으로 삼는 프로젝트 |
 | `close(opts?)` | `Promise<void>` | 종료 (`{ cleanup: true }`로 DB 삭제 가능) |
 
 <br>

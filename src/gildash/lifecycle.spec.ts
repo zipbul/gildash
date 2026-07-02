@@ -87,6 +87,8 @@ function makeRepos() {
       getFile: mock(() => null),
       upsertFile: mock(() => {}),
       deleteFile: mock(() => {}),
+      listProjects: mock(() => []),
+      deleteProjectFiles: mock(() => {}),
     },
     symbolRepo: { getStats: mock(() => ({})), getFileSymbols: mock(() => []) } as any,
     relationRepo: { getOutgoing: mock(() => []) } as any,
@@ -108,7 +110,7 @@ function makeInitOptions(overrides?: Record<string, any>): any {
     acquireWatcherRoleFn: mock(() => 'owner' as const),
     releaseWatcherRoleFn: mock(() => {}),
     updateHeartbeatFn: mock(() => {}),
-    discoverProjectsFn: mock(async () => [{ project: 'test-proj', path: '/test/project' }]),
+    discoverProjectsFn: mock(async () => [{ project: 'test-proj', dir: '.' }]),
     coordinatorFactory: mock(() => coordinator),
     watcherFactory: mock(() => watcher),
     parseSourceFn: mock(() => ({})),
@@ -219,9 +221,11 @@ describe('initializeContext', () => {
     expect(ctx.coordinator).not.toBeNull();
   });
 
-  it('should use default project from first boundary', async () => {
+  it('should use the root boundary project as default', async () => {
+    // Intended change: default is the root ('.') boundary, not boundaries[0]
+    // (which is the deepest dir under the DESC sort).
     const opts = makeInitOptions({
-      discoverProjectsFn: mock(async () => [{ project: 'my-proj', path: '/test/project' }]),
+      discoverProjectsFn: mock(async () => [{ project: 'my-proj', dir: '.' }]),
     });
 
     const ctx = await initializeContext(opts);
@@ -588,7 +592,9 @@ describe('setupOwnerInfrastructure', () => {
     expect(ctx.boundaries[0]?.project).toBe('new-name');
   });
 
-  it('should fall back to projectRoot basename when boundaries are empty', () => {
+  it('should synthesize a root boundary when boundaries are empty', () => {
+    // Intended change (root boundary invariant): an empty set gains a synthetic
+    // root so defaultProject and file attribution stay aligned.
     const ctx = makeCtx({
       boundaries: [{ dir: '.', project: 'old-name' }] as any,
       defaultProject: 'old-name',
@@ -597,7 +603,7 @@ describe('setupOwnerInfrastructure', () => {
     applyBoundariesChange(ctx, []);
 
     expect(ctx.defaultProject).toBe('project'); // basename of '/test/project'
-    expect(ctx.boundaries).toEqual([]);
+    expect(ctx.boundaries).toEqual([{ dir: '.', project: 'project' }]);
   });
 
   it('should call semanticLayer.notifyFileDeleted on delete event', async () => {
@@ -1079,6 +1085,115 @@ describe('lifecycle state transitions', () => {
 
     expect(throwingErrorCb).toHaveBeenCalledTimes(1);
     expect((ctx.logger.error as any).mock.calls.length).toBeGreaterThan(0);
+    await closeContext(ctx);
+  });
+});
+
+describe('default project selection (nested package boundaries)', () => {
+  it('should pick the root boundary as defaultProject when deeper boundaries exist', async () => {
+    // Boundary order is dir-length DESC (resolveFileProject contract) — the
+    // deepest package must NOT become the default project.
+    const opts = makeInitOptions({
+      discoverProjectsFn: mock(async () => [
+        { dir: 'test/__fixtures__/a.dir', project: 'fixture-pkg' },
+        { dir: '.', project: 'main-repo' },
+      ]),
+    });
+
+    const ctx = await initializeContext(opts);
+
+    expect(ctx.defaultProject).toBe('main-repo');
+    await closeContext(ctx);
+  });
+
+  it('should pass ignorePatterns through to boundary discovery', async () => {
+    const discoverProjectsFn = mock(async () => [{ dir: '.', project: 'main-repo' }]);
+    const opts = makeInitOptions({
+      discoverProjectsFn,
+      ignorePatterns: ['**/__fixtures__/**'],
+    });
+
+    const ctx = await initializeContext(opts);
+
+    expect(discoverProjectsFn).toHaveBeenCalledWith(
+      '/test/project',
+      expect.objectContaining({ ignorePatterns: ['**/__fixtures__/**'] }),
+    );
+    await closeContext(ctx);
+  });
+
+  it('should pick the root boundary on runtime boundary changes', () => {
+    const ctx = {
+      projectRoot: '/test/project',
+      boundaries: [],
+      defaultProject: 'main-repo',
+    } as any;
+
+    applyBoundariesChange(ctx, [
+      { dir: 'test/__fixtures__/a.dir', project: 'fixture-pkg' },
+      { dir: '.', project: 'main-repo' },
+    ]);
+
+    expect(ctx.defaultProject).toBe('main-repo');
+  });
+
+  it('should warn once at open when multiple boundaries are discovered', async () => {
+    const warn = mock(() => {});
+    const opts = makeInitOptions({
+      logger: { error: mock(() => {}), warn },
+      discoverProjectsFn: mock(async () => [
+        { dir: 'packages/core', project: '@ws/core' },
+        { dir: '.', project: 'main-repo' },
+      ]),
+    });
+
+    const ctx = await initializeContext(opts);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = String(warn.mock.calls[0]?.join(' '));
+    expect(line).toContain('main-repo');
+    await closeContext(ctx);
+  });
+
+  it('should enforce the root boundary invariant on custom discoverProjectsFn results', async () => {
+    // A custom discovery fn returning no '.' boundary must not recreate the
+    // defaultProject vs resolveFileProject("default" fallback) mismatch.
+    const opts = makeInitOptions({
+      discoverProjectsFn: mock(async () => [{ dir: 'packages/core', project: '@ws/core' }]),
+    });
+
+    const ctx = await initializeContext(opts);
+
+    const root = ctx.boundaries.find((b: any) => b.dir === '.');
+    expect(root).toBeDefined();
+    expect(ctx.defaultProject).toBe(root!.project);
+    await closeContext(ctx);
+  });
+
+  it('should enforce the root boundary invariant on runtime boundary changes', () => {
+    const ctx = {
+      projectRoot: '/test/project',
+      boundaries: [],
+      defaultProject: 'x',
+    } as any;
+
+    applyBoundariesChange(ctx, [{ dir: 'packages/core', project: '@ws/core' }]);
+
+    const root = ctx.boundaries.find((b: any) => b.dir === '.');
+    expect(root).toBeDefined();
+    expect(ctx.defaultProject).toBe(root!.project);
+  });
+
+  it('should not warn when only the root boundary exists', async () => {
+    const warn = mock(() => {});
+    const opts = makeInitOptions({
+      logger: { error: mock(() => {}), warn },
+      discoverProjectsFn: mock(async () => [{ dir: '.', project: 'main-repo' }]),
+    });
+
+    const ctx = await initializeContext(opts);
+
+    expect(warn).not.toHaveBeenCalled();
     await closeContext(ctx);
   });
 });

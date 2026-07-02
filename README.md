@@ -265,9 +265,9 @@ try {
 |--------|------|---------|-------------|
 | `projectRoot` | `string` | — | Absolute path to project root **(required)** |
 | `extensions` | `string[]` | `['.ts', '.mts', '.cts']` | File extensions to index |
-| `ignorePatterns` | `string[]` | `[]` | Glob patterns to exclude |
+| `ignorePatterns` | `string[]` | `[]` | Glob patterns to exclude — applies to file indexing **and** package-boundary discovery (an ignored path's `package.json` does not become a boundary) |
 | `parseCacheCapacity` | `number` | `500` | LRU parse-cache capacity |
-| `logger` | `Logger` | `console` | Custom logger (`{ error(...args): void }`) |
+| `logger` | `Logger` | `console` | Custom logger (`{ error(...args): void; warn?(...args): void }`) — `warn` is optional and used for notices like multi-boundary discovery |
 | `watchMode` | `boolean` | `true` | `false` disables the file watcher (scan-only mode) |
 | `semantic` | `boolean` | `false` | Enable tsc TypeChecker-backed semantic analysis |
 | `tsconfigs` | `string[]` | — | Explicit tsconfig paths for the semantic layer (authoritative; skips auto-discovery). Use for non-standard config names or ambiguous layouts |
@@ -418,7 +418,8 @@ Resolve a type fact for the **expression node exactly spanning** a byte range. `
 | `getParsedAst(filePath)` | `ParsedFile \| undefined` | Cached AST lookup (read-only) |
 | `getFileInfo(filePath)` | `FileRecord \| null` | File metadata (hash, mtime, size) |
 | `getStats(project?)` | `SymbolStats` | Symbol / file count statistics |
-| `projects` | `ProjectBoundary[]` | Discovered project boundaries |
+| `projects` | `ProjectBoundary[]` | Discovered project boundaries (always includes a root boundary) |
+| `defaultProject` | `string` | The root boundary — the project that scoped queries target when `query.project` is omitted |
 | `close(opts?)` | `Promise<void>` | Shutdown (pass `{ cleanup: true }` to delete DB) |
 
 ### AST Primitives

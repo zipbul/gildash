@@ -11,6 +11,8 @@ import type { ResolvedType } from '../semantic/types';
 export interface Logger {
   /** Log one or more error-level messages. */
   error(...args: unknown[]): void;
+  /** Optional warning channel (e.g. multi-boundary discovery notices). `console` satisfies it. */
+  warn?(...args: unknown[]): void;
 }
 
 /**
