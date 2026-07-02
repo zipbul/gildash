@@ -83,4 +83,21 @@ export class FileRepository {
       .where(and(eq(files.project, project), eq(files.filePath, filePath)))
       .run();
   }
+
+  /** Distinct project names present in the files table (indexed data, not boundaries). */
+  listProjects(): string[] {
+    return this.db.drizzleDb
+      .selectDistinct({ project: files.project })
+      .from(files)
+      .all()
+      .map((r: { project: string }) => r.project);
+  }
+
+  /** Delete every file row of a project (symbols/relations/annotations cascade). */
+  deleteProjectFiles(project: string): void {
+    this.db.drizzleDb
+      .delete(files)
+      .where(eq(files.project, project))
+      .run();
+  }
 }

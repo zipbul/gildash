@@ -113,6 +113,8 @@ export interface IndexCoordinatorOptions {
     getAllFiles(project: string): FileRecord[];
     upsertFile(record: FileRecord): void;
     deleteFile(project: string, filePath: string): void;
+    listProjects(): string[];
+    deleteProjectFiles(project: string): void;
   };
   symbolRepo: {
     replaceFileSymbols(project: string, filePath: string, contentHash: string, symbols: ReadonlyArray<Partial<SymbolRecord>>): void;
@@ -208,7 +210,10 @@ export class IndexCoordinator {
 
     if (event.filePath.endsWith('package.json')) {
       const discover = this.opts.discoverProjectsFn ?? discoverProjects;
-      this.boundariesRefresh = discover(this.opts.projectRoot).then((b) => {
+      // Ignored paths must not reshape boundaries on rediscovery either.
+      this.boundariesRefresh = discover(this.opts.projectRoot, {
+        ignorePatterns: this.opts.ignorePatterns,
+      }).then((b) => {
         this.opts.boundaries = b;
         this.opts.onBoundariesChanged?.(b);
       });
@@ -514,6 +519,16 @@ export class IndexCoordinator {
       const parsedCacheEntries: Array<{ filePath: string; parsed: unknown }> = [];
 
       dbConnection.transaction(() => {
+        // Garbage-collect rows of projects that no longer exist in the boundary
+        // set (package renamed, boundary reshaped, or attribution changed by an
+        // upgrade). Orphan rows are invisible to detectChanges — which reads only
+        // current-boundary projects — and would double-count in cross-project
+        // queries forever. Cascades clean their symbols/relations/annotations.
+        const currentProjects = new Set(boundaries.map((b) => b.project));
+        for (const staleProject of fileRepo.listProjects()) {
+          if (!currentProjects.has(staleProject)) fileRepo.deleteProjectFiles(staleProject);
+        }
+
         // Only delete changed files (cascade removes their symbols + relations).
         // Unchanged files are preserved so that FK constraints on
         // relations.dstFilePath remain satisfiable.

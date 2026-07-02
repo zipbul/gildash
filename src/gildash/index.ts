@@ -91,6 +91,14 @@ export class Gildash {
   /** Discovered project boundaries within the project root. */
   get projects(): ProjectBoundary[] { return [...this._ctx.boundaries]; }
 
+  /**
+   * The project that project-scoped queries (`searchSymbols`, `searchRelations`,
+   * `getStats`, …) target when no explicit project is given: the root boundary.
+   * Scope a query to another discovered boundary via `query.project` or the
+   * method's `project` parameter.
+   */
+  get defaultProject(): string { return this._ctx.defaultProject; }
+
   private constructor(ctx: GildashContext) {
     this._ctx = ctx;
   }
@@ -201,6 +209,10 @@ export class Gildash {
   /**
    * Search symbols by name, kind, file path, or export status.
    *
+   * Scoped to {@link defaultProject} (the root boundary) unless `query.project`
+   * names another discovered boundary; use {@link searchAllSymbols} for a
+   * cross-project union.
+   *
    * @param query - Search criteria. Set `query.text` for FTS prefix search,
    *   or `query.text` + `query.exact` for exact name match.
    *   Omit `query.limit` for unlimited results.
@@ -213,6 +225,10 @@ export class Gildash {
 
   /**
    * Search relations by type, source/destination file, or symbol name.
+   *
+   * Scoped to {@link defaultProject} (the root boundary) unless `query.project`
+   * names another discovered boundary; use {@link searchAllRelations} for a
+   * cross-project union.
    *
    * @param query - Search criteria (e.g. `{ type: 'imports', srcFilePath: 'src/app.ts' }`).
    *   Omit `query.limit` for unlimited results.

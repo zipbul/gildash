@@ -88,7 +88,7 @@ export type UpdateHeartbeatFn = (
 
 export type DbStore = Pick<DbConnection, 'open' | 'close' | 'transaction'> & WatcherOwnerStore;
 
-export type FileRepoLike = Pick<FileRepository, 'upsertFile' | 'getAllFiles' | 'getFilesMap' | 'deleteFile' | 'getFile'>;
+export type FileRepoLike = Pick<FileRepository, 'upsertFile' | 'getAllFiles' | 'getFilesMap' | 'deleteFile' | 'getFile' | 'listProjects' | 'deleteProjectFiles'>;
 
 export type ParseCacheLike = Pick<ParseCache, 'set' | 'get' | 'invalidate'>;
 

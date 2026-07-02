@@ -8,7 +8,7 @@ import type { DbConnection } from '../connection';
 function makeChainMock() {
   const chain: Record<string, Mock<any>> = {};
   for (const m of [
-    'select', 'from', 'where', 'insert', 'values', 'onConflictDoUpdate',
+    'select', 'selectDistinct', 'from', 'where', 'insert', 'values', 'onConflictDoUpdate',
     'delete', 'update', 'set',
   ]) {
     chain[m] = mock(() => chain);
@@ -270,5 +270,28 @@ describe('FileRepository', () => {
     const calls = chain['values']!.mock.calls as any[][];
     expect(calls[0]![0]).toEqual(expect.objectContaining({ lineCount: 5 }));
     expect(calls[1]![0]).toEqual(expect.objectContaining({ lineCount: 5 }));
+  });
+});
+
+describe('listProjects', () => {
+  it('should return the distinct project names present in the files table', () => {
+    const { db, chain } = makeDbMock();
+    chain['all']!.mockReturnValue([{ project: 'main-repo' }, { project: 'stale-pkg' }]);
+    const repo = new FileRepository(db);
+
+    expect(repo.listProjects()).toEqual(['main-repo', 'stale-pkg']);
+    expect(chain['selectDistinct']).toHaveBeenCalled();
+  });
+});
+
+describe('deleteProjectFiles', () => {
+  it('should delete every file row of the given project', () => {
+    const { db, chain } = makeDbMock();
+    const repo = new FileRepository(db);
+
+    repo.deleteProjectFiles('stale-pkg');
+
+    expect(chain['delete']).toHaveBeenCalled();
+    expect(chain['run']).toHaveBeenCalled();
   });
 });
