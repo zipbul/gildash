@@ -194,8 +194,8 @@ describe('resolveImport', () => {
     };
     const result = resolveImport('/project/app/index.ts', '@/utils', tsconfigPaths);
 
-    // 8 candidates per target × 2 targets = 16
-    expect(result).toHaveLength(16);
+    // 12 candidates per target × 2 targets = 24 (JSX candidates added)
+    expect(result).toHaveLength(24);
     expect(result).toContain('/project/src/utils.ts');
     expect(result).toContain('/project/lib/utils.ts');
     expect(result).toContain('/project/src/utils/index.ts');
@@ -216,8 +216,8 @@ describe('resolveImport', () => {
     };
     const result = resolveImport('/project/app/index.ts', '@root', tsconfigPaths);
 
-    // 8 candidates per target × 2 targets = 16
-    expect(result).toHaveLength(16);
+    // 12 candidates per target × 2 targets = 24 (JSX candidates added)
+    expect(result).toHaveLength(24);
     expect(result).toContain('/project/src/index.ts');
     expect(result).toContain('/project/lib/index.ts');
   });
@@ -261,7 +261,8 @@ describe('resolveImport', () => {
       .mockReturnValueOnce('.mjs')
       .mockReturnValueOnce('.cjs');
 
-    expect(resolveImport('/project/src/index.ts', './utils.js')).toEqual(['/project/src/utils.ts']);
+    // Intended change: .js specifiers map to .ts/.tsx/.d.ts (TS resolution order).
+    expect(resolveImport('/project/src/index.ts', './utils.js')).toEqual(['/project/src/utils.ts', '/project/src/utils.tsx', '/project/src/utils.d.ts']);
     expect(resolveImport('/project/src/index.ts', './utils.mjs')).toEqual(['/project/src/utils.mts']);
     expect(resolveImport('/project/src/index.ts', './utils.cjs')).toEqual(['/project/src/utils.cts']);
   });
@@ -409,3 +410,55 @@ describe('buildImportMap', () => {
   });
 });
 
+
+describe('resolveImport — JSX candidates (TS-style ordering)', () => {
+  beforeEach(() => {
+    // Self-sufficient real-path semantics (the shared mocks leak queued state).
+    mockDirname.mockImplementation((p: string) => p.slice(0, p.lastIndexOf('/')));
+    mockResolve.mockImplementation((base: string, spec: string) =>
+      `${base}/${spec.replace(/^\.\//, '')}`);
+    mockExtname.mockImplementation((p: string) => {
+      const slash = p.lastIndexOf('/');
+      const dot = p.lastIndexOf('.');
+      return dot > slash ? p.slice(dot) : '';
+    });
+  });
+
+  it('should include .tsx candidates after their .ts siblings for an extensionless import', () => {
+    const candidates = resolveImport('/proj/src/app.ts', './cmp');
+
+    const ts = candidates.indexOf('/proj/src/cmp.ts');
+    const tsx = candidates.indexOf('/proj/src/cmp.tsx');
+    const indexTs = candidates.indexOf('/proj/src/cmp/index.ts');
+    const indexTsx = candidates.indexOf('/proj/src/cmp/index.tsx');
+    expect(ts).toBeGreaterThanOrEqual(0);
+    expect(tsx).toBeGreaterThan(ts);
+    expect(indexTsx).toBeGreaterThan(indexTs);
+  });
+
+  it('should return the path itself when the import explicitly ends with .tsx', () => {
+    expect(resolveImport('/proj/src/app.ts', './cmp.tsx')).toEqual(['/proj/src/cmp.tsx']);
+  });
+
+  it('should map a .jsx specifier to .tsx/.ts/.d.ts then itself (TS resolution order)', () => {
+    expect(resolveImport('/proj/src/app.ts', './cmp.jsx')).toEqual([
+      '/proj/src/cmp.tsx', '/proj/src/cmp.ts', '/proj/src/cmp.d.ts', '/proj/src/cmp.jsx',
+    ]);
+  });
+
+  it('should map a .js specifier to .ts/.tsx/.d.ts (TS resolution order)', () => {
+    expect(resolveImport('/proj/src/app.ts', './cmp.js')).toEqual([
+      '/proj/src/cmp.ts', '/proj/src/cmp.tsx', '/proj/src/cmp.d.ts',
+    ]);
+  });
+
+  it('should place .jsx file candidates before directory-index candidates (tsc probes files first)', () => {
+    const candidates = resolveImport('/proj/src/app.ts', './cmp');
+
+    const tsx = candidates.indexOf('/proj/src/cmp.tsx');
+    const jsx = candidates.indexOf('/proj/src/cmp.jsx');
+    const indexTs = candidates.indexOf('/proj/src/cmp/index.ts');
+    expect(jsx).toBeGreaterThan(tsx);
+    expect(jsx).toBeLessThan(indexTs);
+  });
+});

@@ -224,7 +224,7 @@ try {
 | 옵션 | 타입 | 기본값 | 설명 |
 |------|------|--------|------|
 | `projectRoot` | `string` | — | 프로젝트 루트 절대 경로 **(필수)** |
-| `extensions` | `string[]` | `['.ts', '.mts', '.cts']` | 인덱싱 대상 파일 확장자 |
+| `extensions` | `string[]` | `['.ts', '.mts', '.cts', '.tsx']` | 인덱싱 대상 파일 확장자 (JS-React는 `'.jsx'` 추가) |
 | `ignorePatterns` | `string[]` | `[]` | 무시할 글로브 패턴 — 파일 인덱싱과 **패키지 경계 탐색** 모두에 적용 (ignore된 경로의 `package.json`은 경계가 되지 않음) |
 | `parseCacheCapacity` | `number` | `500` | LRU 파싱 캐시 최대 크기 |
 | `logger` | `Logger` | `console` | 커스텀 로거 (`{ error(...args): void; warn?(...args): void }`) — `warn`은 선택이며 다중 경계 발견 같은 알림에 사용 |

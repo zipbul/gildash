@@ -11,18 +11,34 @@ export function resolveImport(
 ): string[] {
   const withTypeScriptCandidates = (resolved: string): string[] => {
     const extension = extname(resolved);
-    if (extension === '.js') return [resolved.slice(0, -3) + '.ts'];
+    // TS resolution order (tryAddingExtensions, TS 5.8): a .js/.jsx specifier
+    // maps to its TS siblings first, with the .d.ts declaration fallback.
+    if (extension === '.js') {
+      const base = resolved.slice(0, -3);
+      return [base + '.ts', base + '.tsx', base + '.d.ts'];
+    }
+    if (extension === '.jsx') {
+      const base = resolved.slice(0, -4);
+      return [base + '.tsx', base + '.ts', base + '.d.ts', resolved];
+    }
     if (extension === '.mjs') return [resolved.slice(0, -4) + '.mts'];
     if (extension === '.cjs') return [resolved.slice(0, -4) + '.cts'];
-    if (extension === '.ts' || extension === '.mts' || extension === '.cts'
-      || extension === '.d.ts') return [resolved];
+    if (extension === '.ts' || extension === '.tsx' || extension === '.mts'
+      || extension === '.cts' || extension === '.d.ts') return [resolved];
     // No extension or non-JS/TS extension (e.g. '.usecase', '.controller')
-    // → treat as extensionless and generate TS candidates
+    // → treat as extensionless and generate candidates in TS-style order:
+    // .ts before .tsx before .d.ts, and files before directory /index.*
+    // (tsc probes files first). `.jsx` is opt-in via `extensions` but its
+    // candidates are always generated — they only match indexed files.
     return [
       resolved + '.ts',
+      resolved + '.tsx',
       resolved + '.d.ts',
+      resolved + '.jsx',
       resolved + '/index.ts',
+      resolved + '/index.tsx',
       resolved + '/index.d.ts',
+      resolved + '/index.jsx',
       resolved + '.mts',
       resolved + '/index.mts',
       resolved + '.cts',

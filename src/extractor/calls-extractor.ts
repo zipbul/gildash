@@ -38,24 +38,57 @@ export function extractCalls(
     }
   }
 
-  function handleCallOrNew(node: CallExpression | NewExpression, isNew: boolean): void {
-    const qn = getQualifiedName(node.callee);
+  function emitCall(
+    qn: { root: string; parts: string[]; full: string } | null,
+    extraMeta: Record<string, unknown>,
+  ): void {
     const dst = resolveCallee(qn);
-    if (dst) {
-      const srcSymbolName = currentCaller();
-      const meta: Record<string, unknown> = {};
-      if (isNew) meta.isNew = true;
-      if (srcSymbolName === null) meta.scope = 'module';
+    if (!dst) return;
+    const srcSymbolName = currentCaller();
+    const meta: Record<string, unknown> = { ...extraMeta };
+    if (srcSymbolName === null) meta.scope = 'module';
 
-      relations.push({
-        type: 'calls',
-        srcFilePath: filePath,
-        srcSymbolName,
-        dstFilePath: dst.dstFilePath,
-        dstSymbolName: dst.dstSymbolName,
-        ...(Object.keys(meta).length > 0 ? { metaJson: JSON.stringify(meta) } : {}),
-      });
+    relations.push({
+      type: 'calls',
+      srcFilePath: filePath,
+      srcSymbolName,
+      dstFilePath: dst.dstFilePath,
+      dstSymbolName: dst.dstSymbolName,
+      ...(Object.keys(meta).length > 0 ? { metaJson: JSON.stringify(meta) } : {}),
+    });
+  }
+
+  function handleCallOrNew(node: CallExpression | NewExpression, isNew: boolean): void {
+    emitCall(getQualifiedName(node.callee), isNew ? { isNew: true } : {});
+  }
+
+  /**
+   * JSX element tag → qualified name. Rendering `<Button/>` compiles to a
+   * component call, so it is captured as a `calls` relation with
+   * `metaJson: {"syntax":"jsx"}`. Lowercase tags are host intrinsics (not
+   * components) and computed/namespaced tags are not representable — skipped.
+   */
+  function jsxTagQualifiedName(
+    name: { type: string; name?: string; object?: unknown; property?: unknown },
+  ): { root: string; parts: string[]; full: string } | null {
+    if (name.type === 'JSXIdentifier') {
+      const id = name.name as string;
+      // TS isIntrinsicJsxName: intrinsic iff lowercase first char or dash in
+      // the name. Everything else ($W, _X, unicode-capitalized) is a component.
+      if (/^[a-z]/.test(id) || id.includes('-')) return null;
+      return { root: id, parts: [], full: id };
     }
+    if (name.type === 'JSXMemberExpression') {
+      const parts: string[] = [];
+      let current: any = name;
+      while (current.type === 'JSXMemberExpression') {
+        parts.unshift(current.property.name);
+        current = current.object;
+      }
+      if (current.type !== 'JSXIdentifier') return null;
+      return { root: current.name, parts, full: [current.name, ...parts].join('.') };
+    }
+    return null;
   }
 
   function pushFunctionScope(node: Node, parent: Node | null): void {
@@ -113,6 +146,11 @@ export function extractCalls(
 
       if (node.type === 'NewExpression') {
         handleCallOrNew(node, true);
+        return;
+      }
+
+      if (node.type === 'JSXOpeningElement') {
+        emitCall(jsxTagQualifiedName((node as any).name), { syntax: 'jsx' });
         return;
       }
     },

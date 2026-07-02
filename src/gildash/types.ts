@@ -169,7 +169,7 @@ export interface SymbolChangeQueryOptions {
 export interface GildashOptions {
   /** Absolute path to the project root directory. */
   projectRoot: string;
-  /** File extensions to index. Defaults to `['.ts', '.mts', '.cts']`. */
+  /** File extensions to index. Defaults to `['.ts', '.mts', '.cts', '.tsx']`. Add `'.jsx'` to index JS-React files. */
   extensions?: string[];
   /** Glob patterns to ignore during indexing. */
   ignorePatterns?: string[];
