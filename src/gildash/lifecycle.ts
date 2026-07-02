@@ -28,7 +28,7 @@ import { AnnotationRepository } from '../store/repositories/annotation.repositor
 import { ChangelogRepository } from '../store/repositories/changelog.repository';
 import { annotationSearch as defaultAnnotationSearch } from '../search/annotation-search';
 import { GildashError } from '../errors';
-import { DATA_DIR, DB_FILE } from '../constants';
+import { DATA_DIR, DB_FILE, DEFAULT_EXTENSIONS } from '../constants';
 import { invalidateGraphCache } from './graph-api';
 import type { DependencyGraphRelationReader } from '../search/dependency-graph';
 import type { GildashContext, CoordinatorLike, WatcherLike } from './context';
@@ -254,7 +254,7 @@ export async function initializeContext(
 ): Promise<GildashContext> {
   const {
     projectRoot,
-    extensions = ['.ts', '.mts', '.cts'],
+    extensions = DEFAULT_EXTENSIONS,
     ignorePatterns = ['**/node_modules/**'],
     parseCacheCapacity = 500,
     logger = console,

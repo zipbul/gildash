@@ -1,3 +1,4 @@
+import { DEFAULT_EXTENSIONS } from '../constants';
 import { err, type Result } from '@zipbul/result';
 import type {
   AsyncSubscription,
@@ -53,7 +54,7 @@ export class ProjectWatcher {
     this.#rootPath = options.projectRoot;
     this.#ignoreGlobs = [...WATCHER_IGNORE_GLOBS, ...(options.ignorePatterns ?? [])];
     this.#extensions = new Set(
-      (options.extensions ?? [".ts", ".mts", ".cts"]).map((ext) =>
+      (options.extensions ?? DEFAULT_EXTENSIONS).map((ext) =>
         ext.toLowerCase(),
       ),
     );

@@ -1197,3 +1197,15 @@ describe('default project selection (nested package boundaries)', () => {
     await closeContext(ctx);
   });
 });
+
+describe('default extensions (JSX first-class)', () => {
+  it('should include .tsx and .jsx in the default indexed extensions', async () => {
+    const opts = makeInitOptions();
+    delete opts.extensions;
+
+    const ctx = await initializeContext(opts);
+
+    expect(ctx.extensions).toEqual(['.ts', '.mts', '.cts', '.tsx']);
+    await closeContext(ctx);
+  });
+});

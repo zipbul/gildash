@@ -264,7 +264,7 @@ try {
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `projectRoot` | `string` | — | Absolute path to project root **(required)** |
-| `extensions` | `string[]` | `['.ts', '.mts', '.cts']` | File extensions to index |
+| `extensions` | `string[]` | `['.ts', '.mts', '.cts', '.tsx']` | File extensions to index (add `'.jsx'` for JS-React files) |
 | `ignorePatterns` | `string[]` | `[]` | Glob patterns to exclude — applies to file indexing **and** package-boundary discovery (an ignored path's `package.json` does not become a boundary) |
 | `parseCacheCapacity` | `number` | `500` | LRU parse-cache capacity |
 | `logger` | `Logger` | `console` | Custom logger (`{ error(...args): void; warn?(...args): void }`) — `warn` is optional and used for notices like multi-boundary discovery |

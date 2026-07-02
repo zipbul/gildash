@@ -192,3 +192,76 @@ describe('extractCalls', () => {
     expect(rel?.metaJson).toContain('"scope":"module"');
   });
 });
+
+describe('extractCalls — JSX component usage', () => {
+  const TSX = '/project/src/app.tsx';
+
+  it('should emit a calls relation with jsx metadata when an imported component is rendered', () => {
+    const ast = parse(`import { Button } from './button';\nexport const App = () => <Button label="x" />;`, TSX);
+    const relations = extractCalls(ast, TSX, makeImportMap([
+      ['Button', { path: '/project/src/button.tsx', importedName: 'Button' }],
+    ]));
+
+    const rel = relations.find((r) => r.dstSymbolName === 'Button');
+    expect(rel).toBeDefined();
+    expect(rel!.dstFilePath).toBe('/project/src/button.tsx');
+    expect(JSON.parse(rel!.metaJson!)).toMatchObject({ syntax: 'jsx' });
+  });
+
+  it('should not emit relations for lowercase intrinsic elements', () => {
+    const ast = parse(`export const App = () => <button type="submit">x</button>;`, TSX);
+    const relations = extractCalls(ast, TSX, makeImportMap());
+
+    expect(relations.filter((r) => r.dstSymbolName === 'button')).toEqual([]);
+  });
+
+  it('should resolve member tags through a namespace import', () => {
+    const ast = parse(`import * as UI from './ui';\nexport const App = () => <UI.Card />;`, TSX);
+    const relations = extractCalls(ast, TSX, makeImportMap([
+      ['UI', { path: '/project/src/ui.tsx', importedName: '*' }],
+    ]));
+
+    const rel = relations.find((r) => r.dstSymbolName === 'Card');
+    expect(rel).toBeDefined();
+    expect(rel!.dstFilePath).toBe('/project/src/ui.tsx');
+  });
+
+  it('should attribute the rendering component as the caller', () => {
+    const ast = parse(`import { Button } from './button';\nconst Page = () => <Button />;\nexport { Page };`, TSX);
+    const relations = extractCalls(ast, TSX, makeImportMap([
+      ['Button', { path: '/project/src/button.tsx', importedName: 'Button' }],
+    ]));
+
+    expect(relations.find((r) => r.dstSymbolName === 'Button')!.srcSymbolName).toBe('Page');
+  });
+
+  it('should resolve a locally defined component to the same file', () => {
+    const ast = parse(`const Local = () => <div />;\nexport const App = () => <Local />;`, TSX);
+    const relations = extractCalls(ast, TSX, makeImportMap());
+
+    const rel = relations.find((r) => r.dstSymbolName === 'Local');
+    expect(rel).toBeDefined();
+    expect(rel!.dstFilePath).toBe(TSX);
+  });
+});
+
+describe('extractCalls — JSX intrinsic-name edge cases (TS isIntrinsicJsxName)', () => {
+  const TSX = '/project/src/app.tsx';
+
+  it('should emit for $- and _-prefixed component tags (value references, not intrinsics)', () => {
+    const ast = parse(`import { $W } from './w';\nconst _X = () => <div />;\nexport const App = () => <><$W /><_X /></>;`, TSX);
+    const relations = extractCalls(ast, TSX, makeImportMap([
+      ['$W', { path: '/project/src/w.tsx', importedName: '$W' }],
+    ]));
+
+    expect(relations.find((r) => r.dstSymbolName === '$W')?.dstFilePath).toBe('/project/src/w.tsx');
+    expect(relations.find((r) => r.dstSymbolName === '_X')).toBeDefined();
+  });
+
+  it('should not emit for dash-containing capitalized tags (intrinsic string tags)', () => {
+    const ast = parse(`export const App = () => <Foo-bar />;`, TSX);
+    const relations = extractCalls(ast, TSX, makeImportMap());
+
+    expect(relations.filter((r) => r.dstSymbolName === 'Foo-bar')).toEqual([]);
+  });
+});
