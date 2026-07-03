@@ -21,6 +21,12 @@ export type { ParsedFile } from "./parser/types";
 export type { FileRecord } from "./store/repositories/file.repository";
 
 export type { ResolvedType, ByteSpan, SemanticReference, EnrichedReference, FileBinding, Implementation, SemanticModuleInterface, SemanticDiagnostic, GetDiagnosticsOptions } from "./semantic/types";
+
+// Language plugins (framework files — SFC transform + virtual semantic modules)
+export { createVuePlugin } from "./lang/vue-plugin";
+export type { LanguagePlugin } from "./lang/types";
+export type { PositionSegment } from "./lang/position-map";
+export { PositionMap } from "./lang/position-map";
 export type { WriteKind, ScopeKind, EnclosingScope } from "./semantic/reference-classifier";
 export type { SymbolNode } from "./semantic/symbol-graph";
 

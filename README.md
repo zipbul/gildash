@@ -272,6 +272,7 @@ try {
 | `semantic` | `boolean` | `false` | Enable tsc TypeChecker-backed semantic analysis |
 | `tsconfigs` | `string[]` | — | Explicit tsconfig paths for the semantic layer (authoritative; skips auto-discovery). Use for non-standard config names or ambiguous layouts |
 | `semanticScope` | `'auto' \| 'root'` | `'auto'` | `'auto'` discovers every `tsconfig.json` under `projectRoot` (plus referenced projects) and resolves each file under its own config; `'root'` uses only `<projectRoot>/tsconfig.json` (single-program, legacy) |
+| `plugins` | `LanguagePlugin[]` | — | Language plugins for framework files (e.g. `createVuePlugin()` for Vue SFCs). Plugin files are indexed at raw coordinates and answer semantic queries via virtual TS modules; add their extensions to `extensions` |
 
 Returns `Promise<Gildash>`. Throws `GildashError` on failure.
 

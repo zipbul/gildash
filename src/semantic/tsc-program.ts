@@ -12,6 +12,9 @@ import ts from "typescript";
 import path from "node:path";
 import { err, type Result } from "@zipbul/result";
 import { GildashError } from "../errors";
+import type { LanguagePluginRegistry } from "../lang/registry";
+import type { PositionMap } from "../lang/position-map";
+import { buildLineOffsets, getLineColumn } from "../parser/source-position";
 
 // ── DI contracts ─────────────────────────────────────────────────────────────
 
@@ -32,6 +35,12 @@ export interface TscProgramOptions {
   readConfigFile?: ReadConfigFileFn;
   /** Resolves non-tracked files (ts libs, node_modules). Injected for testability. */
   resolveNonTrackedFile?: ResolveNonTrackedFileFn;
+  /**
+   * Language plugins (e.g. Vue SFC). Raw plugin-owned files notified via
+   * `notifyFileChanged` are expanded into virtual TS files, and imports of
+   * plugin-owned specifiers resolve through the host's virtual-file table.
+   */
+  registry?: LanguagePluginRegistry;
 }
 
 // ── Default I/O (Bun fs) ────────────────────────────────────────────────────
@@ -139,6 +148,7 @@ export class TscProgram {
       parsed.options,
       projectDir,
       resolveNonTracked,
+      options.registry ?? null,
     );
 
     const languageService = ts.createLanguageService(host);
@@ -198,6 +208,30 @@ export class TscProgram {
     this.#host.removeFile(filePath);
   }
 
+  // ── Raw↔virtual coordinate translation (language plugins) ────────────────
+  // The public semantic boundary speaks RAW file coordinates; sub-modules and
+  // the TypeChecker speak virtual. These delegates are the only bridge.
+
+  /** Query-side: raw plugin file → its virtual module + offset translation. */
+  getVirtualTarget(rawPath: string): VirtualTarget | null {
+    return this.#host.getVirtualTarget(rawPath);
+  }
+
+  /** Result-side: any program fileName/position → raw location (identity for plain files). */
+  toRawLocation(fileName: string, position: number): { filePath: string; position: number } | null {
+    return this.#host.toRawLocation(fileName, position);
+  }
+
+  /** Raw line/column (1-based line, 0-based column) for a raw offset in a plugin file. */
+  rawLineColumn(rawPath: string, offset: number): { line: number; column: number } | null {
+    return this.#host.rawLineColumn(rawPath, offset);
+  }
+
+  /** Raw offset for a raw line/column in a plugin file. */
+  rawOffsetOf(rawPath: string, line: number, column: number): number | null {
+    return this.#host.rawOffsetOf(rawPath, line, column);
+  }
+
   /**
    * Dispose the LanguageService and release references.
    * Idempotent — safe to call multiple times.
@@ -217,6 +251,22 @@ export class TscProgram {
 
 // ── LanguageServiceHost ─────────────────────────────────────────────────────
 
+interface VirtualEntry {
+  paths: string[];
+  map: PositionMap | null;
+  rawText: string;
+  parseText: string;
+  rawLineOffsets: number[] | null;
+  virtualLineOffsets: number[] | null;
+}
+
+/** Query-side handle for a raw plugin file inside a program. */
+export interface VirtualTarget {
+  virtualPath: string;
+  toVirtualOffset(rawOffset: number): number | null;
+  toVirtualEndOffset(rawOffset: number): number | null;
+}
+
 class TscLanguageServiceHost implements ts.LanguageServiceHost {
   #rootFileNames: Set<string>;
   #compilerOptions: ts.CompilerOptions;
@@ -230,21 +280,101 @@ class TscLanguageServiceHost implements ts.LanguageServiceHost {
   /** Cached snapshots for non-tracked files (lib.d.ts, node_modules): path → snapshot */
   #nonTrackedSnapshotCache = new Map<string, ts.IScriptSnapshot>();
 
+  /** Language plugin registry, or null when no plugins are configured. */
+  #registry: LanguagePluginRegistry | null;
+  /** raw plugin-owned path → its virtual expansion + coordinate map. */
+  #virtualTable = new Map<string, VirtualEntry>();
+  /** virtual file path → owning raw path (result-side reverse lookup). */
+  #virtualToRaw = new Map<string, string>();
+
   constructor(
     rootFileNames: string[],
     compilerOptions: ts.CompilerOptions,
     projectDir: string,
     resolveNonTracked: ResolveNonTrackedFileFn,
+    registry: LanguagePluginRegistry | null = null,
   ) {
     this.#rootFileNames = new Set(rootFileNames);
     this.#compilerOptions = compilerOptions;
     this.#projectDir = projectDir;
     this.#resolveNonTracked = resolveNonTracked;
+    this.#registry = registry;
+    if (registry) {
+      // Defined only when plugins exist, so plugin-less hosts keep TS's
+      // built-in resolution path entirely untouched.
+      this.resolveModuleNameLiterals = (literals, containingFile, _redirected, opts) =>
+        literals.map((literal) => this.#resolveLiteral(literal.text, containingFile, opts));
+    }
+  }
+
+  /** Present only when a registry exists (see constructor). */
+  declare resolveModuleNameLiterals?: (
+    literals: readonly ts.StringLiteralLike[],
+    containingFile: string,
+    redirectedReference: ts.ResolvedProjectReference | undefined,
+    options: ts.CompilerOptions,
+  ) => ts.ResolvedModuleWithFailedLookupLocations[];
+
+  #resolveLiteral(
+    specifier: string,
+    containingFile: string,
+    options: ts.CompilerOptions,
+  ): ts.ResolvedModuleWithFailedLookupLocations {
+    if (this.#registry?.pluginFor(specifier)) {
+      const rawPath = path.resolve(path.dirname(containingFile), specifier);
+      const virtual = this.#virtualTable.get(rawPath)?.paths[0];
+      if (virtual) {
+        return {
+          resolvedModule: {
+            resolvedFileName: virtual,
+            extension: virtual.endsWith('.tsx') ? ts.Extension.Tsx : ts.Extension.Ts,
+            isExternalLibraryImport: false,
+          },
+        };
+      }
+      return { resolvedModule: undefined };
+    }
+    return ts.resolveModuleName(specifier, containingFile, options, {
+      fileExists: (f) => this.fileExists(f),
+      readFile: (f) => this.readFile(f),
+    });
   }
 
   // ── File tracking ───────────────────────────────────────────────────────
 
   updateFile(filePath: string, content: string): void {
+    const plugin = this.#registry?.pluginFor(filePath);
+    if (plugin) {
+      // Raw plugin-owned file: track its VIRTUAL expansion, never the raw text
+      // (tsc cannot parse it). Stale virtual names (e.g. a lang flip changing
+      // .ts → .tsx) are retired so the program never serves outdated modules.
+      const virtuals = plugin.virtualFiles(filePath, content);
+      const { map, parseText } = plugin.transform(filePath, content);
+      const nextPaths = virtuals.map((v) => v.path);
+      for (const stale of this.#virtualTable.get(filePath)?.paths ?? []) {
+        if (!nextPaths.includes(stale)) {
+          this.#removeTracked(stale);
+          this.#virtualToRaw.delete(stale);
+        }
+      }
+      for (const v of virtuals) {
+        this.#setTracked(v.path, v.text);
+        this.#virtualToRaw.set(v.path, filePath);
+      }
+      this.#virtualTable.set(filePath, {
+        paths: nextPaths,
+        map,
+        rawText: content,
+        parseText,
+        rawLineOffsets: null,
+        virtualLineOffsets: null,
+      });
+      return;
+    }
+    this.#setTracked(filePath, content);
+  }
+
+  #setTracked(filePath: string, content: string): void {
     const existing = this.#files.get(filePath);
     if (existing) {
       // Idempotent: identical content is a no-op, so the version is not bumped
@@ -260,6 +390,54 @@ class TscLanguageServiceHost implements ts.LanguageServiceHost {
   }
 
   removeFile(filePath: string): void {
+    const entry = this.#virtualTable.get(filePath);
+    if (entry) {
+      for (const v of entry.paths) {
+        this.#removeTracked(v);
+        this.#virtualToRaw.delete(v);
+      }
+      this.#virtualTable.delete(filePath);
+      return;
+    }
+    this.#removeTracked(filePath);
+  }
+
+  // ── Raw↔virtual translation ──────────────────────────────────────────────
+
+  getVirtualTarget(rawPath: string): VirtualTarget | null {
+    const entry = this.#virtualTable.get(rawPath);
+    const virtualPath = entry?.paths[0];
+    if (!entry || !virtualPath) return null;
+    return {
+      virtualPath,
+      toVirtualOffset: (offset) => entry.map?.toVirtual(offset) ?? null,
+      toVirtualEndOffset: (offset) => entry.map?.toVirtualEnd(offset) ?? null,
+    };
+  }
+
+  toRawLocation(fileName: string, position: number): { filePath: string; position: number } | null {
+    const rawPath = this.#virtualToRaw.get(fileName);
+    if (rawPath === undefined) return { filePath: fileName, position };
+    const rawPosition = this.#virtualTable.get(rawPath)?.map?.toRaw(position) ?? null;
+    return rawPosition === null ? null : { filePath: rawPath, position: rawPosition };
+  }
+
+  rawLineColumn(rawPath: string, offset: number): { line: number; column: number } | null {
+    const entry = this.#virtualTable.get(rawPath);
+    if (!entry) return null;
+    entry.rawLineOffsets ??= buildLineOffsets(entry.rawText);
+    return getLineColumn(entry.rawLineOffsets, offset);
+  }
+
+  rawOffsetOf(rawPath: string, line: number, column: number): number | null {
+    const entry = this.#virtualTable.get(rawPath);
+    if (!entry) return null;
+    entry.rawLineOffsets ??= buildLineOffsets(entry.rawText);
+    const lineStart = entry.rawLineOffsets[line - 1];
+    return lineStart === undefined ? null : lineStart + column;
+  }
+
+  #removeTracked(filePath: string): void {
     const existing = this.#files.get(filePath);
     if (existing) {
       this.#snapshotCache.delete(`${filePath}:${existing.version}`);

@@ -22,6 +22,7 @@ import type { DependencyGraph } from '../search/dependency-graph';
 import type { ChangelogRepository } from '../store/repositories/changelog.repository';
 import type { AnnotationRepository } from '../store/repositories/annotation.repository';
 import type { SemanticLayer } from '../semantic/index';
+import type { LanguagePluginRegistry } from '../lang/registry';
 import type { ParseCache } from '../parser/parse-cache';
 import type { GildashError } from '../errors';
 import type { Logger } from './types';
@@ -180,6 +181,8 @@ export interface GildashContext {
   timer: ReturnType<typeof setInterval> | null;
   signalHandlers: Array<[NodeJS.Signals | 'beforeExit', () => void]>;
   tsconfigPaths: TsconfigPaths | null;
+  /** Session language-plugin registry (indexing + semantic sides), or null. */
+  pluginRegistry: LanguagePluginRegistry | null;
   boundaries: ProjectBoundary[];
   onIndexedCallbacks: Set<(result: IndexResult) => void>;
   onFileChangedCallbacks: Set<(event: FileChangeEvent) => void>;

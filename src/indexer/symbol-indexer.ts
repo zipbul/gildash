@@ -49,6 +49,12 @@ export interface IndexFileSymbolsOptions {
   filePath: string;
   contentHash: string;
   symbolRepo: SymbolRepoPart;
+  /**
+   * Virtual→raw span translation for plugin-transformed files (position
+   * invariant: the DB holds raw coordinates). Records whose span cannot be
+   * remapped (synthetic text) are skipped, never stored approximately.
+   */
+  remapSpan?: (span: ExtractedSymbol['span']) => ExtractedSymbol['span'] | null;
 }
 
 function buildSignature(sym: ExtractedSymbol): string | null {
@@ -135,6 +141,7 @@ function buildRow(
   project: string,
   filePath: string,
   contentHash: string,
+  span: ExtractedSymbol['span'] = sym.span,
 ): SymbolDbRow {
   const signature = buildSignature(sym);
   const fingerprint = hashString(`${name}|${sym.kind}|${signature ?? ''}`);
@@ -145,10 +152,10 @@ function buildRow(
     filePath,
     kind: sym.kind,
     name,
-    startLine: sym.span.start.line,
-    startColumn: sym.span.start.column,
-    endLine: sym.span.end.line,
-    endColumn: sym.span.end.column,
+    startLine: span.start.line,
+    startColumn: span.start.column,
+    endLine: span.end.line,
+    endColumn: span.end.column,
     isExported: sym.isExported ? 1 : 0,
     signature,
     fingerprint,
@@ -160,16 +167,20 @@ function buildRow(
 }
 
 export function indexFileSymbols(opts: IndexFileSymbolsOptions): void {
-  const { parsed, project, filePath, contentHash, symbolRepo } = opts;
+  const { parsed, project, filePath, contentHash, symbolRepo, remapSpan } = opts;
 
   const extracted = extractSymbols(parsed);
   const rows: SymbolDbRow[] = [];
+  const spanFor = (span: ExtractedSymbol['span']) => (remapSpan ? remapSpan(span) : span);
 
   for (const sym of extracted) {
-    rows.push(buildRow(sym, sym.name, project, filePath, contentHash));
+    const symSpan = spanFor(sym.span);
+    if (symSpan) rows.push(buildRow(sym, sym.name, project, filePath, contentHash, symSpan));
 
     for (const member of sym.members ?? []) {
-      rows.push(buildRow(member, `${sym.name}.${member.name}`, project, filePath, contentHash));
+      const memberSpan = spanFor(member.span);
+      if (!memberSpan) continue;
+      rows.push(buildRow(member, `${sym.name}.${member.name}`, project, filePath, contentHash, memberSpan));
     }
   }
 

@@ -6,6 +6,8 @@ import type { TsconfigPaths } from '../common/tsconfig-resolver';
 import { toAbsolutePath } from '../common/path-utils';
 import { hashString } from '../common/hasher';
 import { isErr } from '@zipbul/result';
+import type { LanguagePluginRegistry } from '../lang/registry';
+import { createSpanRemapper, type SpanRemapper } from '../lang/remap';
 import { parseSource } from '../parser/parse-source';
 import type { ParsedFile } from '../parser/types';
 import { detectChanges } from './file-indexer';
@@ -102,6 +104,8 @@ export interface IndexCoordinatorOptions {
   boundaries: ProjectBoundary[];
   extensions: string[];
   ignorePatterns: string[];
+  /** Language plugins (SFC transform + span remap). Absent → identity pipeline. */
+  registry?: LanguagePluginRegistry;
   dbConnection: { transaction<T>(fn: (tx: DbConnection) => T): T };
   parseCache: {
     set(key: string, value: unknown): void;
@@ -183,6 +187,28 @@ export class IndexCoordinator {
 
   get tsconfigPaths(): Promise<TsconfigPaths | null> {
     return this.tsconfigPathsRaw;
+  }
+
+  /**
+   * Syntax-side plugin pipeline for one file: transform raw text to parseable
+   * TS (+ dialect hint) and build the virtual→raw span remapper enforcing the
+   * position invariant at the store boundary. Identity for non-plugin files.
+   */
+  #prepareSource(absPath: string, raw: string): {
+    parseText: string;
+    parserOptions?: { lang: 'ts' | 'tsx' };
+    remapSpan?: SpanRemapper;
+  } {
+    const plugin = this.opts.registry?.pluginFor(absPath);
+    if (!plugin) return { parseText: raw };
+    const transformed = plugin.transform(absPath, raw);
+    return {
+      parseText: transformed.parseText,
+      parserOptions: transformed.lang ? { lang: transformed.lang } : undefined,
+      remapSpan: transformed.map
+        ? createSpanRemapper(transformed.map, transformed.parseText, raw)
+        : undefined,
+    };
   }
 
   fullIndex(): Promise<IndexResult> {
@@ -421,7 +447,7 @@ export class IndexCoordinator {
       // ── Pass 1: 모든 변경 파일 read + parse + upsertFile ──
       type Prepared = {
         filePath: string; text: string; contentHash: string;
-        parsed: ParsedFile; project: string;
+        parsed: ParsedFile; project: string; remapSpan?: SpanRemapper;
       };
       const prepared: Prepared[] = [];
 
@@ -444,10 +470,11 @@ export class IndexCoordinator {
           });
 
           const parseFn = this.opts.parseSourceFn ?? parseSource;
-          const parseResult = parseFn(absPath, text);
+          const prep = this.#prepareSource(absPath, text);
+          const parseResult = parseFn(absPath, prep.parseText, prep.parserOptions);
           if (isErr(parseResult)) throw parseResult.data;
           const parsed = parseResult;
-          prepared.push({ filePath: file.filePath, text, contentHash, parsed, project });
+          prepared.push({ filePath: file.filePath, text, contentHash, parsed, project, remapSpan: prep.remapSpan });
         } catch (e) {
           this.logger.error(`[IndexCoordinator] Failed to prepare ${file.filePath}:`, e);
           failedFiles.push(file.filePath);
@@ -468,6 +495,7 @@ export class IndexCoordinator {
           indexFileSymbols({
             parsed: fd.parsed, project: fd.project,
             filePath: fd.filePath, contentHash: fd.contentHash, symbolRepo,
+            remapSpan: fd.remapSpan,
           });
           relations += indexFileRelations({
             ast: fd.parsed.program, project: fd.project, filePath: fd.filePath,
@@ -475,7 +503,7 @@ export class IndexCoordinator {
             knownFiles, boundaries, module: fd.parsed.module,
           });
           if (annotationRepo) {
-            annotations += indexFileAnnotations({ parsed: fd.parsed, project: fd.project, filePath: fd.filePath, annotationRepo });
+            annotations += indexFileAnnotations({ parsed: fd.parsed, project: fd.project, filePath: fd.filePath, annotationRepo, remapSpan: fd.remapSpan });
           }
           parseCache.set(fd.filePath, fd.parsed);
           symbols += symbolRepo.getFileSymbols(fd.project, fd.filePath).length;
@@ -580,8 +608,12 @@ export class IndexCoordinator {
         for (const fd of preread) {
           const project = resolveFileProject(fd.filePath, boundaries);
           let parsed: ParsedFile;
+          let remapSpan: SpanRemapper | undefined;
           try {
-            const parseResult = parseFn(toAbsolutePath(projectRoot, fd.filePath), fd.text);
+            const absPath = toAbsolutePath(projectRoot, fd.filePath);
+            const prep = this.#prepareSource(absPath, fd.text);
+            remapSpan = prep.remapSpan;
+            const parseResult = parseFn(absPath, prep.parseText, prep.parserOptions);
             if (isErr(parseResult)) throw parseResult.data;
             parsed = parseResult;
           } catch (e) {
@@ -590,9 +622,9 @@ export class IndexCoordinator {
             continue;
           }
           parsedCacheEntries.push({ filePath: fd.filePath, parsed });
-          indexFileSymbols({ parsed, project, filePath: fd.filePath, contentHash: fd.contentHash, symbolRepo });
+          indexFileSymbols({ parsed, project, filePath: fd.filePath, contentHash: fd.contentHash, symbolRepo, remapSpan });
           if (annotationRepo) {
-            totalAnnotations += indexFileAnnotations({ parsed, project, filePath: fd.filePath, annotationRepo });
+            totalAnnotations += indexFileAnnotations({ parsed, project, filePath: fd.filePath, annotationRepo, remapSpan });
           }
           totalRelations += indexFileRelations({
             ast: parsed.program,

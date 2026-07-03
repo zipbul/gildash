@@ -15,6 +15,9 @@ import { ReferenceResolver } from "./reference-resolver";
 import { buildStandaloneBindings } from "./standalone-bindings";
 import { ImplementationFinder } from "./implementation-finder";
 import { findNodeAtPosition } from "./ast-node-utils";
+import { buildLineOffsets, getLineColumn } from "../parser/source-position";
+import type { LanguagePluginRegistry } from "../lang/registry";
+import type { PositionMap } from "../lang/position-map";
 import type {
   ResolvedType,
   ByteSpan,
@@ -84,6 +87,7 @@ export class SemanticLayer {
   readonly #symbolGraph: SymbolGraph;
   readonly #referenceResolver: ReferenceResolver;
   readonly #implementationFinder: ImplementationFinder;
+  readonly #registry: LanguagePluginRegistry | null;
   #isDisposed = false;
 
   private constructor(
@@ -92,12 +96,14 @@ export class SemanticLayer {
     symbolGraph: SymbolGraph,
     referenceResolver: ReferenceResolver,
     implementationFinder: ImplementationFinder,
+    registry: LanguagePluginRegistry | null,
   ) {
     this.#program = program;
     this.#typeCollector = typeCollector;
     this.#symbolGraph = symbolGraph;
     this.#referenceResolver = referenceResolver;
     this.#implementationFinder = implementationFinder;
+    this.#registry = registry;
   }
 
   /**
@@ -113,6 +119,7 @@ export class SemanticLayer {
     const programResult = TscProgram.create(tsconfigPath, {
       readConfigFile: options.readConfigFile,
       resolveNonTrackedFile: options.resolveNonTrackedFile,
+      registry: options.registry,
     });
     if (isErr(programResult)) return programResult;
 
@@ -129,6 +136,7 @@ export class SemanticLayer {
       symbolGraph,
       referenceResolver,
       implementationFinder,
+      options.registry ?? null,
     );
   }
 
@@ -140,14 +148,65 @@ export class SemanticLayer {
 
   // ── Type collection ─────────────────────────────────────────────────────
 
+  // ── Raw↔virtual boundary (language plugins) ──────────────────────────────
+  // Public surfaces speak RAW file coordinates. Sub-modules and the checker
+  // speak virtual. Inputs translate here; outputs translate back; positions
+  // outside mapped script regions degrade to null/[] — never approximate.
+
+  /** Query file for `filePath` (virtual module for plugin files). */
+  #queryFile(filePath: string): string {
+    return this.#program.getVirtualTarget(filePath)?.virtualPath ?? filePath;
+  }
+
+  /** Query file+position; `null` when the raw position is outside script regions. */
+  #queryPos(filePath: string, position: number): { file: string; position: number } | null {
+    const target = this.#program.getVirtualTarget(filePath);
+    if (!target) return { file: filePath, position };
+    const virtualPosition = target.toVirtualOffset(position);
+    return virtualPosition === null ? null : { file: target.virtualPath, position: virtualPosition };
+  }
+
+  /** Query file+span; `null` when either edge is unmapped. */
+  #querySpan(filePath: string, span: ByteSpan): { file: string; span: ByteSpan } | null {
+    const target = this.#program.getVirtualTarget(filePath);
+    if (!target) return { file: filePath, span };
+    const start = target.toVirtualOffset(span.start);
+    const end = target.toVirtualEndOffset(span.end);
+    return start === null || end === null ? null : { file: target.virtualPath, span: { start, end } };
+  }
+
+  /** Translate a reference-shaped result back to raw coordinates. */
+  #toRawReference<T extends SemanticReference>(ref: T): T | null {
+    const loc = this.#program.toRawLocation(ref.filePath, ref.position);
+    if (!loc) return null;
+    if (loc.filePath === ref.filePath) return ref;
+    const lineColumn = this.#program.rawLineColumn(loc.filePath, loc.position);
+    return {
+      ...ref,
+      filePath: loc.filePath,
+      position: loc.position,
+      line: lineColumn?.line ?? ref.line,
+      column: lineColumn?.column ?? ref.column,
+    };
+  }
+
   collectTypeAt(filePath: string, position: number): ResolvedType | null {
     this.#assertNotDisposed();
-    return this.#typeCollector.collectAt(filePath, position);
+    const q = this.#queryPos(filePath, position);
+    return q ? this.#typeCollector.collectAt(q.file, q.position) : null;
   }
 
   collectFileTypes(filePath: string): Map<number, ResolvedType> {
     this.#assertNotDisposed();
-    return this.#typeCollector.collectFile(filePath);
+    const virtual = this.#typeCollector.collectFile(this.#queryFile(filePath));
+    const target = this.#program.getVirtualTarget(filePath);
+    if (!target) return virtual;
+    const raw = new Map<number, ResolvedType>();
+    for (const [position, type] of virtual) {
+      const loc = this.#program.toRawLocation(target.virtualPath, position);
+      if (loc) raw.set(loc.position, type);
+    }
+    return raw;
   }
 
   collectTypesAtPositions(
@@ -155,14 +214,29 @@ export class SemanticLayer {
     positions: number[],
   ): Map<number, ResolvedType> {
     this.#assertNotDisposed();
-    return this.#typeCollector.collectAtPositions(filePath, positions);
+    const target = this.#program.getVirtualTarget(filePath);
+    if (!target) return this.#typeCollector.collectAtPositions(filePath, positions);
+    // Query with translated positions, key results by the caller's RAW positions.
+    const rawByVirtual = new Map<number, number>();
+    for (const raw of positions) {
+      const v = target.toVirtualOffset(raw);
+      if (v !== null) rawByVirtual.set(v, raw);
+    }
+    const virtual = this.#typeCollector.collectAtPositions(target.virtualPath, [...rawByVirtual.keys()]);
+    const result = new Map<number, ResolvedType>();
+    for (const [v, type] of virtual) {
+      const raw = rawByVirtual.get(v);
+      if (raw !== undefined) result.set(raw, type);
+    }
+    return result;
   }
 
   // ── Span-based primitives (firebat error-flow) ──────────────────────────
 
   collectAtSpan(filePath: string, span: ByteSpan): ResolvedType | null {
     this.#assertNotDisposed();
-    return this.#typeCollector.collectAtSpan(filePath, span);
+    const q = this.#querySpan(filePath, span);
+    return q ? this.#typeCollector.collectAtSpan(q.file, q.span) : null;
   }
 
   isThenableAtSpan(
@@ -171,12 +245,14 @@ export class SemanticLayer {
     options?: { anyConstituent?: boolean },
   ): boolean | null {
     this.#assertNotDisposed();
-    return this.#typeCollector.isThenableAtSpan(filePath, span, options);
+    const q = this.#querySpan(filePath, span);
+    return q ? this.#typeCollector.isThenableAtSpan(q.file, q.span, options) : null;
   }
 
   contextualCallReturnsAtSpan(filePath: string, span: ByteSpan): ResolvedType[] | null {
     this.#assertNotDisposed();
-    return this.#typeCollector.contextualCallReturnsAtSpan(filePath, span);
+    const q = this.#querySpan(filePath, span);
+    return q ? this.#typeCollector.contextualCallReturnsAtSpan(q.file, q.span) : null;
   }
 
   isTypeAssignableToTypeAtSpan(
@@ -186,24 +262,50 @@ export class SemanticLayer {
     options?: { anyConstituent?: boolean },
   ): boolean | null {
     this.#assertNotDisposed();
-    return this.#typeCollector.isAssignableToTypeAtSpan(filePath, span, targetTypeExpression, options);
+    const q = this.#querySpan(filePath, span);
+    return q ? this.#typeCollector.isAssignableToTypeAtSpan(q.file, q.span, targetTypeExpression, options) : null;
   }
 
   // ── Semantic references ─────────────────────────────────────────────────
 
   findReferences(filePath: string, position: number): SemanticReference[] {
     this.#assertNotDisposed();
-    return this.#referenceResolver.findAt(filePath, position);
+    const q = this.#queryPos(filePath, position);
+    if (!q) return [];
+    return this.#referenceResolver.findAt(q.file, q.position)
+      .map((ref) => this.#toRawReference(ref))
+      .filter((ref): ref is SemanticReference => ref !== null);
   }
 
   findEnrichedReferences(filePath: string, position: number): EnrichedReference[] {
     this.#assertNotDisposed();
-    return this.#referenceResolver.findEnrichedAt(filePath, position);
+    const q = this.#queryPos(filePath, position);
+    if (!q) return [];
+    return this.#referenceResolver.findEnrichedAt(q.file, q.position)
+      .map((ref) => this.#toRawReference(ref))
+      .filter((ref): ref is EnrichedReference => ref !== null);
   }
 
   getFileBindings(filePath: string): FileBinding[] {
     this.#assertNotDisposed();
-    return this.#referenceResolver.findFileBindings(filePath);
+    return this.#referenceResolver.findFileBindings(this.#queryFile(filePath))
+      .map((binding) => this.#toRawBinding(binding))
+      .filter((binding): binding is FileBinding => binding !== null);
+  }
+
+  /** Translate a FileBinding's declaration + references to raw coordinates. */
+  #toRawBinding(binding: FileBinding): FileBinding | null {
+    const declaration = this.#program.toRawLocation(
+      binding.declaration.filePath,
+      binding.declaration.position,
+    );
+    if (!declaration) return null;
+    return {
+      declaration: { ...binding.declaration, filePath: declaration.filePath, position: declaration.position },
+      references: binding.references
+        .map((ref) => this.#toRawReference(ref))
+        .filter((ref): ref is EnrichedReference => ref !== null),
+    };
   }
 
   /**
@@ -217,7 +319,7 @@ export class SemanticLayer {
   getStandaloneFileBindings(filePath: string, content: string): FileBinding[] {
     this.#assertNotDisposed();
     const o = this.#program.getCompilerOptions();
-    return buildStandaloneBindings(filePath, content, {
+    const parseOptions = {
       target: o.target,
       module: o.module,
       jsx: o.jsx,
@@ -226,7 +328,58 @@ export class SemanticLayer {
       jsxImportSource: o.jsxImportSource,
       experimentalDecorators: o.experimentalDecorators,
       useDefineForClassFields: o.useDefineForClassFields,
+    };
+
+    // Plugin files (e.g. Vue SFC): feed the extracted TS script — not the raw
+    // markup — to the throwaway program, then translate binding positions back
+    // to RAW file coordinates. Identity for plain TS/JS.
+    const plugin = this.#registry?.pluginFor(filePath);
+    if (!plugin) return buildStandaloneBindings(filePath, content, parseOptions);
+
+    // Build over a TS-suffixed virtual name so the throwaway program parses the
+    // extracted script as TypeScript (a `.vue` root is excluded from tsc's
+    // program). Declaration/reference file paths + positions are translated
+    // back to the RAW `.vue` file.
+    const { parseText, map, lang } = plugin.transform(filePath, content);
+    const virtualName = `${filePath}.__standalone__.${lang ?? "ts"}`;
+    const bindings = buildStandaloneBindings(virtualName, parseText, parseOptions);
+    if (!map) {
+      return bindings.map((binding) => this.#reparentBinding(binding, filePath));
+    }
+
+    const rawLineOffsets = buildLineOffsets(content);
+    return bindings
+      .map((binding) => this.#remapStandaloneBinding(binding, map, rawLineOffsets, filePath))
+      .filter((binding): binding is FileBinding => binding !== null);
+  }
+
+  /** Point a standalone binding's file paths at the raw plugin file (identity-map case). */
+  #reparentBinding(binding: FileBinding, rawFilePath: string): FileBinding {
+    return {
+      declaration: { ...binding.declaration, filePath: rawFilePath },
+      references: binding.references.map((ref) => ({ ...ref, filePath: rawFilePath })),
+    };
+  }
+
+  /** Translate a standalone binding's file paths + offsets (virtual) to raw; drop if unmapped. */
+  #remapStandaloneBinding(
+    binding: FileBinding,
+    map: PositionMap,
+    rawLineOffsets: number[],
+    rawFilePath: string,
+  ): FileBinding | null {
+    const declPosition = map.toRaw(binding.declaration.position);
+    if (declPosition === null) return null;
+    const references = binding.references.flatMap((ref) => {
+      const position = map.toRaw(ref.position);
+      if (position === null) return [];
+      const lineColumn = getLineColumn(rawLineOffsets, position);
+      return [{ ...ref, filePath: rawFilePath, position, line: lineColumn.line, column: lineColumn.column }];
     });
+    return {
+      declaration: { ...binding.declaration, filePath: rawFilePath, position: declPosition },
+      references,
+    };
   }
 
   /**
@@ -243,7 +396,7 @@ export class SemanticLayer {
     for (const f of files) this.notifyFileChanged(f.filePath, f.content);
     const result = new Map<string, FileBinding[]>();
     for (const f of files) {
-      result.set(f.filePath, this.#referenceResolver.findFileBindings(f.filePath));
+      result.set(f.filePath, this.getFileBindings(f.filePath));
     }
     return result;
   }
@@ -252,7 +405,13 @@ export class SemanticLayer {
 
   findImplementations(filePath: string, position: number): Implementation[] {
     this.#assertNotDisposed();
-    return this.#implementationFinder.findAt(filePath, position);
+    const q = this.#queryPos(filePath, position);
+    if (!q) return [];
+    return this.#implementationFinder.findAt(q.file, q.position)
+      .flatMap((impl) => {
+        const loc = this.#program.toRawLocation(impl.filePath, impl.position);
+        return loc ? [{ ...impl, filePath: loc.filePath, position: loc.position }] : [];
+      });
   }
 
   // ── Type assignability ─────────────────────────────────────────────
@@ -264,12 +423,10 @@ export class SemanticLayer {
     targetPosition: number,
   ): boolean | null {
     this.#assertNotDisposed();
-    return this.#typeCollector.isAssignableTo(
-      sourceFilePath,
-      sourcePosition,
-      targetFilePath,
-      targetPosition,
-    );
+    const src = this.#queryPos(sourceFilePath, sourcePosition);
+    const tgt = this.#queryPos(targetFilePath, targetPosition);
+    if (!src || !tgt) return null;
+    return this.#typeCollector.isAssignableTo(src.file, src.position, tgt.file, tgt.position);
   }
 
   /**
@@ -283,7 +440,8 @@ export class SemanticLayer {
     options?: { anyConstituent?: boolean },
   ): boolean | null {
     this.#assertNotDisposed();
-    return this.#typeCollector.isAssignableToType(filePath, position, targetTypeExpression, options);
+    const q = this.#queryPos(filePath, position);
+    return q ? this.#typeCollector.isAssignableToType(q.file, q.position, targetTypeExpression, options) : null;
   }
 
   isTypeAssignableToTypeAtPositions(
@@ -293,14 +451,32 @@ export class SemanticLayer {
     options?: { anyConstituent?: boolean },
   ): Map<number, boolean> {
     this.#assertNotDisposed();
-    return this.#typeCollector.isAssignableToTypeAtPositions(filePath, positions, targetTypeExpression, options);
+    const target = this.#program.getVirtualTarget(filePath);
+    if (!target) {
+      return this.#typeCollector.isAssignableToTypeAtPositions(filePath, positions, targetTypeExpression, options);
+    }
+    const rawByVirtual = new Map<number, number>();
+    for (const raw of positions) {
+      const v = target.toVirtualOffset(raw);
+      if (v !== null) rawByVirtual.set(v, raw);
+    }
+    const virtual = this.#typeCollector.isAssignableToTypeAtPositions(
+      target.virtualPath, [...rawByVirtual.keys()], targetTypeExpression, options,
+    );
+    const result = new Map<number, boolean>();
+    for (const [v, ok] of virtual) {
+      const raw = rawByVirtual.get(v);
+      if (raw !== undefined) result.set(raw, ok);
+    }
+    return result;
   }
 
   // ── Symbol graph ────────────────────────────────────────────────────────
 
   getSymbolNode(filePath: string, position: number): SymbolNode | null {
     this.#assertNotDisposed();
-    return this.#symbolGraph.get(filePath, position);
+    const q = this.#queryPos(filePath, position);
+    return q ? this.#symbolGraph.get(q.file, q.position) : null;
   }
 
   // ── Base types (inheritance chain) ──────────────────────────────────────
@@ -313,12 +489,14 @@ export class SemanticLayer {
    */
   getBaseTypes(filePath: string, position: number): ResolvedType[] | null {
     this.#assertNotDisposed();
+    const q = this.#queryPos(filePath, position);
+    if (!q) return null;
 
     const tsProgram = this.#program.getProgram();
-    const sourceFile = tsProgram.getSourceFile(filePath);
+    const sourceFile = tsProgram.getSourceFile(q.file);
     if (!sourceFile) return null;
 
-    const node = findNodeAtPosition(sourceFile, position);
+    const node = findNodeAtPosition(sourceFile, q.position);
     if (!node) return null;
 
     const checker = tsProgram.getTypeChecker();
@@ -347,7 +525,7 @@ export class SemanticLayer {
     const exports: SemanticExport[] = [];
 
     const tsProgram = this.#program.getProgram();
-    const sourceFile = tsProgram.getSourceFile(filePath);
+    const sourceFile = tsProgram.getSourceFile(this.#queryFile(filePath));
     if (!sourceFile) return { filePath, exports };
 
     const checker = tsProgram.getTypeChecker();
@@ -426,6 +604,11 @@ export class SemanticLayer {
    */
   lineColumnToPosition(filePath: string, line: number, column: number): number | null {
     this.#assertNotDisposed();
+    // Plugin files: raw line/column → raw offset over the RAW text (the program
+    // only knows the virtual module; raw coordinates never touch it).
+    if (this.#program.getVirtualTarget(filePath)) {
+      return this.#program.rawOffsetOf(filePath, line, column);
+    }
     const sourceFile = this.#program.getProgram().getSourceFile(filePath);
     if (!sourceFile) return null;
     try {
@@ -448,10 +631,12 @@ export class SemanticLayer {
    */
   findNamePosition(filePath: string, declarationPos: number, name: string): number | null {
     this.#assertNotDisposed();
-    const sourceFile = this.#program.getProgram().getSourceFile(filePath);
+    const q = this.#queryPos(filePath, declarationPos);
+    if (!q) return null;
+    const sourceFile = this.#program.getProgram().getSourceFile(q.file);
     if (!sourceFile) return null;
     const text = sourceFile.getFullText();
-    let searchFrom = declarationPos;
+    let searchFrom = q.position;
     while (searchFrom < text.length) {
       const idx = text.indexOf(name, searchFrom);
       if (idx < 0) return null;
@@ -460,7 +645,7 @@ export class SemanticLayer {
       const before = idx > 0 ? text.charCodeAt(idx - 1) : 0x20; // space
       const after = idx + name.length < text.length ? text.charCodeAt(idx + name.length) : 0x20;
       if (!isIdentifierChar(before) && !isIdentifierChar(after)) {
-        return idx;
+        return this.#program.toRawLocation(q.file, idx)?.position ?? null;
       }
 
       searchFrom = idx + 1;
@@ -483,7 +668,7 @@ export class SemanticLayer {
   getDiagnostics(filePath: string, options?: GetDiagnosticsOptions): SemanticDiagnostic[] {
     this.#assertNotDisposed();
     const program = this.#program.getProgram();
-    const sourceFile = program.getSourceFile(filePath);
+    const sourceFile = program.getSourceFile(this.#queryFile(filePath));
     if (!sourceFile) return [];
 
     const categoryMap: Record<number, SemanticDiagnostic['category']> = {
@@ -497,29 +682,45 @@ export class SemanticLayer {
       ? ts.getPreEmitDiagnostics(program, sourceFile)
       : program.getSemanticDiagnostics(sourceFile);
 
-    return diagnostics.map((d) => {
+    return diagnostics.flatMap((d) => {
+      let diagFilePath = d.file?.fileName ?? filePath;
       let line = 1;
       let column = 0;
       if (d.file && d.start !== undefined) {
-        const pos = ts.getLineAndCharacterOfPosition(d.file, d.start);
-        line = pos.line + 1;
-        column = pos.character;
+        // Virtual diagnostics surface at RAW coordinates; unmapped ones
+        // (synthetic text) are dropped rather than reported approximately.
+        const loc = this.#program.toRawLocation(d.file.fileName, d.start);
+        if (!loc) return [];
+        diagFilePath = loc.filePath;
+        if (loc.filePath === d.file.fileName) {
+          const pos = ts.getLineAndCharacterOfPosition(d.file, d.start);
+          line = pos.line + 1;
+          column = pos.character;
+        } else {
+          const rawLineColumn = this.#program.rawLineColumn(loc.filePath, loc.position);
+          if (!rawLineColumn) return [];
+          line = rawLineColumn.line;
+          column = rawLineColumn.column;
+        }
       }
-      return {
-        filePath: d.file?.fileName ?? filePath,
+      return [{
+        filePath: diagFilePath,
         line,
         column,
         message: ts.flattenDiagnosticMessageText(d.messageText, '\n'),
         code: d.code,
         category: categoryMap[d.category] ?? 'error',
-      };
+      }];
     });
   }
 
   /** Whether `filePath` is present in this program (and thus has full semantic answers). */
   isFileInSemanticProgram(filePath: string): boolean {
     this.#assertNotDisposed();
-    return this.#program.getProgram().getSourceFile(filePath) !== undefined;
+    // A raw plugin file is "in" the program when its virtual module is.
+    const target = this.#program.getVirtualTarget(filePath);
+    const queryFile = target?.virtualPath ?? filePath;
+    return this.#program.getProgram().getSourceFile(queryFile) !== undefined;
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────────

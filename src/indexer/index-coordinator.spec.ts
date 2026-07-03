@@ -79,7 +79,7 @@ const IGNORE_PATTERNS: string[] = [];
 function makeCoordinator(overrides: Partial<{
   fileRepo: any; symbolRepo: any; relationRepo: any;
   dbConnection: any; parseCache: any;
-  ignorePatterns: string[]; discoverProjectsFn: any;
+  ignorePatterns: string[]; discoverProjectsFn: any; registry: any;
 }> = {}) {
   return new IndexCoordinator({
     projectRoot: PROJECT_ROOT,
@@ -93,6 +93,7 @@ function makeCoordinator(overrides: Partial<{
     relationRepo: overrides.relationRepo ?? makeRelationRepo(),
     parseSourceFn: mockParseSource as any,
     ...(overrides.discoverProjectsFn ? { discoverProjectsFn: overrides.discoverProjectsFn } : {}),
+    ...(overrides.registry ? { registry: overrides.registry } : {}),
     logger: { error: mock(() => {}) },
   });
 }
@@ -2238,5 +2239,106 @@ describe('IndexCoordinator', () => {
     // Both newly upserted files should appear in knownFiles
     expect(callArgs.knownFiles.has('test-project::src/a.ts')).toBe(true);
     expect(callArgs.knownFiles.has('test-project::src/b.ts')).toBe(true);
+  });
+});
+
+describe('language plugin pipeline (transform + remap threading)', () => {
+  beforeEach(() => {
+    // setup.ts restores real modules after every test — re-apply the file mocks
+    // (this describe is a sibling of the main block, so its beforeEach doesn't run here).
+    mock.module('./file-indexer', () => ({ detectChanges: mockDetectChanges }));
+    mock.module('./symbol-indexer', () => ({ indexFileSymbols: mockIndexFileSymbols }));
+    mock.module('./relation-indexer', () => ({ indexFileRelations: mockIndexFileRelations }));
+    mock.module('../common/tsconfig-resolver', () => ({ loadTsconfigPaths: mockLoadTsconfigPaths, clearTsconfigPathsCache: mockClearTsconfigPathsCache }));
+    mock.module('../common/project-discovery', () => ({ resolveFileProject: mockResolveFileProject, discoverProjects: mockDiscoverProjects }));
+    mockDetectChanges.mockReset();
+    mockIndexFileSymbols.mockClear();
+    mockIndexFileRelations.mockClear();
+    mockIndexFileRelations.mockReturnValue(0);
+    mockParseSource.mockReset();
+    mockParseSource.mockImplementation((fp: string, text: string) => ({
+      filePath: fp, program: { body: [] }, errors: [], comments: [], sourceText: text,
+    }));
+    mockLoadTsconfigPaths.mockReturnValue(null);
+    mockResolveFileProject.mockReturnValue('test-project');
+    spyOn(Bun, 'file').mockReturnValue({ text: async () => 'mock source', lastModified: 1000, size: 100 } as any);
+  });
+
+  const fakeMap = { toRaw: (n: number) => n + 100, toRawEnd: (n: number) => n + 100 } as any;
+  const fakePlugin = {
+    extensions: ['.vue'],
+    transform: mock((_fp: string, raw: string) => ({
+      parseText: `/*virtual*/ ${raw}`,
+      map: fakeMap,
+      lang: 'ts' as const,
+    })),
+    virtualFiles: () => [],
+    resolveModuleName: () => null,
+  };
+  const registry = {
+    pluginFor: (fp: string) => (fp.endsWith('.vue') ? fakePlugin : null),
+    resolveModuleName: () => null,
+  } as any;
+
+  beforeEach(() => {
+    fakePlugin.transform.mockClear();
+  });
+
+  it('should parse the transformed text with the plugin dialect on fullIndex', async () => {
+    mockDetectChanges.mockResolvedValue({
+      changed: [makeFakeFile('src/Foo.vue')], unchanged: [], deleted: [],
+    });
+    const coordinator = makeCoordinator({ registry });
+
+    await coordinator.fullIndex();
+
+    expect(fakePlugin.transform).toHaveBeenCalledTimes(1);
+    const [fp, text, opts] = (mockParseSource.mock.calls as any[])[0]!;
+    expect(fp).toBe('/project/src/Foo.vue');
+    expect(text).toStartWith('/*virtual*/');
+    expect(opts).toEqual({ lang: 'ts' });
+  });
+
+  it('should thread a remapSpan into symbol and annotation indexing for plugin files', async () => {
+    mockDetectChanges.mockResolvedValue({
+      changed: [makeFakeFile('src/Foo.vue')], unchanged: [], deleted: [],
+    });
+    const coordinator = makeCoordinator({ registry });
+
+    await coordinator.fullIndex();
+
+    const symbolOpts = (mockIndexFileSymbols.mock.calls as any[])[0]![0];
+    expect(typeof symbolOpts.remapSpan).toBe('function');
+  });
+
+  it('should leave non-plugin files untouched (raw text, no dialect, no remap)', async () => {
+    mockDetectChanges.mockResolvedValue({
+      changed: [makeFakeFile('src/plain.ts')], unchanged: [], deleted: [],
+    });
+    const coordinator = makeCoordinator({ registry });
+
+    await coordinator.fullIndex();
+
+    expect(fakePlugin.transform).not.toHaveBeenCalled();
+    const [, text, opts] = (mockParseSource.mock.calls as any[])[0]!;
+    expect(text).toBe('mock source');
+    expect(opts).toBeUndefined();
+    const symbolOpts = (mockIndexFileSymbols.mock.calls as any[])[0]![0];
+    expect(symbolOpts.remapSpan).toBeUndefined();
+  });
+
+  it('should apply the same transform pipeline on the incremental path', async () => {
+    const coordinator = makeCoordinator({ registry });
+
+    await coordinator.incrementalIndex([
+      { eventType: 'change', filePath: 'src/Foo.vue' } as any,
+    ]);
+
+    expect(fakePlugin.transform).toHaveBeenCalledTimes(1);
+    const [, text, opts] = (mockParseSource.mock.calls as any[])[0]!;
+    expect(text).toStartWith('/*virtual*/');
+    expect(opts).toEqual({ lang: 'ts' });
+    const symbolOpts = (mockIndexFileSymbols.mock.calls as any[])[0]![0];
+    expect(typeof symbolOpts.remapSpan).toBe('function');
   });
 });

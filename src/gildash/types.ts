@@ -2,6 +2,7 @@ import type { ParsedFile } from '../parser/types';
 import type { SymbolSearchResult, SymbolDetail } from '../search/symbol-search';
 import type { SymbolKind, Decorator, ExpressionValue } from '../extractor/types';
 import type { ResolvedType } from '../semantic/types';
+import type { LanguagePlugin } from '../lang/types';
 
 /**
  * Minimal logger interface accepted by {@link Gildash}.
@@ -212,4 +213,10 @@ export interface GildashOptions {
    * @default 'auto'
    */
   semanticScope?: 'auto' | 'root';
+  /**
+   * Language plugins (e.g. Vue SFC via `createVuePlugin()`). Plugin-owned files
+   * are transformed for indexing and expanded into virtual TS files for the
+   * semantic layer. Add the plugin's extensions to `extensions` to index them.
+   */
+  plugins?: LanguagePlugin[];
 }

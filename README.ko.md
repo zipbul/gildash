@@ -232,6 +232,7 @@ try {
 | `semantic` | `boolean` | `false` | tsc TypeChecker 기반 시맨틱 분석 활성화 |
 | `tsconfigs` | `string[]` | — | 시맨틱 레이어용 명시적 tsconfig 경로(권위적, 자동 발견 생략). 비표준 이름·모호한 레이아웃에 사용 |
 | `semanticScope` | `'auto' \| 'root'` | `'auto'` | `'auto'`는 `projectRoot` 아래 모든 `tsconfig.json`(+참조 프로젝트)을 발견해 각 파일을 자기 config로 해석; `'root'`는 `<projectRoot>/tsconfig.json` 하나만 사용(단일 프로그램, 레거시) |
+| `plugins` | `LanguagePlugin[]` | — | 프레임워크 파일용 언어 플러그인 (예: Vue SFC용 `createVuePlugin()`). 플러그인 파일은 raw 좌표로 인덱싱되고 가상 TS 모듈로 시맨틱 질의에 답함; 해당 확장자를 `extensions`에 추가 |
 
 **반환**: `Promise<Gildash>`. 실패 시 `GildashError`를 throw합니다.
 
