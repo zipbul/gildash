@@ -16,13 +16,14 @@ mock.module('../common/tsconfig-resolver', () => ({
 const mockCoordinatorFullIndex = mock(async () => ({ indexed: 0 }));
 const mockCoordinatorShutdown = mock(async () => {});
 const mockCoordinatorOnIndexed = mock((_cb: any) => () => {});
+let lastCoordinatorCtorOpts: any = null;
 mock.module('../indexer/index-coordinator', () => ({
   IndexCoordinator: class {
     fullIndex = mockCoordinatorFullIndex;
     shutdown = mockCoordinatorShutdown;
     onIndexed = mockCoordinatorOnIndexed;
     handleWatcherEvent = mock(() => {});
-    constructor(..._args: any[]) {}
+    constructor(...args: any[]) { lastCoordinatorCtorOpts = args[0]; }
   },
 }));
 
@@ -48,7 +49,7 @@ beforeEach(() => {
       shutdown = mockCoordinatorShutdown;
       onIndexed = mockCoordinatorOnIndexed;
       handleWatcherEvent = mock(() => {});
-      constructor(..._args: any[]) {}
+      constructor(...args: any[]) { lastCoordinatorCtorOpts = args[0]; }
     },
   }));
 });
@@ -1206,6 +1207,51 @@ describe('default extensions (JSX first-class)', () => {
     const ctx = await initializeContext(opts);
 
     expect(ctx.extensions).toEqual(['.ts', '.mts', '.cts', '.tsx']);
+    await closeContext(ctx);
+  });
+});
+
+describe('language plugins option', () => {
+  it('should build a registry from options.plugins and thread it into each layer factory call', async () => {
+    const fakePlugin = {
+      extensions: ['.vue'],
+      transform: () => ({ parseText: '', map: null }),
+      virtualFiles: () => [],
+      resolveModuleName: () => null,
+    };
+    const semanticLayerFactory = mock((_configPath: string, _opts?: any) => ({
+      dispose: mock(() => {}),
+      notifyFileChanged: mock(() => {}),
+    }));
+    const opts = makeInitOptions({
+      semantic: true,
+      plugins: [fakePlugin],
+      semanticLayerFactory,
+    });
+
+    const ctx = await initializeContext(opts);
+    // Layers are lazy — force one via the router.
+    (ctx.semanticLayer as any).notifyFileChanged('/test/project/src/a.ts', 'export {};');
+
+    const [, factoryOpts] = semanticLayerFactory.mock.calls[0]!;
+    expect(factoryOpts?.registry?.pluginFor('/x/Foo.vue')).toBe(fakePlugin);
+    await closeContext(ctx);
+  });
+});
+
+describe('language plugins — indexing side wiring', () => {
+  it('should pass the plugin registry to the coordinator even without semantic', async () => {
+    const fakePlugin = {
+      extensions: ['.vue'],
+      transform: () => ({ parseText: '', map: null }),
+      virtualFiles: () => [],
+      resolveModuleName: () => null,
+    };
+    const opts = makeInitOptions({ plugins: [fakePlugin], coordinatorFactory: undefined });
+
+    const ctx = await initializeContext(opts);
+
+    expect(lastCoordinatorCtorOpts?.registry?.pluginFor('/x/Foo.vue')).toBe(fakePlugin);
     await closeContext(ctx);
   });
 });

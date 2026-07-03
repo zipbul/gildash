@@ -459,3 +459,72 @@ describe('indexFileSymbols', () => {
     expect(a).toEqual(b);
   });
 });
+
+describe('indexFileSymbols — span remapping (plugin-transformed files)', () => {
+  beforeEach(() => {
+    // setup.ts restores real modules after every test — re-apply the file mocks.
+    mock.module('../extractor/symbol-extractor', () => ({ extractSymbols: mockExtractSymbols }));
+    mock.module('../common/hasher', () => ({ hashString: mockHashString }));
+    mockExtractSymbols.mockReset();
+  });
+
+  it('should store remapped raw spans when a remapSpan fn is provided', () => {
+    const repo = { replaceFileSymbols: mock(() => {}), deleteFileSymbols: mock(() => {}) };
+    mockExtractSymbols.mockReturnValue([{
+      kind: 'variable', name: 'msg', isExported: true, modifiers: [],
+      span: { start: { line: 1, column: 13 }, end: { line: 1, column: 16 } },
+    }]);
+
+    indexFileSymbols({
+      parsed: makeParsedFile(), project: 'p', filePath: 'src/Foo.vue', contentHash: 'h',
+      symbolRepo: repo as any,
+      remapSpan: (span) => ({
+        start: { line: span.start.line + 4, column: span.start.column },
+        end: { line: span.end.line + 4, column: span.end.column },
+      }),
+    });
+
+    const rows = (repo.replaceFileSymbols.mock.calls[0] as any[])[3];
+    expect(rows[0]).toMatchObject({ startLine: 5, startColumn: 13, endLine: 5, endColumn: 16 });
+  });
+
+  it('should skip records whose span cannot be remapped (synthetic text)', () => {
+    const repo = { replaceFileSymbols: mock(() => {}), deleteFileSymbols: mock(() => {}) };
+    mockExtractSymbols.mockReturnValue([{
+      kind: 'variable', name: 'ghost', isExported: true, modifiers: [],
+      span: { start: { line: 1, column: 0 }, end: { line: 1, column: 5 } },
+    }]);
+
+    indexFileSymbols({
+      parsed: makeParsedFile(), project: 'p', filePath: 'src/Foo.vue', contentHash: 'h',
+      symbolRepo: repo as any,
+      remapSpan: () => null,
+    });
+
+    expect((repo.replaceFileSymbols.mock.calls[0] as any[])[3]).toEqual([]);
+  });
+
+  it('should remap member spans through the same fn', () => {
+    const repo = { replaceFileSymbols: mock(() => {}), deleteFileSymbols: mock(() => {}) };
+    mockExtractSymbols.mockReturnValue([{
+      kind: 'class', name: 'C', isExported: true, modifiers: [],
+      span: { start: { line: 1, column: 0 }, end: { line: 3, column: 1 } },
+      members: [{
+        kind: 'method', name: 'm', isExported: false, modifiers: [],
+        span: { start: { line: 2, column: 2 }, end: { line: 2, column: 10 } },
+      }],
+    }]);
+
+    indexFileSymbols({
+      parsed: makeParsedFile(), project: 'p', filePath: 'src/Foo.vue', contentHash: 'h',
+      symbolRepo: repo as any,
+      remapSpan: (span) => ({
+        start: { line: span.start.line + 4, column: span.start.column },
+        end: { line: span.end.line + 4, column: span.end.column },
+      }),
+    });
+
+    const rows = (repo.replaceFileSymbols.mock.calls[0] as any[])[3];
+    expect(rows.find((r: any) => r.name === 'C.m')).toMatchObject({ startLine: 6 });
+  });
+});

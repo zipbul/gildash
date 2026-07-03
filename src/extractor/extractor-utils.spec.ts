@@ -462,3 +462,28 @@ describe('resolveImport — JSX candidates (TS-style ordering)', () => {
     expect(jsx).toBeLessThan(indexTs);
   });
 });
+
+describe('resolveImport — plugin-owned specifiers (.vue)', () => {
+  beforeEach(() => {
+    mockDirname.mockImplementation((p: string) => p.slice(0, p.lastIndexOf('/')));
+    mockResolve.mockImplementation((base: string, spec: string) =>
+      `${base}/${spec.replace(/^\.\//, '')}`);
+    mockExtname.mockImplementation((p: string) => {
+      const slash = p.lastIndexOf('/');
+      const dot = p.lastIndexOf('.');
+      return dot > slash ? p.slice(dot) : '';
+    });
+  });
+
+  it('should offer the file itself as the first candidate for a non-TS extension specifier', () => {
+    const candidates = resolveImport('/proj/src/app.ts', './Foo.vue');
+
+    expect(candidates[0]).toBe('/proj/src/Foo.vue');
+  });
+
+  it('should keep extensionless-style fallbacks after the literal candidate', () => {
+    const candidates = resolveImport('/proj/src/app.ts', './Foo.vue');
+
+    expect(candidates).toContain('/proj/src/Foo.vue.ts');
+  });
+});

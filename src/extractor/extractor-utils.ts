@@ -25,12 +25,16 @@ export function resolveImport(
     if (extension === '.cjs') return [resolved.slice(0, -4) + '.cts'];
     if (extension === '.ts' || extension === '.tsx' || extension === '.mts'
       || extension === '.cts' || extension === '.d.ts') return [resolved];
-    // No extension or non-JS/TS extension (e.g. '.usecase', '.controller')
-    // → treat as extensionless and generate candidates in TS-style order:
-    // .ts before .tsx before .d.ts, and files before directory /index.*
-    // (tsc probes files first). `.jsx` is opt-in via `extensions` but its
-    // candidates are always generated — they only match indexed files.
+    // Non-JS/TS extension (plugin files like '.vue', or dotted names like
+    // '.usecase'): the literal path itself is the FIRST candidate — an indexed
+    // plugin file must win — then extensionless-style fallbacks for dotted
+    // names that are not real extensions.
+    // Extensionless: TS-style order — .ts before .tsx before .d.ts, files
+    // before directory /index.* (tsc probes files first). `.jsx` is opt-in via
+    // `extensions` but its candidates are always generated — they only match
+    // indexed files.
     return [
+      ...(extension !== '' ? [resolved] : []),
       resolved + '.ts',
       resolved + '.tsx',
       resolved + '.d.ts',

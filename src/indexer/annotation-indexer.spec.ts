@@ -123,3 +123,54 @@ function fn() {}
     expect(row!.symbolName).toBeNull();
   });
 });
+
+const mockExtractAnnotations = mock(() => [] as any[]);
+
+function makeParsedFile(): any {
+  return { filePath: '/p/src/Foo.vue', program: { body: [] }, errors: [], comments: [], sourceText: '', module: {} };
+}
+
+describe('indexFileAnnotations — span remapping (plugin-transformed files)', () => {
+  beforeEach(() => {
+    // setup.ts restores real modules after every test — apply the local mock.
+    mock.module('../extractor/annotation-extractor', () => ({ extractAnnotations: mockExtractAnnotations }));
+    mockExtractAnnotations.mockReset();
+  });
+
+  it('should store remapped raw spans when a remapSpan fn is provided', () => {
+    const repo = { deleteFileAnnotations: mock(() => {}), insertBatch: mock(() => {}) };
+    mockExtractAnnotations.mockReturnValue([{
+      tag: 'todo', value: 'x', source: 'comment', symbolName: null,
+      span: { start: { line: 1, column: 3 }, end: { line: 1, column: 8 } },
+    }]);
+
+    indexFileAnnotations({
+      parsed: makeParsedFile(), project: 'p', filePath: 'src/Foo.vue',
+      annotationRepo: repo as any,
+      remapSpan: (span) => ({
+        start: { line: span.start.line + 4, column: span.start.column },
+        end: { line: span.end.line + 4, column: span.end.column },
+      }),
+    });
+
+    const rows = (repo.insertBatch.mock.calls[0] as any[])[2];
+    expect(rows[0]).toMatchObject({ startLine: 5, endLine: 5 });
+  });
+
+  it('should skip annotations whose span cannot be remapped and not count them', () => {
+    const repo = { deleteFileAnnotations: mock(() => {}), insertBatch: mock(() => {}) };
+    mockExtractAnnotations.mockReturnValue([{
+      tag: 'todo', value: 'x', source: 'comment', symbolName: null,
+      span: { start: { line: 1, column: 0 }, end: { line: 1, column: 4 } },
+    }]);
+
+    const count = indexFileAnnotations({
+      parsed: makeParsedFile(), project: 'p', filePath: 'src/Foo.vue',
+      annotationRepo: repo as any,
+      remapSpan: () => null,
+    });
+
+    expect(count).toBe(0);
+    expect(repo.insertBatch).not.toHaveBeenCalled();
+  });
+});

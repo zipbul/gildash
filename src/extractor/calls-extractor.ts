@@ -1,4 +1,4 @@
-import type { CallExpression, NewExpression, Node, Program } from 'oxc-parser';
+import type { CallExpression, JSXElementName, JSXMemberExpressionObject, NewExpression, Node, Program } from 'oxc-parser';
 import { walk } from 'oxc-walker';
 import type { ImportReference, CodeRelation } from './types';
 import { getQualifiedName } from '../parser/ast-utils';
@@ -69,23 +69,22 @@ export function extractCalls(
    * components) and computed/namespaced tags are not representable — skipped.
    */
   function jsxTagQualifiedName(
-    name: { type: string; name?: string; object?: unknown; property?: unknown },
+    name: JSXElementName,
   ): { root: string; parts: string[]; full: string } | null {
     if (name.type === 'JSXIdentifier') {
-      const id = name.name as string;
+      const id = name.name;
       // TS isIntrinsicJsxName: intrinsic iff lowercase first char or dash in
       // the name. Everything else ($W, _X, unicode-capitalized) is a component.
       if (/^[a-z]/.test(id) || id.includes('-')) return null;
       return { root: id, parts: [], full: id };
     }
     if (name.type === 'JSXMemberExpression') {
-      const parts: string[] = [];
-      let current: any = name;
+      const parts: string[] = [name.property.name];
+      let current: JSXMemberExpressionObject = name.object;
       while (current.type === 'JSXMemberExpression') {
         parts.unshift(current.property.name);
         current = current.object;
       }
-      if (current.type !== 'JSXIdentifier') return null;
       return { root: current.name, parts, full: [current.name, ...parts].join('.') };
     }
     return null;
@@ -150,7 +149,7 @@ export function extractCalls(
       }
 
       if (node.type === 'JSXOpeningElement') {
-        emitCall(jsxTagQualifiedName((node as any).name), { syntax: 'jsx' });
+        emitCall(jsxTagQualifiedName(node.name), { syntax: 'jsx' });
         return;
       }
     },

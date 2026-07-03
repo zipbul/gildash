@@ -21,6 +21,8 @@ import { relationSearch as defaultRelationSearch } from '../search/relation-sear
 import { patternSearch as defaultPatternSearch } from '../search/pattern-search';
 import type { PatternMatch } from '../search/pattern-search';
 import { SemanticLayer } from '../semantic/index';
+import { LanguagePluginRegistry } from '../lang/registry';
+import type { LanguagePlugin } from '../lang/types';
 import { discoverTsconfigs } from '../semantic/tsconfig-discovery';
 import { SemanticProjectResolver } from '../semantic/project-resolver';
 import { SemanticProjectRouter, type SemanticLayerFactory } from '../semantic/project-router';
@@ -82,7 +84,7 @@ export interface GildashInternalOptions {
   loadTsconfigPathsFn?: typeof loadTsconfigPaths;
   readFileFn?: (filePath: string) => Promise<string>;
   unlinkFn?: (filePath: string) => Promise<void>;
-  semanticLayerFactory?: (tsconfigPath: string) => SemanticLayer;
+  semanticLayerFactory?: (tsconfigPath: string, options?: { registry?: LanguagePluginRegistry }) => SemanticLayer;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -163,6 +165,7 @@ export async function setupOwnerInfrastructure(
         boundaries: ctx.boundaries,
         extensions: ctx.extensions,
         ignorePatterns: ctx.ignorePatterns,
+        registry: ctx.pluginRegistry ?? undefined,
         dbConnection: ctx.db,
         parseCache: ctx.parseCache,
         fileRepo: ctx.fileRepo,
@@ -281,6 +284,7 @@ export async function initializeContext(
     semanticLayerFactory,
     tsconfigs,
     semanticScope = 'auto',
+    plugins,
   } = options;
 
   if (!path.isAbsolute(projectRoot)) {
@@ -379,6 +383,7 @@ export async function initializeContext(
     timer: null,
     signalHandlers: [],
     tsconfigPaths: null,
+    pluginRegistry: null,
     boundaries,
     onIndexedCallbacks: new Set(),
     onFileChangedCallbacks: new Set(),
@@ -392,6 +397,11 @@ export async function initializeContext(
 
   clearTsconfigPathsCache(projectRoot);
   ctx.tsconfigPaths = await loadTsconfigPathsFn(projectRoot);
+
+  // One plugin registry for the session — indexing (coordinator transform) and
+  // semantics (per-tsconfig virtual files) share the same plugin set.
+  ctx.pluginRegistry =
+    plugins && plugins.length > 0 ? new LanguagePluginRegistry(plugins) : null;
 
   if (semantic) {
     // Model the workspace as one tsc program per governing tsconfig (monorepo
@@ -412,9 +422,10 @@ export async function initializeContext(
       entries = discovered.length > 0 ? discovered : [{ configPath: rootTsconfig, dir: projectRoot }];
     }
 
+    const registry = ctx.pluginRegistry ?? undefined;
     const createLayer: SemanticLayerFactory = (configPath) => {
-      if (semanticLayerFactory) return semanticLayerFactory(configPath);
-      const result = SemanticLayer.create(configPath);
+      if (semanticLayerFactory) return semanticLayerFactory(configPath, { registry });
+      const result = SemanticLayer.create(configPath, { registry });
       if (isErr(result)) throw result.data;
       return result;
     };
