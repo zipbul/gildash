@@ -24,6 +24,7 @@ export type { ResolvedType, ByteSpan, SemanticReference, EnrichedReference, File
 
 // Language plugins (framework files — SFC transform + virtual semantic modules)
 export { createVuePlugin } from "./lang/vue-plugin";
+export { createSveltePlugin } from "./lang/svelte-plugin";
 export type { LanguagePlugin } from "./lang/types";
 export type { PositionSegment } from "./lang/position-map";
 export { PositionMap } from "./lang/position-map";
