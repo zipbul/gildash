@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { join } from "node:path";
-import { clearTsconfigPathsCache, loadTsconfigPaths } from "./tsconfig-resolver";
+import { clearTsconfigPathsCache, loadTsconfigPaths, matchTsconfigPaths } from "./tsconfig-resolver";
 
 const PROJECT_ROOT = "/fake/project";
 const TSCONFIG_PATH = join(PROJECT_ROOT, "tsconfig.json");
@@ -465,5 +465,66 @@ describe("loadTsconfigPaths", () => {
     expect(result?.baseUrl).toBe(join(PROJECT_ROOT, "src"));
     // Parent paths are inherited since child doesn't override paths
     expect(result?.paths.get("@/*")).toEqual(["lib/*"]);
+  });
+});
+
+describe("matchTsconfigPaths", () => {
+  it("should substitute the wildcard capture into the target", () => {
+    const result = matchTsconfigPaths("@/Foo.vue", [["@/*", ["src/*"]]]);
+
+    expect(result).toEqual(["src/Foo.vue"]);
+  });
+
+  it("should use only the longest-matching pattern's targets when patterns overlap", () => {
+    const result = matchTsconfigPaths("@/components/Foo.vue", [
+      ["@/*", ["wrong/*"]],
+      ["@/components/*", ["src/components/*"]],
+    ]);
+
+    // Only the longest pattern's target — the weaker `@/*` is NOT a fallback (tsc).
+    expect(result).toEqual(["src/components/Foo.vue"]);
+  });
+
+  it("should NOT fall back to a weaker pattern (matches tsc's exclusive best-pattern selection)", () => {
+    // Longest pattern matches but maps somewhere else; tsc uses it exclusively
+    // (and would fail), so we must return its target, never the shorter one's.
+    const result = matchTsconfigPaths("@/x/foo", [
+      ["@/*", ["src/*"]],
+      ["@/x/*", ["elsewhere/*"]],
+    ]);
+
+    expect(result).toEqual(["elsewhere/foo"]);
+  });
+
+  it("should prefer an exact pattern over a wildcard of equal prefix", () => {
+    const result = matchTsconfigPaths("@app", [
+      ["@app*", ["wild/*"]],
+      ["@app", ["src/app.ts"]],
+    ]);
+
+    expect(result).toEqual(["src/app.ts"]);
+  });
+
+  it("should match an exact (star-less) pattern", () => {
+    const result = matchTsconfigPaths("@app", [["@app", ["src/app.ts"]]]);
+
+    expect(result).toEqual(["src/app.ts"]);
+  });
+
+  it("should honor a non-empty suffix in the pattern", () => {
+    const result = matchTsconfigPaths("@/Foo.vue", [["@/*.vue", ["components/*.vue"]]]);
+
+    expect(result).toEqual(["components/Foo.vue"]);
+  });
+
+  it("should return every target of a matching pattern", () => {
+    const result = matchTsconfigPaths("@/Foo", [["@/*", ["a/*", "b/*"]]]);
+
+    expect(result).toEqual(["a/Foo", "b/Foo"]);
+  });
+
+  it("should skip patterns with no targets and return empty when nothing matches", () => {
+    expect(matchTsconfigPaths("@/Foo", [["@/*", []]])).toEqual([]);
+    expect(matchTsconfigPaths("other", [["@/*", ["src/*"]]])).toEqual([]);
   });
 });

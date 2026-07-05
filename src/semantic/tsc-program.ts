@@ -15,6 +15,7 @@ import { GildashError } from "../errors";
 import type { LanguagePluginRegistry } from "../lang/registry";
 import type { PositionMap } from "../lang/position-map";
 import { buildLineOffsets, getLineColumn } from "../parser/source-position";
+import { matchTsconfigPaths } from "../common/tsconfig-resolver";
 
 // ── DI contracts ─────────────────────────────────────────────────────────────
 
@@ -321,16 +322,21 @@ class TscLanguageServiceHost implements ts.LanguageServiceHost {
     options: ts.CompilerOptions,
   ): ts.ResolvedModuleWithFailedLookupLocations {
     if (this.#registry?.pluginFor(specifier)) {
-      const rawPath = path.resolve(path.dirname(containingFile), specifier);
-      const virtual = this.#virtualTable.get(rawPath)?.paths[0];
-      if (virtual) {
-        return {
-          resolvedModule: {
-            resolvedFileName: virtual,
-            extension: virtual.endsWith('.tsx') ? ts.Extension.Tsx : ts.Extension.Ts,
-            isExternalLibraryImport: false,
-          },
-        };
+      // TS cannot resolve plugin extensions (`.vue`/`.svelte`), so map the
+      // specifier to a raw path ourselves — honoring relative imports AND the
+      // tsconfig `baseUrl`/`paths` aliases that Vite/Nuxt/SvelteKit rely on —
+      // then look it up in the virtual-file table.
+      for (const rawPath of this.#pluginRawCandidates(specifier, containingFile, options)) {
+        const virtual = this.#virtualTable.get(rawPath)?.paths[0];
+        if (virtual) {
+          return {
+            resolvedModule: {
+              resolvedFileName: virtual,
+              extension: virtual.endsWith('.tsx') ? ts.Extension.Tsx : ts.Extension.Ts,
+              isExternalLibraryImport: false,
+            },
+          };
+        }
       }
       return { resolvedModule: undefined };
     }
@@ -338,6 +344,24 @@ class TscLanguageServiceHost implements ts.LanguageServiceHost {
       fileExists: (f) => this.fileExists(f),
       readFile: (f) => this.readFile(f),
     });
+  }
+
+  /**
+   * Ordered raw-path candidates a plugin import specifier may refer to. Relative
+   * specifiers resolve against the importer; non-relative ones honor tsconfig
+   * `paths` (longest-matching pattern first) then a `baseUrl`-relative fallback,
+   * mirroring TypeScript's own module resolution for extensions TS can't handle.
+   */
+  #pluginRawCandidates(specifier: string, containingFile: string, options: ts.CompilerOptions): string[] {
+    if (specifier.startsWith('./') || specifier.startsWith('../')) {
+      return [path.resolve(path.dirname(containingFile), specifier)];
+    }
+    const base = options.baseUrl ?? this.#projectDir;
+    const candidates = matchTsconfigPaths(specifier, Object.entries(options.paths ?? {}))
+      .map((target) => path.resolve(base, target));
+    // baseUrl-relative bare specifier as a final fallback.
+    candidates.push(path.resolve(base, specifier));
+    return candidates;
   }
 
   // ── File tracking ───────────────────────────────────────────────────────

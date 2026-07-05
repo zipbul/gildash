@@ -1,6 +1,6 @@
 import { resolve, dirname, extname } from 'node:path';
 import type { Program } from 'oxc-parser';
-import type { TsconfigPaths } from '../common/tsconfig-resolver';
+import { matchTsconfigPaths, type TsconfigPaths } from '../common/tsconfig-resolver';
 import { normalizePath } from '../common/path-utils';
 import type { ImportReference } from './types';
 
@@ -56,37 +56,13 @@ export function resolveImport(
   }
 
   if (tsconfigPaths) {
-    for (const [pattern, targets] of tsconfigPaths.paths) {
-      if (targets.length === 0) continue;
-
-      const starIdx = pattern.indexOf('*');
-
-      if (starIdx === -1) {
-        if (importPath === pattern) {
-          const candidates: string[] = [];
-          for (const t of targets) {
-            candidates.push(...withTypeScriptCandidates(normalizePath(resolve(tsconfigPaths.baseUrl, t))));
-          }
-          return candidates;
-        }
-      } else {
-        const prefix = pattern.slice(0, starIdx);
-        const suffix = pattern.slice(starIdx + 1);
-        if (
-          importPath.startsWith(prefix) &&
-          (suffix === '' || importPath.endsWith(suffix))
-        ) {
-          const captured = importPath.slice(
-            prefix.length,
-            suffix === '' ? undefined : importPath.length - suffix.length,
-          );
-          const candidates: string[] = [];
-          for (const t of targets) {
-            candidates.push(...withTypeScriptCandidates(normalizePath(resolve(tsconfigPaths.baseUrl, t.replace('*', captured)))));
-          }
-          return candidates;
-        }
-      }
+    // Longest-matching pattern wins (TS semantics), shared with the semantic
+    // resolver so both paths resolve overlapping `paths` patterns identically.
+    const targets = matchTsconfigPaths(importPath, tsconfigPaths.paths);
+    if (targets.length > 0) {
+      return targets.flatMap((target) =>
+        withTypeScriptCandidates(normalizePath(resolve(tsconfigPaths.baseUrl, target))),
+      );
     }
   }
 

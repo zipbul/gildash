@@ -26,10 +26,4 @@ export class LanguagePluginRegistry {
   pluginFor(filePath: string): LanguagePlugin | null {
     return this.#byExtension.get(path.extname(filePath).toLowerCase()) ?? null;
   }
-
-  /** Resolve a specifier through the plugin owning ITS extension, if any. */
-  resolveModuleName(specifier: string, containingFile: string): string | null {
-    const plugin = this.#byExtension.get(path.extname(specifier).toLowerCase());
-    return plugin?.resolveModuleName(specifier, containingFile) ?? null;
-  }
 }

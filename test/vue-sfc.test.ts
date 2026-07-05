@@ -118,4 +118,96 @@ describe('Vue SFC support (facade acceptance)', () => {
 
     await g.close({ cleanup: true });
   });
+
+  it('should resolve a tsconfig path-alias import of a .vue (baseUrl + paths)', async () => {
+    root = mkdtempSync(join(tmpdir(), 'gildash-vue-alias-'));
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({
+      compilerOptions: {
+        strict: true, module: 'esnext', target: 'es2022', moduleResolution: 'bundler',
+        baseUrl: '.', paths: { '@/*': ['src/*'] },
+      },
+      include: ['src'],
+    }));
+    writeFileSync(join(root, 'src/Counter.vue'), SFC);
+    writeFileSync(join(root, 'src/app.ts'), `import { msg } from '@/Counter.vue';\nexport const echoed = msg;\n`);
+    const g = await Gildash.open({
+      projectRoot: root, watchMode: false, semantic: true,
+      extensions: ['.ts', '.vue'], plugins: [createVuePlugin()],
+    });
+
+    // The alias `@/Counter.vue` must resolve to the SFC's virtual module — no
+    // "cannot find module" (2307/2792), same as a relative `./Counter.vue`.
+    const diags = g.getSemanticDiagnostics(join(root, 'src/app.ts'));
+    expect(diags.filter((d) => d.code === 2307 || d.code === 2792)).toEqual([]);
+
+    await g.close({ cleanup: true });
+  });
+
+  it('should pick the longest-matching path pattern when several alias patterns overlap', async () => {
+    root = mkdtempSync(join(tmpdir(), 'gildash-vue-longest-'));
+    mkdirSync(join(root, 'src', 'components'), { recursive: true });
+    writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({
+      compilerOptions: {
+        strict: true, module: 'esnext', target: 'es2022', moduleResolution: 'bundler', baseUrl: '.',
+        // Both patterns match `@/components/Counter.vue`; only the longer one maps
+        // to the real location, so longest-prefix must win.
+        paths: { '@/*': ['nowhere/*'], '@/components/*': ['src/components/*'] },
+      },
+      include: ['src'],
+    }));
+    writeFileSync(join(root, 'src/components/Counter.vue'), SFC);
+    writeFileSync(join(root, 'src/app.ts'), `import { msg } from '@/components/Counter.vue';\nexport const echoed = msg;\n`);
+    const g = await Gildash.open({
+      projectRoot: root, watchMode: false, semantic: true,
+      extensions: ['.ts', '.vue'], plugins: [createVuePlugin()],
+    });
+
+    const diags = g.getSemanticDiagnostics(join(root, 'src/app.ts'));
+    expect(diags.filter((d) => d.code === 2307 || d.code === 2792)).toEqual([]);
+
+    // The import-relation graph must resolve the SAME (longest) pattern as the
+    // semantic layer — not the shorter `@/*` that maps nowhere.
+    const imports = g.searchRelations({ type: 'imports' });
+    const rel = imports.find((r) => r.srcFilePath.endsWith('app.ts'));
+    expect(rel?.dstFilePath?.endsWith('src/components/Counter.vue')).toBe(true);
+
+    await g.close({ cleanup: true });
+  });
+
+  it('should index a script-block annotation at its RAW .vue coordinate', async () => {
+    root = mkdtempSync(join(tmpdir(), 'gildash-vue-anno-'));
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({
+      compilerOptions: { strict: true, module: 'esnext', target: 'es2022' }, include: ['src'],
+    }));
+    // Annotation sits after a multibyte template, so a byte/UTF-16 or raw/virtual
+    // mix-up would surface as a wrong line.
+    const sfc = `<template><p>🚀 hi</p></template>\n<script setup lang="ts">\n/** @deprecated use the new API */\nexport const legacy = 1;\n</script>\n`;
+    writeFileSync(join(root, 'src/Widget.vue'), sfc);
+    const g = await Gildash.open({
+      projectRoot: root, watchMode: false, semantic: true,
+      extensions: ['.ts', '.vue'], plugins: [createVuePlugin()],
+    });
+
+    const annotations = g.searchAnnotations({ tag: 'deprecated' }).filter((a) => a.filePath.endsWith('Widget.vue'));
+    expect(annotations.length).toBe(1);
+    const rawLine = sfc.slice(0, sfc.indexOf('@deprecated')).split('\n').length;
+    expect(annotations[0]!.span.start.line).toBe(rawLine);
+
+    await g.close({ cleanup: true });
+  });
+
+  it('should not expose a plugin file\'s virtual parse through getParsedAst', async () => {
+    const g = await openVueRepo();
+
+    // The indexer parses a .vue's EXTRACTED script (virtual coordinates); exposing
+    // that ParsedFile through getParsedAst under the raw .vue path would leak
+    // virtual positions, breaking the raw-coordinate invariant every other public
+    // API upholds (e.g. extractSymbols(getParsedAst('x.vue'))). Plain .ts is cached.
+    expect(g.getParsedAst('src/Counter.vue')).toBeUndefined();
+    expect(g.getParsedAst('src/app.ts')).toBeDefined();
+
+    await g.close({ cleanup: true });
+  });
 });

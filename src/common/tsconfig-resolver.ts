@@ -5,6 +5,57 @@ export interface TsconfigPaths {
   paths: Map<string, string[]>;
 }
 
+/** Literal-prefix length of a `paths` pattern (longer = more specific). */
+function patternPrefixLength(pattern: string): number {
+  const star = pattern.indexOf("*");
+  return star === -1 ? pattern.length : star;
+}
+
+/**
+ * If a tsconfig `paths` `pattern` (at most one `*`) matches `specifier`, return
+ * the `*` capture (`''` for an exact, star-less pattern); else `null`.
+ */
+function matchPathPattern(pattern: string, specifier: string): string | null {
+  const star = pattern.indexOf("*");
+  if (star === -1) return pattern === specifier ? "" : null;
+  const prefix = pattern.slice(0, star);
+  const suffix = pattern.slice(star + 1);
+  if (
+    specifier.length >= prefix.length + suffix.length &&
+    specifier.startsWith(prefix) &&
+    specifier.endsWith(suffix)
+  ) {
+    return specifier.slice(prefix.length, specifier.length - suffix.length);
+  }
+  return null;
+}
+
+/**
+ * Substituted target module-paths for `specifier` under tsconfig `paths`, using
+ * the SINGLE best-matching pattern's targets (in order) — exactly as TypeScript
+ * selects: an exact (star-less) pattern wins over any wildcard, and among
+ * wildcards the longest literal prefix wins. Only that pattern's targets are
+ * returned (no fallback to weaker patterns, matching `tsc`), so the semantic
+ * resolver and the import-relation resolver stay identical. Empty when nothing
+ * matches. The single source of truth for `paths` matching.
+ */
+export function matchTsconfigPaths(
+  specifier: string,
+  patternEntries: Iterable<readonly [string, string[]]>,
+): string[] {
+  let best: { rank: number; targets: string[]; captured: string } | null = null;
+  for (const [pattern, targets] of patternEntries) {
+    if (targets.length === 0) continue;
+    const captured = matchPathPattern(pattern, specifier);
+    if (captured === null) continue;
+    // Exact patterns are the most specific (outrank every wildcard).
+    const rank = pattern.includes("*") ? patternPrefixLength(pattern) : Number.POSITIVE_INFINITY;
+    if (!best || rank > best.rank) best = { rank, targets, captured };
+  }
+  if (!best) return [];
+  return best.targets.map((target) => (target.includes("*") ? target.replace("*", best.captured) : target));
+}
+
 /** Subset of `tsconfig.json` we read. The remaining fields are preserved
  *  for the extends-merge via the index signature but otherwise ignored. */
 interface TsconfigCompilerOptions {

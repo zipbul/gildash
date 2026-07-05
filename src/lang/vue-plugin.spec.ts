@@ -74,10 +74,6 @@ describe('createVuePlugin', () => {
     expect(map!.toRaw(0)).toBeNull();
     expect(virtuals[0]!.text).toBe('export {};\n');
   });
-
-  it('should not define plugin-level module resolution (host virtual table owns it)', () => {
-    expect(plugin.resolveModuleName('./Counter.vue', '/proj/src/app.ts')).toBeNull();
-  });
 });
 
 describe('createVuePlugin — parser dialect', () => {
