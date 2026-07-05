@@ -695,6 +695,52 @@ describe('setupOwnerInfrastructure', () => {
     expect(firedError.cause).toBe(changeError);
   });
 
+  it('should resolve a relative watcher path to absolute before notifying the semantic layer on change', async () => {
+    // The real ProjectWatcher emits PROJECT-RELATIVE paths, but the semantic
+    // layer (like the initial feed) is keyed by ABSOLUTE paths — the callback
+    // must resolve against projectRoot or every watched edit reads the wrong
+    // file (cwd-relative) and never updates the semantic program.
+    const coordinator = makeCoordinator();
+    const watcher = makeWatcher();
+    const notifyFileChanged = mock(() => {});
+    const readFileFn = mock(async () => 'const a = 1;');
+    const ctx = makeCtx({
+      coordinatorFactory: mock(() => coordinator) as any,
+      watcherFactory: mock(() => watcher) as any,
+      semanticLayer: { notifyFileChanged, notifyFileDeleted: mock(() => {}), dispose: mock(() => {}) } as any,
+      readFileFn: readFileFn as any,
+    });
+
+    await setupOwnerInfrastructure(ctx, { isWatchMode: true });
+
+    const startCall = (watcher.start as ReturnType<typeof mock>).mock.calls[0];
+    const watcherCallback = startCall![0] as (event: any) => void;
+    watcherCallback({ filePath: 'src/changed.ts', eventType: 'update' });
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(readFileFn).toHaveBeenCalledWith('/test/project/src/changed.ts');
+    expect(notifyFileChanged).toHaveBeenCalledWith('/test/project/src/changed.ts', 'const a = 1;');
+  });
+
+  it('should resolve a relative watcher path to absolute before notifying the semantic layer on delete', async () => {
+    const coordinator = makeCoordinator();
+    const watcher = makeWatcher();
+    const notifyFileDeleted = mock(() => {});
+    const ctx = makeCtx({
+      coordinatorFactory: mock(() => coordinator) as any,
+      watcherFactory: mock(() => watcher) as any,
+      semanticLayer: { notifyFileChanged: mock(() => {}), notifyFileDeleted, dispose: mock(() => {}) } as any,
+    });
+
+    await setupOwnerInfrastructure(ctx, { isWatchMode: true });
+
+    const startCall = (watcher.start as ReturnType<typeof mock>).mock.calls[0];
+    const watcherCallback = startCall![0] as (event: any) => void;
+    watcherCallback({ filePath: 'src/removed.ts', eventType: 'delete' });
+
+    expect(notifyFileDeleted).toHaveBeenCalledWith('/test/project/src/removed.ts');
+  });
+
   it('should catch semanticLayer.notifyFileDeleted throw in read-error recovery', async () => {
     const coordinator = makeCoordinator();
     const watcher = makeWatcher();
@@ -1217,7 +1263,6 @@ describe('language plugins option', () => {
       extensions: ['.vue'],
       transform: () => ({ parseText: '', map: null }),
       virtualFiles: () => [],
-      resolveModuleName: () => null,
     };
     const semanticLayerFactory = mock((_configPath: string, _opts?: any) => ({
       dispose: mock(() => {}),
@@ -1245,7 +1290,6 @@ describe('language plugins — indexing side wiring', () => {
       extensions: ['.vue'],
       transform: () => ({ parseText: '', map: null }),
       virtualFiles: () => [],
-      resolveModuleName: () => null,
     };
     const opts = makeInitOptions({ plugins: [fakePlugin], coordinatorFactory: undefined });
 

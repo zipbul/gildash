@@ -103,9 +103,14 @@ function createWatcherCallback(
 
     coordinator.handleWatcherEvent?.(event);
     if (ctx.semanticLayer) {
+      // The watcher emits project-RELATIVE paths; the semantic layer is keyed by
+      // ABSOLUTE paths (matching the initial feed and every query). Resolve here
+      // or a watched edit reads the wrong (cwd-relative) file and the program
+      // never updates. `path.resolve` leaves already-absolute paths untouched.
+      const absPath = path.resolve(ctx.projectRoot, event.filePath);
       if (event.eventType === 'delete') {
         try {
-          ctx.semanticLayer.notifyFileDeleted(event.filePath);
+          ctx.semanticLayer.notifyFileDeleted(absPath);
         } catch (e) {
           ctx.logger.error('[Gildash] semanticLayer.notifyFileDeleted threw:', e);
           for (const cb of ctx.onErrorCallbacks) {
@@ -113,9 +118,9 @@ function createWatcherCallback(
           }
         }
       } else {
-        ctx.readFileFn(event.filePath).then(content => {
+        ctx.readFileFn(absPath).then(content => {
           try {
-            ctx.semanticLayer?.notifyFileChanged(event.filePath, content);
+            ctx.semanticLayer?.notifyFileChanged(absPath, content);
           } catch (e) {
             ctx.logger.error('[Gildash] semanticLayer.notifyFileChanged threw:', e);
             for (const cb of ctx.onErrorCallbacks) {
@@ -123,9 +128,9 @@ function createWatcherCallback(
             }
           }
         }).catch((readErr) => {
-          ctx.logger.error('[Gildash] failed to read file for semantic layer', event.filePath, readErr);
+          ctx.logger.error('[Gildash] failed to read file for semantic layer', absPath, readErr);
           try {
-            ctx.semanticLayer?.notifyFileDeleted(event.filePath);
+            ctx.semanticLayer?.notifyFileDeleted(absPath);
           } catch (e) {
             ctx.logger.error('[Gildash] semanticLayer.notifyFileDeleted threw during read error recovery:', e);
           }

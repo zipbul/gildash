@@ -2273,11 +2273,9 @@ describe('language plugin pipeline (transform + remap threading)', () => {
       lang: 'ts' as const,
     })),
     virtualFiles: () => [],
-    resolveModuleName: () => null,
   };
   const registry = {
     pluginFor: (fp: string) => (fp.endsWith('.vue') ? fakePlugin : null),
-    resolveModuleName: () => null,
   } as any;
 
   beforeEach(() => {
@@ -2299,7 +2297,7 @@ describe('language plugin pipeline (transform + remap threading)', () => {
     expect(opts).toEqual({ lang: 'ts' });
   });
 
-  it('should thread a remapSpan into symbol and annotation indexing for plugin files', async () => {
+  it('should thread a remapSpan into symbol indexing for plugin files', async () => {
     mockDetectChanges.mockResolvedValue({
       changed: [makeFakeFile('src/Foo.vue')], unchanged: [], deleted: [],
     });

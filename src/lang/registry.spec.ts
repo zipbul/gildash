@@ -7,8 +7,6 @@ function fakePlugin(extensions: string[]): LanguagePlugin {
     extensions,
     transform: (filePath, raw) => ({ parseText: raw, map: null }),
     virtualFiles: (filePath, raw) => [{ path: `${filePath}.__x__.ts`, text: raw }],
-    resolveModuleName: (specifier, containing) =>
-      specifier.endsWith('.vue') ? `${specifier}.__x__.ts` : null,
   };
 }
 
@@ -36,13 +34,6 @@ describe('LanguagePluginRegistry', () => {
   it('should reject two plugins claiming the same extension', () => {
     expect(() => new LanguagePluginRegistry([fakePlugin(['.vue']), fakePlugin(['.vue'])]))
       .toThrow();
-  });
-
-  it('should resolve a module specifier through the owning plugin', () => {
-    const registry = new LanguagePluginRegistry([fakePlugin(['.vue'])]);
-
-    expect(registry.resolveModuleName('./Foo.vue', '/a/b.ts')).toBe('./Foo.vue.__x__.ts');
-    expect(registry.resolveModuleName('./x', '/a/b.ts')).toBeNull();
   });
 
   it('should match extensions case-insensitively', () => {

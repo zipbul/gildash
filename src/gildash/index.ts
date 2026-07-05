@@ -156,8 +156,12 @@ export class Gildash {
   /**
    * Retrieve a previously parsed AST from the LRU cache.
    *
-   * @param filePath - Absolute path used as cache key.
-   * @returns The cached `ParsedFile`, or `undefined` if not in cache.
+   * @param filePath - The path used when the file was parsed/indexed (the cache key).
+   * @returns The cached `ParsedFile`, or `undefined` if not in cache. Language-plugin
+   *   files (e.g. `.vue`/`.svelte`) are intentionally NOT cached here: their AST is
+   *   built over the extracted virtual script (virtual coordinates), and exposing it
+   *   under the raw path would violate the raw-coordinate invariant. Query their
+   *   symbols via {@link searchSymbols}/{@link getSymbolsByFile} instead.
    */
   getParsedAst(filePath: string): ParsedFile | undefined {
     return parseApi.getParsedAst(this._ctx, filePath);

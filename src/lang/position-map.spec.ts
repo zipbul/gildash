@@ -43,6 +43,12 @@ describe('PositionMap', () => {
     expect(map.toRawEnd(25)).toBe(55);
   });
 
+  it('should return null for end offsets outside every segment', () => {
+    expect(map.toRawEnd(26)).toBeNull(); // beyond the last virtual segment
+    expect(map.toVirtualEnd(56)).toBeNull(); // beyond the last raw segment
+    expect(map.toVirtualEnd(30)).toBeNull(); // end offset inside the raw gap [20, 40)
+  });
+
   it('should round-trip every offset inside segments', () => {
     for (let v = 0; v < 25; v++) {
       const raw = map.toRaw(v)!;

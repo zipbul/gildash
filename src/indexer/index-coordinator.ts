@@ -505,7 +505,12 @@ export class IndexCoordinator {
           if (annotationRepo) {
             annotations += indexFileAnnotations({ parsed: fd.parsed, project: fd.project, filePath: fd.filePath, annotationRepo, remapSpan: fd.remapSpan });
           }
-          parseCache.set(fd.filePath, fd.parsed);
+          // Plugin files (remapSpan present) parse their EXTRACTED virtual script,
+          // so the ParsedFile holds VIRTUAL coordinates. Exposing it via the public
+          // getParsedAst cache under the raw path would leak virtual positions and
+          // break the raw-coordinate invariant — don't cache it. Raw-coordinate
+          // symbols remain available via searchSymbols/getSymbolsByFile.
+          if (!fd.remapSpan) parseCache.set(fd.filePath, fd.parsed);
           symbols += symbolRepo.getFileSymbols(fd.project, fd.filePath).length;
         }
       });
@@ -621,7 +626,9 @@ export class IndexCoordinator {
             allFailedFiles.push(fd.filePath);
             continue;
           }
-          parsedCacheEntries.push({ filePath: fd.filePath, parsed });
+          // See the full-index path: plugin files hold VIRTUAL coordinates, so they
+          // must not enter the raw-coordinate public getParsedAst cache.
+          if (!remapSpan) parsedCacheEntries.push({ filePath: fd.filePath, parsed });
           indexFileSymbols({ parsed, project, filePath: fd.filePath, contentHash: fd.contentHash, symbolRepo, remapSpan });
           if (annotationRepo) {
             totalAnnotations += indexFileAnnotations({ parsed, project, filePath: fd.filePath, annotationRepo, remapSpan });
