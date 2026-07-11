@@ -70,6 +70,8 @@ function buildDetailJson(sym: ExtractedSymbol): string | null {
   const detail: Record<string, unknown> = {};
 
   if (sym.jsDoc) detail.jsDoc = sym.jsDoc;
+  // Export-role metadata — kept out of fingerprints (see buildStructuralFingerprint).
+  if (sym.isDefault) detail.isDefault = true;
 
   if (sym.kind === 'function' || sym.kind === 'method') {
     if (sym.parameters !== undefined) detail.parameters = sym.parameters;

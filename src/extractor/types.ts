@@ -287,6 +287,14 @@ export interface ExtractedSymbol {
   span: SourceSpan;
   /** Whether this symbol is exported from its module. */
   isExported: boolean;
+  /**
+   * True when this symbol is (also) the module's default export, in any form:
+   * `export default function/class`, an arrow/expression default (name `'default'`),
+   * `export default <identifier>`, or `export { x as default }`. Only ever set to
+   * `true`; absent means not-default. A symbol can be both a named and the default
+   * export (`export { x, x as default }`).
+   */
+  isDefault?: boolean;
   /** For methods: distinguishes `'method'`, `'getter'`, `'setter'`, or `'constructor'`. */
   methodKind?: 'method' | 'getter' | 'setter' | 'constructor';
   /**

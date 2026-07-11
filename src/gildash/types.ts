@@ -40,6 +40,8 @@ export interface ModuleInterface {
     parameters?: string;
     returnType?: string;
     jsDoc?: string;
+    /** True when this export is the module's default export. Absent for named exports. */
+    isDefault?: boolean;
   }>;
 }
 
@@ -77,6 +79,8 @@ export interface FullSymbol extends SymbolSearchResult {
   typeParameters?: string[];
   /** Initializer expression (enum member values, property defaults, variable initializers). */
   initializer?: ExpressionValue;
+  /** True when this symbol is the module's default export. */
+  isDefault?: SymbolDetail['isDefault'];
   /** Resolved type from the Semantic Layer (available when `semantic: true`). */
   resolvedType?: ResolvedType;
 }

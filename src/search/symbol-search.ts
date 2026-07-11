@@ -77,6 +77,12 @@ export interface SymbolDetail {
   }>;
   /** Parsed JSDoc comment associated with this symbol. */
   jsDoc?: JsDocBlock;
+  /**
+   * True when this symbol is (also) the module's default export (any form:
+   * `export default …`, `export default <ident>`, or `export { x as default }`).
+   * Absent means not-default. Mirrors the import edge's `dstSymbolName: 'default'`.
+   */
+  isDefault?: boolean;
 }
 
 /**

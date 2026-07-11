@@ -116,6 +116,19 @@ export function resolveSymbol(
       }
 
       if (!nextFile || !nextName) {
+        // No re-export chain match. For a default request, complete the symmetry
+        // with re-exported defaults by resolving to the local default *definition*
+        // (the symbol carrying isDefault) instead of returning the useless "default".
+        if (currentName === 'default') {
+          const localDefault = ctx.symbolSearchFn({
+            symbolRepo: ctx.symbolRepo, projectRoot: ctx.projectRoot,
+            project: effectiveProject,
+            query: { filePath: currentFile, isExported: true, limit: 10000 },
+          }).find((s) => s.detail.isDefault === true);
+          if (localDefault) {
+            return { originalName: localDefault.name, originalFilePath: currentFile, reExportChain: chain, circular: false };
+          }
+        }
         return { originalName: currentName, originalFilePath: currentFile, reExportChain: chain, circular: false };
       }
 

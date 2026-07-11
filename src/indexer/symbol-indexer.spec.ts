@@ -17,7 +17,7 @@ function makeParsedFile(): ParsedFile {
 }
 
 function makeSymbol(overrides: Partial<{
-  kind: string; name: string; isExported: boolean;
+  kind: string; name: string; isExported: boolean; isDefault: boolean;
   parameters: any[]; returnType: string; modifiers: string[];
   heritage: any[]; decorators: any[]; members: any[];
   jsDoc: any; methodKind: string; typeParameters: string[];
@@ -109,6 +109,40 @@ describe('indexFileSymbols', () => {
     const [, , , symbols] = symbolRepo.replaceFileSymbols.mock.calls[0]!;
     const detail = symbols[0].detailJson ? JSON.parse(symbols[0].detailJson) : {};
     expect(detail.jsDoc).toBeUndefined();
+  });
+
+  it('should include isDefault true in detailJson when symbol is the default export', () => {
+    mockExtractSymbols.mockReturnValue([makeSymbol({ isDefault: true })]);
+    const symbolRepo = makeSymbolRepo();
+
+    indexFileSymbols({ parsed: makeParsedFile(), project: PROJECT, filePath: FILE_PATH, contentHash: CONTENT_HASH, symbolRepo: symbolRepo as any });
+
+    const [, , , symbols] = symbolRepo.replaceFileSymbols.mock.calls[0]!;
+    const detail = JSON.parse(symbols[0].detailJson);
+    expect(detail.isDefault).toBe(true);
+  });
+
+  it('should omit isDefault from detailJson when symbol is not the default export', () => {
+    mockExtractSymbols.mockReturnValue([makeSymbol()]);
+    const symbolRepo = makeSymbolRepo();
+
+    indexFileSymbols({ parsed: makeParsedFile(), project: PROJECT, filePath: FILE_PATH, contentHash: CONTENT_HASH, symbolRepo: symbolRepo as any });
+
+    const [, , , symbols] = symbolRepo.replaceFileSymbols.mock.calls[0]!;
+    const detail = symbols[0].detailJson ? JSON.parse(symbols[0].detailJson) : {};
+    expect(detail.isDefault).toBeUndefined();
+  });
+
+  it('should not leak isDefault into any fingerprint input when symbol is the default export', () => {
+    // Guards the decision to keep isDefault out of structural/legacy fingerprints
+    // (a distinctive name isolates the check: no fingerprint input should mention "default").
+    mockExtractSymbols.mockReturnValue([makeSymbol({ name: 'zzz', kind: 'function', isDefault: true, modifiers: [] })]);
+    const symbolRepo = makeSymbolRepo();
+
+    indexFileSymbols({ parsed: makeParsedFile(), project: PROJECT, filePath: FILE_PATH, contentHash: CONTENT_HASH, symbolRepo: symbolRepo as any });
+
+    const inputs = mockHashString.mock.calls.map((c) => String(c[0]));
+    expect(inputs.some((a) => a.includes('default'))).toBe(false);
   });
 
   it('should set signature to params:0|async:0 when function has no params', () => {
