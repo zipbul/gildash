@@ -242,6 +242,37 @@ describe('Incremental indexing: move detection', () => {
     expect(moved!.oldFilePath).toBe('src/utils.ts');
     expect(moved!.newFilePath).toBe('src/helpers.ts');
   });
+
+  it('should not falsely move an anonymous default export while still moving a named default', async () => {
+    const projectDir = join(tmpDir, 'default-move-proj');
+    await mkdir(join(projectDir, 'src'), { recursive: true });
+    // Two anonymous object defaults share the low-entropy fingerprint `default|variable|`.
+    await writeFile(join(projectDir, 'src', 'anon-a.ts'), 'export default { a: 1 };');
+    await writeFile(join(projectDir, 'src', 'anon-b.ts'), 'export default { b: 2 };');
+    // A named default has a real identity (`namedDef`) and should still move.
+    await writeFile(join(projectDir, 'src', 'named-old.ts'), 'export default function namedDef(): number { return 1; }');
+
+    const coordinator = makeCoordinator(projectDir);
+    await coordinator.fullIndex();
+
+    await unlink(join(projectDir, 'src', 'anon-a.ts'));
+    await unlink(join(projectDir, 'src', 'named-old.ts'));
+    await writeFile(join(projectDir, 'src', 'named-new.ts'), 'export default function namedDef(): number { return 1; }');
+
+    const result = await coordinator.incrementalIndex([
+      { eventType: 'delete', filePath: 'src/anon-a.ts' },
+      { eventType: 'delete', filePath: 'src/named-old.ts' },
+      { eventType: 'create', filePath: 'src/named-new.ts' },
+    ]);
+
+    // The anonymous default must NOT be reported as moved to anon-b.ts.
+    expect(result.movedSymbols.find(m => m.name === 'default')).toBeUndefined();
+    // The named default keeps its identity and still moves.
+    const namedMove = result.movedSymbols.find(m => m.name === 'namedDef');
+    expect(namedMove).toBeDefined();
+    expect(namedMove!.oldFilePath).toBe('src/named-old.ts');
+    expect(namedMove!.newFilePath).toBe('src/named-new.ts');
+  });
 });
 
 describe('Incremental indexing: changedSymbols diff', () => {

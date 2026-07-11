@@ -325,6 +325,37 @@ describe('resolveSymbol', () => {
     expect(result.circular).toBe(false);
   });
 
+  it('should resolve "default" to the local default definition when no re-export chain exists', () => {
+    const searchFn = mock(() => []);
+    const symbolSearchFn = mock((opts: any) => {
+      if (opts.query.filePath === 'src/def.ts' && opts.query.isExported === true) {
+        return [
+          { name: 'other', detail: {} },
+          { name: 'delay', detail: { isDefault: true } },
+        ];
+      }
+      return [];
+    });
+    const ctx = makeCtx({ relationSearchFn: searchFn as any, symbolSearchFn: symbolSearchFn as any });
+
+    const result = resolveSymbol(ctx, 'default', 'src/def.ts');
+
+    expect(result.originalName).toBe('delay');
+    expect(result.originalFilePath).toBe('src/def.ts');
+    expect(result.reExportChain).toEqual([]);
+  });
+
+  it('should leave "default" unchanged when the module has no local default definition', () => {
+    const searchFn = mock(() => []);
+    const symbolSearchFn = mock(() => [{ name: 'other', detail: {} }]);
+    const ctx = makeCtx({ relationSearchFn: searchFn as any, symbolSearchFn: symbolSearchFn as any });
+
+    const result = resolveSymbol(ctx, 'default', 'src/def.ts');
+
+    expect(result.originalName).toBe('default');
+    expect(result.originalFilePath).toBe('src/def.ts');
+  });
+
   it('should follow single-hop re-export chain', () => {
     const searchFn = mock((opts: any) => {
       if (opts.query.srcFilePath === 'src/index.ts') {

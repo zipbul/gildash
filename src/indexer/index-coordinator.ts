@@ -730,6 +730,10 @@ export class IndexCoordinator {
       for (const [oldFile, syms] of deletedSymbols) {
         for (const sym of syms) {
           if (!sym.fingerprint) continue;
+          // A symbol literally named "default" (anonymous/synthesized default export) has no
+          // stable cross-file identity; its fingerprint collides with every same-shape default,
+          // so fingerprint-based move detection would retarget unrelated relations. Skip it.
+          if (sym.name === 'default') continue;
           const oldProject = resolveFileProject(oldFile, this.opts.boundaries);
           const matches = symbolRepo.getByFingerprint(oldProject, sym.fingerprint);
           if (matches.length === 1) {
@@ -750,6 +754,8 @@ export class IndexCoordinator {
       const alreadyMoved = new Set(movedEntries.map(m => `${m.oldFilePath}::${m.name}`));
       for (const rem of renameResult.removed) {
         if (alreadyMoved.has(`${rem.filePath}::${rem.name}`)) continue;
+        // Anonymous/synthesized "default" symbols have no stable cross-file identity (see above).
+        if (rem.name === 'default') continue;
         const snap = beforeSnapshot.get(`${rem.filePath}::${rem.name}`);
         const fp = snap?.fingerprint;
         if (!fp) continue;

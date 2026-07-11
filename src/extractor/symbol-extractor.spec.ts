@@ -921,6 +921,193 @@ describe('extractSymbols', () => {
     expect(symbols).toHaveLength(0);
   });
 
+  // ─── Default export isDefault flag ──────────────────────────────────
+
+  it('should set isDefault true keeping the local name when export default function is named', () => {
+    const parsed = makeFixture(`export default function delay() { return 1; }`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'delay');
+    expect(sym).toBeDefined();
+    expect(sym!.isDefault).toBe(true);
+    expect(sym!.isExported).toBe(true);
+  });
+
+  it('should set isDefault true with name "default" when export default function is anonymous', () => {
+    const parsed = makeFixture(`export default function() { return 1; }`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'default');
+    expect(sym?.isDefault).toBe(true);
+  });
+
+  it('should set isDefault true with name "default" when export default class is anonymous', () => {
+    const parsed = makeFixture(`export default class { m() {} }`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'default');
+    expect(sym?.kind).toBe('class');
+    expect(sym?.isDefault).toBe(true);
+  });
+
+  it('should set isDefault true keeping name "X" when export default class is named', () => {
+    const parsed = makeFixture(`export default class X { m() {} }`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'X');
+    expect(sym?.isDefault).toBe(true);
+  });
+
+  it('should set isDefault true with name "default" when export default is a generator function', () => {
+    const parsed = makeFixture(`export default function*() { yield 1; }`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'default');
+    expect(sym?.isDefault).toBe(true);
+  });
+
+  it('should set isDefault true with name "default" when export default is a parenthesized function expression', () => {
+    const parsed = makeFixture(`export default (function() {});`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'default');
+    expect(sym?.kind).toBe('function');
+    expect(sym?.isDefault).toBe(true);
+  });
+
+  it('should synthesize a function symbol named "default" with isDefault when export default is an arrow function', () => {
+    const parsed = makeFixture(`export default () => 3;`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'default');
+    expect(sym).toBeDefined();
+    expect(sym!.kind).toBe('function');
+    expect(sym!.isDefault).toBe(true);
+    expect(sym!.isExported).toBe(true);
+  });
+
+  it('should include "async" modifier when export default is an async arrow function', () => {
+    const parsed = makeFixture(`export default async () => 3;`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'default');
+    expect(sym?.isDefault).toBe(true);
+    expect(sym?.modifiers).toContain('async');
+  });
+
+  it('should synthesize a variable symbol named "default" with isDefault when export default is a numeric literal', () => {
+    const parsed = makeFixture(`export default 42;`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'default');
+    expect(sym).toBeDefined();
+    expect(sym!.kind).toBe('variable');
+    expect(sym!.isDefault).toBe(true);
+    expect(sym!.isExported).toBe(true);
+  });
+
+  it('should synthesize a variable symbol named "default" with isDefault when export default is an object literal', () => {
+    const parsed = makeFixture(`export default { a: 1 };`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'default');
+    expect(sym?.kind).toBe('variable');
+    expect(sym?.isDefault).toBe(true);
+  });
+
+  it('should set isDefault and isExported on the local symbol when export default references an identifier', () => {
+    const parsed = makeFixture(`const g = () => 4;\nexport default g;`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'g');
+    expect(sym?.isDefault).toBe(true);
+    expect(sym?.isExported).toBe(true);
+  });
+
+  it('should set isDefault and isExported on the local symbol when export { h as default }', () => {
+    const parsed = makeFixture(`function h() {}\nexport { h as default };`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'h');
+    expect(sym?.isDefault).toBe(true);
+    expect(sym?.isExported).toBe(true);
+  });
+
+  it('should set isDefault on the local symbol when export uses the string form { h as "default" }', () => {
+    const parsed = makeFixture(`function h() {}\nexport { h as "default" };`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'h');
+    expect(sym?.isDefault).toBe(true);
+    expect(sym?.isExported).toBe(true);
+  });
+
+  it('should set isDefault on h when it is exported both named and as default', () => {
+    const parsed = makeFixture(`function h() {}\nexport { h, h as default };`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'h');
+    expect(sym?.isDefault).toBe(true);
+    expect(sym?.isExported).toBe(true);
+  });
+
+  it('should not set isDefault for a plain named export function', () => {
+    const parsed = makeFixture(`export function delay() {}`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'delay');
+    expect(sym?.isExported).toBe(true);
+    expect(sym?.isDefault).toBeUndefined();
+  });
+
+  it('should not set isDefault for a plain named specifier export', () => {
+    const parsed = makeFixture(`function h() {}\nexport { h };`);
+    const symbols = extractSymbols(parsed);
+    const sym = symbols.find((s) => s.name === 'h');
+    expect(sym?.isExported).toBe(true);
+    expect(sym?.isDefault).toBeUndefined();
+  });
+
+  it('should set isDefault only on the class and not on its members for an anonymous default class', () => {
+    const parsed = makeFixture(`export default class { m() {} }`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'default' && s.kind === 'class');
+    expect(cls?.isDefault).toBe(true);
+    // Members are nested under the class symbol, not top-level; none is the default.
+    expect(cls?.members?.every((m) => !m.isDefault)).toBe(true);
+  });
+
+  it('should set isDefault on the value binding and not a same-named type when export default references a value', () => {
+    const parsed = makeFixture(`type X = number;\nconst X = 5;\nexport default X;`);
+    const symbols = extractSymbols(parsed);
+    const value = symbols.find((s) => s.name === 'X' && s.kind === 'variable');
+    const type = symbols.find((s) => s.name === 'X' && s.kind === 'type');
+    expect(value?.isDefault).toBe(true);
+    expect(type?.isDefault).toBeUndefined();
+  });
+
+  it('should set isDefault on the class and not the merged interface when default references a merged name', () => {
+    const parsed = makeFixture(`interface Foo {}\nclass Foo {}\nexport default Foo;`);
+    const symbols = extractSymbols(parsed);
+    const cls = symbols.find((s) => s.name === 'Foo' && s.kind === 'class');
+    const iface = symbols.find((s) => s.name === 'Foo' && s.kind === 'interface');
+    expect(cls?.isDefault).toBe(true);
+    expect(iface?.isDefault).toBeUndefined();
+  });
+
+  it('should not set isDefault for a type-only default export', () => {
+    const parsed = makeFixture(`type X = number;\nconst X = 5;\nexport type { X as default };`);
+    const symbols = extractSymbols(parsed);
+    expect(symbols.every((s) => !s.isDefault)).toBe(true);
+  });
+
+  it('should not set isDefault for an inline type-modifier default export', () => {
+    const parsed = makeFixture(`const X = 5;\nexport { type X as default };`);
+    const symbols = extractSymbols(parsed);
+    expect(symbols.every((s) => !s.isDefault)).toBe(true);
+  });
+
+  it('should not set isDefault on a default-exported interface declaration (type, not value)', () => {
+    const parsed = makeFixture(`export default interface I {}`);
+    const symbols = extractSymbols(parsed);
+    const iface = symbols.find((s) => s.name === 'I' && s.kind === 'interface');
+    expect(iface).toBeDefined();
+    expect(iface!.isDefault).toBeUndefined();
+  });
+
+  it('should not crash and should flag both when a module illegally has two default exports', () => {
+    const parsed = makeFixture(`export default 1;\nexport default 2;`);
+    const symbols = extractSymbols(parsed);
+    const defaults = symbols.filter((s) => s.name === 'default');
+    expect(defaults).toHaveLength(2);
+    expect(defaults.every((s) => s.isDefault === true)).toBe(true);
+  });
+
   // ─── Namespace declarations ─────────────────────────────────────────
 
   it('should extract declare namespace as kind "namespace" with declare modifier', () => {

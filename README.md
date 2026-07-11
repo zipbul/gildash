@@ -398,7 +398,7 @@ Resolve a type fact for the **expression node exactly spanning** a byte range. `
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `findPattern(pattern, opts?)` | `Promise<PatternMatch[]>` | AST structural search (ast-grep) |
-| `resolveSymbol(name, filePath)` | `ResolvedSymbol` | Follow re-export chain to original |
+| `resolveSymbol(name, filePath)` | `ResolvedSymbol` | Follow re-export chain to original; `"default"` resolves to the local default definition |
 | `getHeritageChain(name, filePath)` | `Promise<HeritageNode>` | extends / implements tree |
 | `batchParse(filePaths, opts?)` | `Promise<BatchParseResult>` | Concurrent multi-file parsing. Returns `{ parsed, failures }`. `opts`: oxc-parser `ParserOptions`. |
 
@@ -606,6 +606,7 @@ interface SymbolDetail {
     decorators?: Decorator[];
   }>;
   jsDoc?: JsDocBlock;
+  isDefault?: boolean;             // true when this symbol is the module's default export (any form)
 }
 
 interface Parameter {
@@ -714,6 +715,7 @@ interface ModuleInterface {
     parameters?: string;
     returnType?: string;
     jsDoc?: string;
+    isDefault?: boolean;   // true for the module's default export (named "default" when anonymous)
   }>;
 }
 

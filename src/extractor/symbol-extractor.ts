@@ -937,8 +937,50 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     return null;
   }
 
+  /**
+   * Build a symbol for `export default <expression>` where the expression is not
+   * a declaration `buildSymbol` handles (arrow, literal, object, array, new, …).
+   * Without this the default export would be invisible (no symbol at all). Named
+   * `'default'` so it mirrors the import edge's `dstSymbolName: 'default'`.
+   */
+  function synthesizeExpressionDefault(
+    decl: Expression,
+    stmt: { start: number; end: number },
+  ): ExtractedSymbol {
+    // Only arrow functions reach here: `buildSymbol` already handles function
+    // expressions (and all function/class declarations), so those never synthesize.
+    if (decl.type === 'ArrowFunctionExpression') {
+      const fn = decl;
+      const params = fn.params.map(extractParam);
+      const sym: ExtractedSymbol = {
+        kind: 'function',
+        name: 'default',
+        span: span(stmt.start, stmt.end),
+        isExported: true,
+        isDefault: true,
+        modifiers: (fn as { async?: boolean }).async ? ['async'] : [],
+        parameters: params.length > 0 ? params : undefined,
+        returnType: typeText(fn.returnType),
+      };
+      return sym;
+    }
+    const initializer = convertExpression(decl);
+    const sym: ExtractedSymbol = {
+      kind: 'variable',
+      name: 'default',
+      span: span(stmt.start, stmt.end),
+      isExported: true,
+      isDefault: true,
+      modifiers: [],
+    };
+    if (initializer) sym.initializer = initializer;
+    return sym;
+  }
+
   const result: ExtractedSymbol[] = [];
   const deferredExportNames = new Set<string>();
+  /** Local names bound to the module's value default (`export default g`, `export { g as default }`). */
+  const defaultExportLocalNames = new Set<string>();
 
   for (const node of program.body) {
     let sym: ExtractedSymbol | ExtractedSymbol[] | null = null;
@@ -952,10 +994,21 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
           sym.span = span(n.start, n.end);
         }
       } else if (!n.source && n.specifiers) {
+        const stmtIsType = n.exportKind === 'type';
         for (const spec of n.specifiers) {
           const local = spec.local;
           const localName = 'name' in local ? local.name : local.value;
-          if (localName) deferredExportNames.add(localName);
+          if (!localName) continue;
+          deferredExportNames.add(localName);
+          // `export { x as default }` / `export { x as "default" }` — the exported
+          // name (Identifier `.name` or string-literal `.value`) may be "default".
+          // Only a *value* default counts as isDefault; a type-only export
+          // (`export type { x as default }` / `export { type x as default }`)
+          // carries the type binding, which is out of scope for isDefault.
+          const exported = spec.exported;
+          const exportedName = 'name' in exported ? exported.name : exported.value;
+          const specIsType = stmtIsType || spec.exportKind === 'type';
+          if (exportedName === 'default' && !specIsType) defaultExportLocalNames.add(localName);
         }
       }
     } else if (stmtNode.type === 'ExportDefaultDeclaration') {
@@ -968,11 +1021,26 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
             ? decl.id.name
             : 'default';
           sym.isExported = true;
+          // Only value-space declarations are runtime default exports. `export default
+          // interface I {}` is leniently parsed here but exports a type, not a value —
+          // keep isDefault consistent with the identifier/specifier paths.
+          if (sym.kind !== 'type' && sym.kind !== 'interface') sym.isDefault = true;
           sym.span = span(n.start, n.end);
-        } else if (!sym && decl.type === 'Identifier') {
-          // export default <identifier> — mark the referenced variable as exported
-          const identName = decl.name;
-          if (identName) deferredExportNames.add(identName);
+        } else if (!sym) {
+          if (decl.type === 'Identifier') {
+            // export default <identifier> — mark the referenced local as exported + default
+            const identName = decl.name;
+            if (identName) {
+              deferredExportNames.add(identName);
+              defaultExportLocalNames.add(identName);
+            }
+          } else {
+            // export default <expression> — synthesize so the default is never invisible.
+            // buildSymbol returned null, which excludes every declaration form it handles
+            // (functions/classes/interfaces/enums/…), and decl is not an Identifier, so the
+            // remaining possibilities are all Expression nodes.
+            sym = synthesizeExpressionDefault(decl as Expression, n);
+          }
         }
       }
     } else {
@@ -1004,10 +1072,16 @@ export function extractSymbols(parsed: ParsedFile): ExtractedSymbol[] {
     }
   }
 
-  if (deferredExportNames.size > 0) {
+  if (deferredExportNames.size > 0 || defaultExportLocalNames.size > 0) {
     for (const s of result) {
       if (!s.isExported && deferredExportNames.has(s.name)) {
         s.isExported = true;
+      }
+      // A value default (`export default x` / `export { x as default }`) exports the
+      // *value* binding, so a coincidental same-name type/interface is not the default.
+      if (defaultExportLocalNames.has(s.name) && s.kind !== 'type' && s.kind !== 'interface') {
+        s.isExported = true;
+        s.isDefault = true;
       }
     }
   }

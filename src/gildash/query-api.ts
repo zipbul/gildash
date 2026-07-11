@@ -113,6 +113,7 @@ export function getFullSymbol(
       decorators: d.decorators,
       typeParameters: d.typeParameters,
       initializer: d.initializer,
+      isDefault: d.isDefault,
     };
     if (ctx.semanticLayer) {
       try {
@@ -201,6 +202,7 @@ export function getModuleInterface(
         : undefined,
       returnType: s.detail.returnType ?? undefined,
       jsDoc: s.detail.jsDoc?.description ?? undefined,
+      isDefault: s.detail.isDefault || undefined,
     }));
     return { filePath, exports };
   });
